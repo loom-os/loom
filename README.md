@@ -1,4 +1,5 @@
 # Loom - Event-Driven AI Operating System
+*Weaving intelligence into the fabric of reality*
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
