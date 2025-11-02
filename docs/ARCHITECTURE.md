@@ -4,6 +4,15 @@
 
 Loom is an event-driven AI operating system that models intelligent agents as **stateful event-responsive entities**.
 
+## Why “OS” (five core traits):
+
+- Event‑driven resource scheduling (Event Bus + Router)
+- Stateful runtime (Agent Runtime)
+- Device/model abstraction (Plugins + Model Router)
+- Observability & policy management
+- General action interface (Action System)
+
+
 ## Core Design Principles
 
 1. **Event-First**: All inputs modeled as events, not synchronous calls
