@@ -1,4 +1,4 @@
-# Loom - Event-Driven AI Operating System
+# Loom : Event-Driven AI Operating System
 *Weaving intelligence into the fabric of reality*
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
