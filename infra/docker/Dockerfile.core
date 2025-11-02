@@ -1,0 +1,37 @@
+FROM rust:1.75 as builder
+
+WORKDIR /app
+
+# 复制依赖清单
+COPY core/Cargo.toml core/Cargo.lock ./
+COPY core/build.rs ./
+
+# 复制 proto 文件
+COPY core/proto ./proto
+
+# 复制源代码
+COPY core/src ./src
+
+# 构建
+RUN cargo build --release
+
+# 运行时镜像
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 从构建阶段复制二进制
+COPY --from=builder /app/target/release/eventaios-core /app/
+
+# 配置
+ENV RUST_LOG=info
+ENV EVENT_BUS_CAPACITY=10000
+
+EXPOSE 50051
+
+CMD ["/app/eventaios-core"]

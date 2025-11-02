@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "loom"
+    static_configs:
+      - targets: ["loom-core:9091"]
+
+  - job_name: "milvus"
+    static_configs:
+      - targets: ["milvus:9091"]

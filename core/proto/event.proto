@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package loom.v1;
+
+// Core event message definition
+message Event {
+  // Unique event ID
+  string id = 1;
+  
+  // Event type (e.g., "video_frame", "audio_chunk", "face_event", "intent")
+  string type = 2;
+  
+  // Timestamp in milliseconds
+  int64 timestamp_ms = 3;
+  
+  // Event source (e.g., "camera.front", "mic.primary")
+  string source = 4;
+  
+  // Metadata key-value pairs
+  map<string, string> metadata = 5;
+  
+  // Payload data
+  bytes payload = 6;
+  
+  // Confidence score (0.0-1.0)
+  float confidence = 7;
+  
+  // Tags
+  repeated string tags = 8;
+  
+  // Priority (0=lowest, 100=highest)
+  int32 priority = 9;
+}
+
+// Event stream message
+message EventStream {
+  repeated Event events = 1;
+  string session_id = 2;
+}
+
+// QoS level
+enum QoSLevel {
+  QOS_REALTIME = 0;      // Realtime, low latency
+  QOS_BATCHED = 1;       // Batched processing
+  QOS_BACKGROUND = 2;    // Background task
+}
+
+// Subscribe request
+message SubscribeRequest {
+  string topic = 1;
+  repeated string event_types = 2;
+  QoSLevel qos = 3;
+  map<string, string> filters = 4;
+}
+
+// Subscribe response
+message SubscribeResponse {
+  string subscription_id = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// Publish request
+message PublishRequest {
+  string topic = 1;
+  Event event = 2;
+}
+
+// Publish response
+message PublishResponse {
+  bool success = 1;
+  string error_message = 2;
+  int64 sequence_number = 3;
+}
+
+// Event bus service
+service EventBus {
+  rpc Publish(PublishRequest) returns (PublishResponse);
+  rpc Subscribe(SubscribeRequest) returns (stream Event);
+  rpc Unsubscribe(UnsubscribeRequest) returns (UnsubscribeResponse);
+  rpc GetStats(StatsRequest) returns (StatsResponse);
+}
+
+message UnsubscribeRequest {
+  string subscription_id = 1;
+}
+
+message UnsubscribeResponse {
+  bool success = 1;
+}
+
+message StatsRequest {
+  string topic = 1;
+}
+
+message StatsResponse {
+  int64 total_events = 1;
+  int64 active_subscriptions = 2;
+  double throughput_per_sec = 3;
+  int64 backlog_size = 4;
+}

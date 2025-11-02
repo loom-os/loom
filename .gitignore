@@ -1,0 +1,41 @@
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# Data
+*.db
+*.rocksdb
+data/
+logs/
+
+# Build outputs
+dist/
+build/
+*.so
+*.dylib
+*.dll
+
+# OS
+.DS_Store
+Thumbs.db

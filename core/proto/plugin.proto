@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package loom.v1;
+
+import "event.proto";
+
+// Plugin metadata
+message PluginMeta {
+  string plugin_id = 1;
+  string name = 2;
+  string version = 3;
+  PluginType type = 4;
+  repeated string capabilities = 5;
+  map<string, string> config = 6;
+}
+
+// Plugin type
+enum PluginType {
+  PLUGIN_FEATURE_EXTRACTOR = 0;
+  PLUGIN_MODEL_BACKEND = 1;
+  PLUGIN_TOOL = 2;
+  PLUGIN_ACTUATOR = 3;
+}
+
+// Plugin response
+message PluginResponse {
+  bool success = 1;
+  string error_message = 2;
+  bytes result = 3;
+  repeated Event output_events = 4;
+}
+
+// Plugin health status
+message HealthStatus {
+  bool healthy = 1;
+  string message = 2;
+  map<string, string> metrics = 3;
+}
+
+// Plugin service interface
+service Plugin {
+  rpc Init(PluginMeta) returns (PluginResponse);
+  rpc HandleEvent(Event) returns (PluginResponse);
+  rpc Health(HealthRequest) returns (HealthStatus);
+  rpc Shutdown(ShutdownRequest) returns (PluginResponse);
+}
+
+message HealthRequest {
+  string plugin_id = 1;
+}
+
+message ShutdownRequest {
+  string plugin_id = 1;
+  bool force = 2;
+}

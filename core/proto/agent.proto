@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package loom.v1;
+
+import "event.proto";
+
+// Agent state
+message AgentState {
+  string agent_id = 1;
+  bytes persistent_state = 2;  // Serialized long-term state
+  bytes ephemeral_context = 3; // Short-term context
+  int64 last_update_ms = 4;
+  map<string, string> metadata = 5;
+}
+
+// Agent configuration
+message AgentConfig {
+  string agent_id = 1;
+  string agent_type = 2;
+  repeated string subscribed_topics = 3;
+  repeated string capabilities = 4;
+  map<string, string> parameters = 5;
+}
+
+// Agent response
+message AgentResponse {
+  string agent_id = 1;
+  repeated Action actions = 2;
+  AgentState updated_state = 3;
+  repeated Event generated_events = 4;
+}
+
+// Action definition
+message Action {
+  string action_type = 1;  // e.g., "tts", "ui_update", "api_call"
+  map<string, string> parameters = 2;
+  bytes payload = 3;
+  int32 priority = 4;
+}
+
+// Agent service
+service AgentRuntime {
+  rpc CreateAgent(AgentConfig) returns (CreateAgentResponse);
+  rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse);
+  rpc GetAgentState(GetAgentStateRequest) returns (AgentState);
+  rpc UpdateAgentState(AgentState) returns (UpdateAgentStateResponse);
+  rpc SendEvent(SendEventRequest) returns (AgentResponse);
+}
+
+message CreateAgentResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message DeleteAgentRequest {
+  string agent_id = 1;
+}
+
+message DeleteAgentResponse {
+  bool success = 1;
+}
+
+message GetAgentStateRequest {
+  string agent_id = 1;
+}
+
+message UpdateAgentStateResponse {
+  bool success = 1;
+}
+
+message SendEventRequest {
+  string agent_id = 1;
+  Event event = 2;
+}
