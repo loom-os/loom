@@ -61,12 +61,12 @@ impl EventBus {
         })
     }
 
-    pub async fn start(&mut self) -> Result<()> {
+    pub async fn start(&self) -> Result<()> {
         info!("Event Bus started");
         Ok(())
     }
 
-    pub async fn shutdown(&mut self) -> Result<()> {
+    pub async fn shutdown(&self) -> Result<()> {
         info!("Event Bus shutting down");
         self.subscriptions.clear();
         Ok(())
