@@ -57,7 +57,7 @@ impl EventBus {
             subscriptions: Arc::new(DashMap::new()),
             broadcast_tx,
             stats: Arc::new(DashMap::new()),
-            backpressure_threshold: 10000,
+            backpressure_threshold: 10_000,
         })
     }
 
@@ -76,10 +76,18 @@ impl EventBus {
     pub async fn publish(&self, topic: &str, event: Event) -> Result<u64> {
         debug!("Publishing event {} to topic {}", event.id, topic);
 
-        // Update stats
-        self.update_stats(topic, |stats| {
-            stats.total_published += 1;
-        });
+        // Update stats: published and backlog increase
+        let mut over_threshold = false;
+        let current_backlog = self
+            .update_stats_and_get(topic, |stats| {
+                stats.total_published += 1;
+                stats.backlog_size = stats.backlog_size.saturating_add(1);
+                stats.backlog_size
+            })
+            .unwrap_or(0);
+        if current_backlog >= self.backpressure_threshold {
+            over_threshold = true;
+        }
 
         // Get subscribers
         if let Some(subs) = self.subscriptions.get(topic) {
@@ -95,7 +103,11 @@ impl EventBus {
                 // Handle based on QoS level
                 match sub.qos {
                     QoSLevel::QosRealtime => {
-                        // Realtime mode: try to send, drop if fails
+                        // Realtime mode: drop aggressively when backpressured, and drop on full queue
+                        if over_threshold {
+                            dropped += 1;
+                            continue;
+                        }
                         if sub.sender.try_send(event.clone()).is_ok() {
                             delivered += 1;
                         } else {
@@ -104,7 +116,7 @@ impl EventBus {
                         }
                     }
                     QoSLevel::QosBatched | QoSLevel::QosBackground => {
-                        // Batch/background mode: wait to send
+                        // Batch/background mode: queue (bounded mpsc); await if necessary
                         match sub.sender.send(event.clone()).await {
                             Ok(_) => delivered += 1,
                             Err(_) => {
@@ -119,11 +131,16 @@ impl EventBus {
             self.update_stats(topic, |stats| {
                 stats.total_delivered += delivered;
                 stats.dropped_events += dropped;
+                stats.backlog_size = stats.backlog_size.saturating_sub(1);
             });
 
             Ok(delivered)
         } else {
             warn!("No subscriptions for topic: {}", topic);
+            // Decrement backlog for the publish that had no subscribers
+            self.update_stats(topic, |stats| {
+                stats.backlog_size = stats.backlog_size.saturating_sub(1);
+            });
             Ok(0)
         }
     }
@@ -136,7 +153,12 @@ impl EventBus {
         qos: QoSLevel,
     ) -> Result<(String, mpsc::Receiver<Event>)> {
         let subscription_id = format!("sub_{}_{}", topic, uuid::Uuid::new_v4());
-        let (tx, rx) = mpsc::channel(1000);
+        let cap = match qos {
+            QoSLevel::QosRealtime => 64,
+            QoSLevel::QosBatched => 1024,
+            QoSLevel::QosBackground => 4096,
+        };
+        let (tx, rx) = mpsc::channel(cap);
 
         let subscription = Subscription {
             id: subscription_id.clone(),
@@ -192,6 +214,19 @@ impl EventBus {
             .or_insert_with(EventBusStats::default)
             .value_mut()
             .apply(f);
+    }
+
+    // Update stats and return a value from the closure
+    fn update_stats_and_get<F>(&self, topic: &str, f: F) -> Option<usize>
+    where
+        F: FnOnce(&mut EventBusStats) -> usize,
+    {
+        let mut entry = self
+            .stats
+            .entry(topic.to_string())
+            .or_insert_with(EventBusStats::default);
+        let val = f(entry.value_mut());
+        Some(val)
     }
 }
 
