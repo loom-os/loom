@@ -51,6 +51,7 @@ More docs:
 - `docs/INTEGRATIONS.md` — ecosystem integrations and adapters
 - `docs/EXAMPLES.md` — out‑of‑the‑box examples and onboarding
 - `docs/ROADMAP.md` — near‑term milestones
+- `docs/BACKPRESSURE.md` — EventBus QoS levels, bounded queues, and backpressure policy
 
 ## 🚀 Quick Start
 
