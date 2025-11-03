@@ -95,10 +95,10 @@ pub struct AgentRuntime {
     event_bus: Arc<EventBus>,
 }
 impl AgentRuntime {
-    pub async fn new() -> Result<Self> {
+    pub async fn new(event_bus: Arc<EventBus>) -> Result<Self> {
         Ok(Self {
             agents: Arc::new(DashMap::new()),
-            event_bus: Arc::new(EventBus::new().await?),
+            event_bus,
         })
     }
 

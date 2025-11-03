@@ -53,7 +53,7 @@ pub type Result<T> = std::result::Result<T, LoomError>;
 
 /// Core runtime
 pub struct Loom {
-    pub event_bus: EventBus,
+    pub event_bus: std::sync::Arc<EventBus>,
     pub agent_runtime: AgentRuntime,
     pub model_router: ModelRouter,
     pub plugin_manager: PluginManager,
@@ -61,11 +61,12 @@ pub struct Loom {
 
 impl Loom {
     pub async fn new() -> Result<Self> {
+        let event_bus = std::sync::Arc::new(EventBus::new().await?);
         Ok(Self {
-            event_bus: EventBus::new().await?,
-            agent_runtime: AgentRuntime::new().await?,
+            agent_runtime: AgentRuntime::new(std::sync::Arc::clone(&event_bus)).await?,
             model_router: ModelRouter::new().await?,
             plugin_manager: PluginManager::new().await?,
+            event_bus,
         })
     }
 
