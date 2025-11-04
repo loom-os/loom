@@ -15,11 +15,13 @@ Example set
 - Memory agent: dialog events → short‑term context + long‑term memory → action selection
 - Desktop automation: system events → rules/LLM tools → safe actions
 - Hybrid routing demo: local small model + cloud LLM, policy‑driven switching
+- Crypto Advisor (planned): market + sentiment streams → indicators → signals → paper broker
 
 Locations
 
 - Minimal examples: `core/examples/`
 - End‑to‑end demos: `examples/`
+  - Planned: `examples/crypto_advisor/` (spec + backlog)
 
 ## Minimal: ActionBroker + Echo TTS
 
