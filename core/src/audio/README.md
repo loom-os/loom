@@ -134,9 +134,16 @@ cargo run --example mic_vad --features mic,vad
 # Basic usage (requires whisper.cpp in PATH)
 cargo run --example mic_vad_stt --features mic,vad,stt
 
-# With custom whisper location (multilingual)
+# With custom whisper location (English-only default)
+WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
+WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.en.bin \
+WHISPER_LANG=en \
+cargo run --example mic_vad_stt --features mic,vad,stt
+
+# Chinese (multilingual model + language)
 WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
 WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.bin \
+WHISPER_LANG=zh \
 cargo run --example mic_vad_stt --features mic,vad,stt
 ```
 
@@ -190,8 +197,8 @@ All audio components use environment variables for configuration:
 ### STT
 
 - `WHISPER_BIN`: Path to whisper.cpp executable (default: "whisper")
-- `WHISPER_MODEL_PATH`: Path to model file (default: "ggml-base.bin" - multilingual)
-- `WHISPER_LANG`: Language code (default: "auto" - auto-detect)
+- `WHISPER_MODEL_PATH`: Path to model file (default: "ggml-base.en.bin" - English-only)
+- `WHISPER_LANG`: Language code (default: "en"). For Chinese use `ggml-base.bin` + `WHISPER_LANG=zh`.
 - `WHISPER_EXTRA_ARGS`: Comma-separated extra args (default: none)
 - `STT_VAD_TOPIC`: VAD events topic (default: "vad")
 - `STT_VOICED_TOPIC`: Voiced audio topic (default: "audio.voiced")

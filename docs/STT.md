@@ -13,14 +13,16 @@ Real-time transcription for Loom using whisper.cpp, wired into the Mic → VAD �
 - whisper.cpp built and a model downloaded:
   - `git clone https://github.com/ggerganov/whisper.cpp`
   - `cd whisper.cpp && make`
-  - multilingual model (default): `bash ./models/download-ggml-model.sh base`
-  - English-only (faster): `bash ./models/download-ggml-model.sh base.en`
+  - English-only (default, faster, higher accuracy for English):
+    `bash ./models/download-ggml-model.sh base.en`
+  - Multilingual (use for Chinese and other languages):
+    `bash ./models/download-ggml-model.sh base`
 
 ## Configuration (env)
 
 - `WHISPER_BIN` — path to `whisper-cli` (default: `whisper`)
-- `WHISPER_MODEL_PATH` — path to model (default: `ggml-base.bin`)
-- `WHISPER_LANG` — language code, or `auto` (default: `auto`)
+- `WHISPER_MODEL_PATH` — path to model (default: `ggml-base.en.bin`)
+- `WHISPER_LANG` — language code, or `auto` (default: `en`)
 - `WHISPER_EXTRA_ARGS` — extra args, comma-separated (e.g., `--threads,4`)
 - `STT_VAD_TOPIC` — VAD events topic (default: `vad`)
 - `STT_VOICED_TOPIC` — voiced frames topic (default: `audio.voiced`)
@@ -46,20 +48,21 @@ See also: `docs/VAD_GUIDE.md`.
 
 ## Run the example
 
-Multilingual (auto language):
-
-```bash
-WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
-WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.bin \
-cargo run -p loom-core --example mic_vad_stt --features mic,vad,stt
-```
-
-English-only (faster):
+English-only (default):
 
 ```bash
 WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
 WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.en.bin \
 WHISPER_LANG=en \
+cargo run -p loom-core --example mic_vad_stt --features mic,vad,stt
+```
+
+Chinese (or other non-English languages):
+
+```bash
+WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
+WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.bin \
+WHISPER_LANG=zh \
 cargo run -p loom-core --example mic_vad_stt --features mic,vad,stt
 ```
 
@@ -70,6 +73,7 @@ cargo run -p loom-core --example mic_vad_stt --features mic,vad,stt
   - Check input volume in GNOME Settings → Sound → Input (or use a USB headset).
   - Verify `/tmp/utterance_*.wav` quality; play with `aplay /tmp/utterance_*.wav`.
   - Confirm `test_whisper.sh` works on a known-good sample.
+  - If speaking Chinese, ensure you're using the multilingual model (`ggml-base.bin`) and set `WHISPER_LANG=zh`.
 - Wrong microphone used:
   - Select the device in Settings → Sound → Input, or set `MIC_DEVICE="USB"` (substring match).
 - High CPU or slow start:
@@ -79,4 +83,5 @@ cargo run -p loom-core --example mic_vad_stt --features mic,vad,stt
 
 - STT currently invokes whisper.cpp per utterance; partial (streaming) transcripts are a future enhancement.
 - Temporary WAV files are deleted unless `STT_KEEP_WAV` is set.
+- VAD includes a short pre-roll so the beginning of speech is preserved.
 - Event QoS: VAD uses realtime; transcripts use batched by default.

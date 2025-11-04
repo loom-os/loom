@@ -12,7 +12,7 @@
 //!   git clone https://github.com/ggerganov/whisper.cpp
 //!   cd whisper.cpp
 //!   make
-//!   bash ./models/download-ggml-model.sh base  # multilingual
+//!   bash ./models/download-ggml-model.sh base.en  # English-only (default)
 //!
 //! Configuration (via environment variables):
 //! - MIC_DEVICE: Optional substring to match input device name
@@ -21,13 +21,20 @@
 //! - VAD_MIN_START_MS: Min consecutive voiced duration (default: 60ms)
 //! - VAD_HANGOVER_MS: Hangover duration after last voice (default: 200ms)
 //! - WHISPER_BIN: Path to whisper.cpp executable (default: "whisper")
-//! - WHISPER_MODEL_PATH: Path to whisper model file (default: "ggml-base.bin")
-//! - WHISPER_LANG: Language code (default: "auto" for auto-detection)
+//! - WHISPER_MODEL_PATH: Path to whisper model file (default: "ggml-base.en.bin")
+//! - WHISPER_LANG: Language code (default: "en")
 //! - WHISPER_EXTRA_ARGS: Extra whisper args, comma-separated (e.g., "--threads,4")
 //!
 //! Run:
 //!   WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
+//!   WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.en.bin \
+//!   WHISPER_LANG=en \
+//!   cargo run -p loom-core --example mic_vad_stt --features mic,vad,stt
+//!
+//! For Chinese (or other languages), switch to the multilingual model and set language:
+//!   WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
 //!   WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.bin \
+//!   WHISPER_LANG=zh \
 //!   cargo run -p loom-core --example mic_vad_stt --features mic,vad,stt
 
 use loom_core::audio::{MicConfig, MicSource, SttConfig, SttEngine, VadConfig, VadGate};

@@ -18,11 +18,11 @@ else
     echo "✅ Found whisper.cpp"
 fi
 
-# Check if model exists
-if [ ! -f "whisper.cpp/models/ggml-base.bin" ]; then
-    echo "📦 Downloading base multilingual model..."
+# Check if model exists (English-only by default for speed/accuracy)
+if [ ! -f "whisper.cpp/models/ggml-base.en.bin" ]; then
+    echo "📦 Downloading base.en (English-only) model..."
     cd whisper.cpp
-    bash ./models/download-ggml-model.sh base
+    bash ./models/download-ggml-model.sh base.en
     cd ..
     echo "✅ Downloaded model"
 else
@@ -34,9 +34,10 @@ echo "🚀 Ready to run STT demo!"
 echo ""
 echo "Run with:"
 echo "  WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \\"
-echo "  WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.bin \\"
+echo "  WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.en.bin \\"
+echo "  WHISPER_LANG=en \\"
 echo "  cargo run --example mic_vad_stt --features mic,vad,stt"
 echo ""
-echo "💡 The model supports auto language detection."
-echo "   Set WHISPER_LANG=en for English-only (faster) or WHISPER_LANG=zh for Chinese."
+echo "💡 For Chinese or other languages, use the multilingual model and set language:"
+echo "   WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.bin WHISPER_LANG=zh"
 echo ""

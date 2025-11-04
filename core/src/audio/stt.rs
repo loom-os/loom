@@ -37,8 +37,11 @@ impl Default for SttConfig {
             .unwrap_or_else(|_| PathBuf::from("whisper"));
         let whisper_model = std::env::var("WHISPER_MODEL_PATH")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("ggml-base.bin"));
-        let language = std::env::var("WHISPER_LANG").unwrap_or_else(|_| "auto".to_string());
+            .unwrap_or_else(|_| PathBuf::from("ggml-base.en.bin"));
+        // Default to English-only model + language for best OOTB speed/accuracy.
+        // Switch to multilingual by pointing WHISPER_MODEL_PATH to ggml-base.bin and
+        // optionally setting WHISPER_LANG=zh (or appropriate language code).
+        let language = std::env::var("WHISPER_LANG").unwrap_or_else(|_| "en".to_string());
         let temp_dir = std::env::var("STT_TEMP_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| std::env::temp_dir());

@@ -116,6 +116,12 @@ async fn run_vad(bus: Arc<EventBus>, cfg: VadConfig) -> Result<()> {
     let mut hangover_left = 0isize;
     let hangover_frames = (cfg.hangover_ms + frame_ms - 1) / frame_ms;
 
+    // Buffer the most recent speech frames prior to "speech_start" so we don't
+    // lose the beginning of the utterance. We only keep voiced frames since the
+    // last non-speech. On transition to speech, we will flush these frames first.
+    use std::collections::VecDeque;
+    let mut pre_speech_buffer: VecDeque<Vec<i16>> = VecDeque::new();
+
     while let Some(ev) = rx.recv().await {
         // Parse metadata
         let rate: u32 = ev
@@ -224,10 +230,22 @@ async fn run_vad(bus: Arc<EventBus>, cfg: VadConfig) -> Result<()> {
             if is_speech {
                 consec_voiced += 1;
                 hangover_left = hangover_frames as isize;
+                // Accumulate only voiced frames until we enter speech
+                if !in_speech {
+                    pre_speech_buffer.push_back(decision.frame_data.clone());
+                    // Cap at min_start_frames to avoid unbounded growth
+                    while pre_speech_buffer.len() > min_start_frames as usize {
+                        pre_speech_buffer.pop_front();
+                    }
+                }
             } else {
                 consec_voiced = 0;
                 if in_speech && hangover_left > 0 {
                     hangover_left -= 1;
+                }
+                // Reset buffer on non-speech when not in active speech
+                if !in_speech {
+                    pre_speech_buffer.clear();
                 }
             }
 
@@ -253,6 +271,38 @@ async fn run_vad(bus: Arc<EventBus>, cfg: VadConfig) -> Result<()> {
                     };
                     if let Err(e) = bus.publish(&cfg.vad_topic, start).await {
                         warn!("Failed to publish vad.speech_start: {}", e);
+                    }
+
+                    // Immediately flush buffered pre-speech voiced frames so the
+                    // start of the utterance is preserved. These frames are
+                    // serialized and published as audio_voiced events with the
+                    // same metadata used in the in-speech path.
+                    while let Some(frame) = pre_speech_buffer.pop_front() {
+                        let mut md = HashMap::new();
+                        md.insert("sample_rate".into(), rate.to_string());
+                        md.insert("channels".into(), "1".into());
+                        md.insert("encoding".into(), "pcm_s16le".into());
+                        md.insert("frame_ms".into(), frame_ms.to_string());
+
+                        let mut payload = Vec::with_capacity(frame.len() * 2);
+                        for &s in &frame {
+                            payload.extend_from_slice(&s.to_le_bytes());
+                        }
+
+                        let voiced_ev = Event {
+                            id: gen_id(),
+                            r#type: "audio_voiced".into(),
+                            timestamp_ms: now_ms(),
+                            source: "vad".into(),
+                            metadata: md,
+                            payload,
+                            confidence: 1.0,
+                            tags: vec![],
+                            priority: 80,
+                        };
+                        if let Err(e) = bus.publish(&cfg.voiced_topic, voiced_ev).await {
+                            warn!("Failed to publish audio_voiced (pre-roll): {}", e);
+                        }
                     }
                 }
             } else {
