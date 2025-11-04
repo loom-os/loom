@@ -5,6 +5,8 @@
 //! 2. Buffer voiced audio frames
 //! 3. Generate transcript events (when whisper is available)
 
+#![cfg(feature = "stt")]
+
 use loom_core::audio::{SttConfig, SttEngine};
 use loom_core::{Event, EventBus, QoSLevel};
 use std::collections::HashMap;
