@@ -5,7 +5,8 @@ mod run_demo {
     use loom_core::proto::QoSLevel;
     use loom_core::Result;
     use std::sync::Arc;
-    use tokio::time::{sleep, Duration};
+    use tokio::signal;
+    use tokio::time::Duration;
     use tracing::{info, warn};
 
     #[tokio::main]
@@ -27,23 +28,65 @@ mod run_demo {
             )
             .await?;
 
-        // Receive for a short period to demonstrate
+        // Receive for a configurable period; MIC_DEMO_SECONDS=0 (or "inf") means run until Ctrl-C
         let mut received = 0usize;
-        let until = tokio::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            tokio::select! {
-                _ = sleep(Duration::from_millis(100)), if tokio::time::Instant::now() >= until => {
+        let demo_secs = std::env::var("MIC_DEMO_SECONDS")
+            .ok()
+            .and_then(|s| {
+                if s.to_lowercase() == "inf" {
+                    Some(0u64)
+                } else {
+                    s.parse::<u64>().ok()
+                }
+            })
+            .unwrap_or(5);
+
+        if demo_secs == 0 {
+            info!("mic_capture running until Ctrl-C (MIC_DEMO_SECONDS=0)");
+            loop {
+                tokio::select! {
+                    _ = signal::ctrl_c() => {
+                        info!("Ctrl-C received, exiting mic_capture");
+                        break;
+                    }
+                    maybe = rx.recv() => {
+                        match maybe {
+                            Some(ev) => {
+                                received += 1;
+                                if received % 10 == 0 {
+                                    let rate = ev.metadata.get("sample_rate").cloned().unwrap_or_default();
+                                    let ch = ev.metadata.get("channels").cloned().unwrap_or_default();
+                                    info!("received {} audio_chunk(s), rate={} ch={}", received, rate, ch);
+                                }
+                            }
+                            None => {
+                                warn!("subscription channel closed");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            let start = tokio::time::Instant::now();
+            let duration = Duration::from_secs(demo_secs);
+            loop {
+                if tokio::time::Instant::now().duration_since(start) >= duration {
                     break;
                 }
-                maybe = rx.recv() => {
-                    if let Some(ev) = maybe {
+                match rx.recv().await {
+                    Some(ev) => {
                         received += 1;
                         if received % 10 == 0 {
                             let rate = ev.metadata.get("sample_rate").cloned().unwrap_or_default();
                             let ch = ev.metadata.get("channels").cloned().unwrap_or_default();
-                            info!("received {} audio_chunk(s), rate={} ch={}", received, rate, ch);
+                            info!(
+                                "received {} audio_chunk(s), rate={} ch={}",
+                                received, rate, ch
+                            );
                         }
-                    } else {
+                    }
+                    None => {
                         warn!("subscription channel closed");
                         break;
                     }

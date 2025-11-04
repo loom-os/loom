@@ -90,7 +90,10 @@ Run:
 
 ```bash
 cd core
+# Run for ~5 seconds by default
 cargo run --example mic_capture --features mic
+# Or run until Ctrl-C
+MIC_DEMO_SECONDS=0 cargo run --example mic_capture --features mic
 ```
 
 Environment variables (optional):
@@ -99,6 +102,7 @@ Environment variables (optional):
 - `MIC_CHUNK_MS` — chunk size in milliseconds (default: 20).
 - `MIC_TOPIC` — event topic to publish to (default: `audio.mic`).
 - `MIC_SOURCE` — event source string (default: `mic.primary`).
+- `MIC_DEMO_SECONDS` — demo duration in seconds; set to `0` or `inf` to run until Ctrl-C (default: `5`).
 
 Each event includes metadata:
 
