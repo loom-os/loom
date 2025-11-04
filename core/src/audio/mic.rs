@@ -213,7 +213,7 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, config: MicConfig) -> Result
         let tx_clone = tx.clone();
         let dev_name_for_cb = device_name.clone();
 
-    let build = || -> std::result::Result<cpal::Stream, LoomError> {
+        let build = || -> std::result::Result<cpal::Stream, LoomError> {
             match chosen_config.sample_format() {
                 cpal::SampleFormat::I16 => build_input_stream::<i16, _>(
                     &input_device,
@@ -392,7 +392,7 @@ fn u16_to_i16(s: u16) -> i16 {
 #[inline]
 fn u8_to_i16(s: u8) -> i16 {
     // Map 0..=255 unsigned to -32768..=32767 by centering at 128 and scaling
-    ((s as i16 - 128) as i16) << 8
+    (s as i16 - 128) << 8
 }
 
 // Note: tests for conversions and chunking live in integration tests under core/tests

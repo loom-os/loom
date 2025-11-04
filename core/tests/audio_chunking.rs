@@ -15,7 +15,7 @@ fn u16_to_i16(s: u16) -> i16 {
 #[inline]
 fn u8_to_i16(s: u8) -> i16 {
     // Map 0..=255 to approximately -32768..=+32767 by centering at 128 and scaling
-    ((s as i16 - 128) as i16) << 8
+    (s as i16 - 128) << 8
 }
 
 fn emit_chunks<F: FnMut(Vec<i16>)>(
