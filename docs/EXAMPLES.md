@@ -81,3 +81,27 @@ This will:
 - Mock LLM selects `tts.echo` with arguments
 - ActionBroker executes the tool call
 - Publish a final `action_done` event on the bus
+
+## Minimal: Mic → audio_chunk events (cpal)
+
+Capture microphone audio and publish `audio_chunk` events at a fixed chunk size. This demo requires enabling the `mic` feature and having system audio development libraries installed (on Debian/Ubuntu: `sudo apt-get install -y libasound2-dev pkg-config`).
+
+Run:
+
+```bash
+cd core
+cargo run --example mic_capture --features mic
+```
+
+Environment variables (optional):
+
+- `MIC_DEVICE` — substring to select the input device by name (e.g., "USB").
+- `MIC_CHUNK_MS` — chunk size in milliseconds (default: 20).
+- `MIC_TOPIC` — event topic to publish to (default: `audio.mic`).
+- `MIC_SOURCE` — event source string (default: `mic.primary`).
+
+Each event includes metadata:
+
+- `sample_rate`, `channels`, `device`, `encoding` (pcm_s16le), `chunk_ms`, and `frame_samples`.
+
+Subscribe in code with `QoSRealtime` for best latency and drop behavior under load.

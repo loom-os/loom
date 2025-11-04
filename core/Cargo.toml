@@ -20,6 +20,12 @@ async-trait = "0.1"
 dashmap = "5.5"
 crossbeam = "0.8"
 chrono = "0.4"
+cpal = { version = "0.15", optional = true }
+
+[features]
+default = []
+# Enable microphone capture via cpal (requires system audio dev packages, e.g., ALSA on Linux)
+mic = ["dep:cpal"]
 
 [build-dependencies]
 tonic-build = "0.10"

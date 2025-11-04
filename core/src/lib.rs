@@ -10,6 +10,8 @@ pub mod plugin;
 pub mod router;
 pub mod storage;
 pub mod telemetry;
+#[cfg(feature = "mic")]
+pub mod audio;
 
 // Export core types
 pub use action_broker::{ActionBroker, CapabilityProvider};
