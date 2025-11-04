@@ -1,4 +1,7 @@
 // Model Router implementation
+use std::sync::Arc;
+
+use crate::local_model::LocalModel;
 use crate::{proto::Event, Result};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
@@ -47,6 +50,7 @@ pub struct ModelRouter {
     policy: RoutingPolicy,
     local_models: Vec<String>,
     cloud_endpoints: Vec<String>,
+    local_model: Arc<dyn LocalModel>,
 }
 
 impl ModelRouter {
@@ -64,7 +68,14 @@ impl ModelRouter {
                 "lightweight_llm".to_string(),
             ],
             cloud_endpoints: vec!["gpt-4".to_string(), "claude-3".to_string()],
+            local_model: Arc::new(crate::local_model::DummyLocalModel::default()),
         })
+    }
+
+    /// Create a router with an injected local model implementation
+    pub fn with_local_model(mut self, local_model: Arc<dyn LocalModel>) -> Self {
+        self.local_model = local_model;
+        self
     }
 
     pub async fn start(&mut self) -> Result<()> {
@@ -109,11 +120,11 @@ impl ModelRouter {
         }
 
         // 2. Check if local model supports event type
-        let local_supported = self.is_locally_supported(&event.r#type);
+        let local_supported = self.local_model.supports_event_type(&event.r#type);
 
         // 3. Simulate local model confidence (actual call to local model should be made)
         let local_confidence = if local_supported {
-            self.estimate_local_confidence(event).await?
+            self.local_model.estimate_confidence(event).await?
         } else {
             0.0
         };
@@ -171,16 +182,6 @@ impl ModelRouter {
             estimated_latency_ms: 500,
             estimated_cost: cloud_cost,
         })
-    }
-
-    fn is_locally_supported(&self, event_type: &str) -> bool {
-        matches!(event_type, "video_frame" | "audio_chunk" | "face_event")
-    }
-
-    async fn estimate_local_confidence(&self, event: &Event) -> Result<f32> {
-        // Simulate local model inference
-        // In production, call actual local model
-        Ok(0.87)
     }
 
     fn estimate_cloud_cost(&self, event: &Event) -> f32 {

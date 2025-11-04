@@ -5,6 +5,7 @@ pub mod action_broker;
 pub mod agent;
 pub mod context;
 pub mod event;
+pub mod local_model;
 pub mod plugin;
 pub mod router;
 pub mod storage;
@@ -15,6 +16,7 @@ pub use action_broker::{ActionBroker, CapabilityProvider};
 pub use agent::{Agent, AgentRuntime, AgentState};
 pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
 pub use event::{Event, EventBus, EventHandler, QoSLevel};
+pub use local_model::{DummyLocalModel, LocalInference, LocalModel};
 pub use plugin::{Plugin, PluginManager};
 pub use router::{ModelRouter, Route, RoutingDecision};
 
