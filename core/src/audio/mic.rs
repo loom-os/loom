@@ -407,5 +407,3 @@ fn u8_to_i16(s: u8) -> i16 {
     // Map 0..=255 unsigned to -32768..=32767 by centering at 128 and scaling
     (s as i16 - 128) << 8
 }
-
-// Note: tests for conversions and chunking live in integration tests under core/tests
