@@ -42,6 +42,7 @@ pub enum PrivacyLevel {
 }
 
 /// Model Router core
+#[derive(Clone)]
 pub struct ModelRouter {
     policy: RoutingPolicy,
     local_models: Vec<String>,
@@ -199,4 +200,18 @@ pub struct AgentContext {
     pub recent_events: Vec<String>,
     pub current_task: Option<String>,
     pub available_quota: f32,
+}
+
+impl ModelRouter {
+    /// Replace the current policy with a new one and return a new router instance
+    pub fn with_policy(&self, policy: RoutingPolicy) -> Self {
+        let mut cloned = self.clone();
+        cloned.policy = policy;
+        cloned
+    }
+
+    /// Get a copy of the active routing policy
+    pub fn policy(&self) -> RoutingPolicy {
+        self.policy.clone()
+    }
 }

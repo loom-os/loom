@@ -64,13 +64,16 @@ impl Loom {
     pub async fn new() -> Result<Self> {
         let event_bus = std::sync::Arc::new(EventBus::new().await?);
         let action_broker = std::sync::Arc::new(ActionBroker::new());
+        // Initialize router first so we can pass a clone to the agent runtime
+        let model_router = ModelRouter::new().await?;
         Ok(Self {
             agent_runtime: AgentRuntime::new(
                 std::sync::Arc::clone(&event_bus),
                 std::sync::Arc::clone(&action_broker),
+                model_router.clone(),
             )
             .await?,
-            model_router: ModelRouter::new().await?,
+            model_router,
             plugin_manager: PluginManager::new().await?,
             event_bus,
             action_broker,
