@@ -57,7 +57,7 @@ Transcribes speech segments to text using whisper.cpp.
 
 **Event Output**: `transcript.final` on topic `transcript`
 
-See [STT Guide](./STT_GUIDE.md) for details.
+See [STT Guide](../../docs/STT.md) for details.
 
 ## Quick Start
 
