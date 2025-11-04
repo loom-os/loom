@@ -185,10 +185,15 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, config: MicConfig) -> Result
 
         let actual_rate = chosen_config.sample_rate().0;
         let actual_channels = chosen_config.channels();
-        if actual_rate != cfg_for_thread.sample_rate_hz || actual_channels != cfg_for_thread.channels {
+        if actual_rate != cfg_for_thread.sample_rate_hz
+            || actual_channels != cfg_for_thread.channels
+        {
             warn!(
                 "Mic using rate={}Hz channels={} (requested {}Hz/{}ch)",
-                actual_rate, actual_channels, cfg_for_thread.sample_rate_hz, cfg_for_thread.channels
+                actual_rate,
+                actual_channels,
+                cfg_for_thread.sample_rate_hz,
+                cfg_for_thread.channels
             );
         } else {
             info!(
@@ -332,7 +337,10 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, config: MicConfig) -> Result
         metadata.insert("channels".into(), pkt.channels.to_string());
         metadata.insert("device".into(), pkt.device_name.clone());
         metadata.insert("encoding".into(), "pcm_s16le".into());
-        metadata.insert("frame_samples".into(), (payload.len() as u32 / 2).to_string());
+        metadata.insert(
+            "frame_samples".into(),
+            (payload.len() as u32 / 2).to_string(),
+        );
 
         let event = Event {
             id: gen_id(),
@@ -369,7 +377,12 @@ where
         .map_err(|e| LoomError::EventBusError(format!("failed to build input stream: {}", e)))
 }
 
-fn emit_chunks<F: FnMut(Vec<i16>)>(data: &[i16], acc: &mut Vec<i16>, chunk_samples: usize, mut emit: F) {
+fn emit_chunks<F: FnMut(Vec<i16>)>(
+    data: &[i16],
+    acc: &mut Vec<i16>,
+    chunk_samples: usize,
+    mut emit: F,
+) {
     acc.extend_from_slice(data);
     while acc.len() >= chunk_samples {
         let chunk: Vec<i16> = acc.drain(..chunk_samples).collect();
