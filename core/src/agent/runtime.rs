@@ -3,10 +3,10 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use tracing::{info, warn};
 
-use crate::{proto, Result, EventBus, LoomError};
 use crate::action_broker::ActionBroker;
-use crate::router::ModelRouter;
 use crate::proto::AgentConfig;
+use crate::router::ModelRouter;
+use crate::{proto, EventBus, LoomError, Result};
 
 use super::behavior::AgentBehavior;
 use super::instance::Agent;

@@ -3,9 +3,11 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use crate::action_broker::ActionBroker;
-use crate::router::{AgentContext, ModelRouter, PrivacyLevel, Route, RoutingDecision, RoutingPolicy};
-use crate::{Event, EventBus, Result};
 use crate::proto::{Action, AgentConfig, AgentState};
+use crate::router::{
+    AgentContext, ModelRouter, PrivacyLevel, Route, RoutingDecision, RoutingPolicy,
+};
+use crate::{Event, EventBus, Result};
 
 use super::behavior::AgentBehavior;
 

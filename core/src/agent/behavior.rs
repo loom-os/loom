@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
-use crate::{Event, Result};
 use crate::proto::{Action, AgentConfig, AgentState};
+use crate::{Event, Result};
 
 /// Agent behavior trait
 #[async_trait]

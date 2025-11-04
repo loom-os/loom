@@ -81,6 +81,31 @@ cargo run --example basic_pubsub
 - Check `examples/` for more demos
 - See [Contributing](../CONTRIBUTING.md) to get involved
 
+## Routing Policy Configuration (per agent)
+
+The router decides between Local/Cloud/Hybrid per event. You can tune the policy per agent via `AgentConfig.parameters`:
+
+```rust
+use loom_core::agent::AgentConfig;
+use std::collections::HashMap;
+
+let mut params: HashMap<String, String> = HashMap::new();
+params.insert("routing.privacy".into(), "sensitive".into());
+params.insert("routing.latency_budget_ms".into(), "300".into());
+params.insert("routing.cost_cap".into(), "0.02".into());
+params.insert("routing.quality_threshold".into(), "0.9".into());
+
+let config = AgentConfig {
+    agent_id: "agent_1".into(),
+    agent_type: "demo".into(),
+    subscribed_topics: vec!["test.topic".into()],
+    capabilities: vec![],
+    parameters: params,
+};
+```
+
+Hybrid processing runs a local quick pass followed by a cloud refine pass; behavior receives metadata: `routing_target`, `phase` (quick/refine), and `refine=true` on the second pass.
+
 ## Troubleshooting
 
 **"protoc not found"**: Install Protocol Buffers compiler  
