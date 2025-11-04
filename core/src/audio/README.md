@@ -38,6 +38,27 @@ Detects speech segments in audio streams using WebRTC VAD.
 
 See [VAD Guide](../../docs/VAD_GUIDE.md) for details.
 
+### 3. Speech-to-Text (`stt.rs`)
+
+Transcribes speech segments to text using whisper.cpp.
+
+**Features**:
+
+- Automatic utterance segmentation based on VAD events
+- High-quality transcription via whisper.cpp
+- Multi-language support
+- Graceful degradation when whisper unavailable
+- Configurable model selection
+
+**Event Input**:
+
+- `vad.speech_start`, `vad.speech_end` from topic `vad`
+- `audio_voiced` from topic `audio.voiced`
+
+**Event Output**: `transcript.final` on topic `transcript`
+
+See [STT Guide](./STT_GUIDE.md) for details.
+
 ## Quick Start
 
 ### Prerequisites
@@ -57,7 +78,7 @@ sudo apt-get install -y libasound2-dev pkg-config
 Add to `Cargo.toml`:
 
 ```toml
-loom-core = { version = "0.1", features = ["mic", "vad"] }
+loom-core = { version = "0.1", features = ["mic", "vad", "stt"] }
 ```
 
 ### Basic Usage
@@ -107,6 +128,18 @@ cargo run --example mic_capture --features mic
 cargo run --example mic_vad --features mic,vad
 ```
 
+### Mic + VAD + STT (Full Pipeline)
+
+```bash
+# Basic usage (requires whisper.cpp in PATH)
+cargo run --example mic_vad_stt --features mic,vad,stt
+
+# With custom whisper location (multilingual)
+WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
+WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.bin \
+cargo run --example mic_vad_stt --features mic,vad,stt
+```
+
 ### Custom Configuration
 
 ```bash
@@ -119,7 +152,7 @@ VAD_MODE=3 VAD_HANGOVER_MS=300 \
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌──────────────┐
-│  Microphone │────▶│     VAD     │────▶│  STT (next)  │
+│  Microphone │────▶│     VAD     │────▶│     STT      │
 └─────────────┘     └─────────────┘     └──────────────┘
    audio_chunk      speech_start              ▼
                     audio_voiced         transcript.final
@@ -154,14 +187,25 @@ All audio components use environment variables for configuration:
 - `VAD_VOICED_TOPIC`: Voiced audio topic (default: "audio.voiced")
 - `VAD_TOPIC`: VAD event topic (default: "vad")
 
+### STT
+
+- `WHISPER_BIN`: Path to whisper.cpp executable (default: "whisper")
+- `WHISPER_MODEL_PATH`: Path to model file (default: "ggml-base.bin" - multilingual)
+- `WHISPER_LANG`: Language code (default: "auto" - auto-detect)
+- `WHISPER_EXTRA_ARGS`: Comma-separated extra args (default: none)
+- `STT_VAD_TOPIC`: VAD events topic (default: "vad")
+- `STT_VOICED_TOPIC`: Voiced audio topic (default: "audio.voiced")
+- `STT_TRANSCRIPT_TOPIC`: Transcript output topic (default: "transcript")
+- `STT_TEMP_DIR`: Temp directory for WAV files (default: system temp)
+
 ## Roadmap
 
 ### P0 (Current)
 
 - [x] Microphone capture with cpal
 - [x] Voice Activity Detection with webrtc-vad
-- [ ] Utterance segmentation (buffer between speech_start/end)
-- [ ] STT integration (whisper.cpp CLI)
+- [x] Utterance segmentation (buffer between speech_start/end)
+- [x] STT integration (whisper.cpp CLI)
 
 ### P1 (Next)
 
@@ -182,7 +226,12 @@ All audio components use environment variables for configuration:
 Run tests with audio features:
 
 ```bash
-cargo test --features mic,vad
+# Test all audio features
+cargo test --features mic,vad,stt
+
+# Test specific modules
+cargo test --features mic,vad --test vad
+cargo test --features stt --test stt
 ```
 
 ## Performance

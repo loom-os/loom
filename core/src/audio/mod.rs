@@ -11,3 +11,9 @@ pub mod vad;
 
 #[cfg(feature = "vad")]
 pub use vad::{VadConfig, VadGate};
+
+#[cfg(feature = "stt")]
+pub mod stt;
+
+#[cfg(feature = "stt")]
+pub use stt::{SttConfig, SttEngine};

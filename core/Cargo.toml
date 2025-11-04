@@ -28,6 +28,7 @@ default = []
 # Enable microphone capture via cpal (requires system audio dev packages, e.g., ALSA on Linux)
 mic = ["dep:cpal"]
 vad = ["dep:webrtc-vad"]
+stt = []
 
 [build-dependencies]
 tonic-build = "0.10"
@@ -54,3 +55,7 @@ required-features = ["mic"]
 [[example]]
 name = "mic_vad"
 required-features = ["mic", "vad"]
+
+[[example]]
+name = "mic_vad_stt"
+required-features = ["mic", "vad", "stt"]
