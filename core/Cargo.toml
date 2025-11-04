@@ -21,11 +21,13 @@ dashmap = "5.5"
 crossbeam = "0.8"
 chrono = "0.4"
 cpal = { version = "0.15", optional = true }
+webrtc-vad = { version = "0.4", optional = true }
 
 [features]
 default = []
 # Enable microphone capture via cpal (requires system audio dev packages, e.g., ALSA on Linux)
 mic = ["dep:cpal"]
+vad = ["dep:webrtc-vad"]
 
 [build-dependencies]
 tonic-build = "0.10"
@@ -43,3 +45,12 @@ criterion = "0.5"
 [lib]
 name = "loom_core"
 path = "src/lib.rs"
+
+# Examples with feature requirements
+[[example]]
+name = "mic_capture"
+required-features = ["mic"]
+
+[[example]]
+name = "mic_vad"
+required-features = ["mic", "vad"]

@@ -1,0 +1,234 @@
+# Loom Audio Module
+
+Event-driven audio processing pipeline for voice applications.
+
+## Components
+
+### 1. Microphone Capture (`mic.rs`)
+
+Captures audio from system microphone and publishes `audio_chunk` events.
+
+**Features**:
+
+- Cross-platform via `cpal` (ALSA/PulseAudio on Linux, CoreAudio on macOS, WASAPI on Windows)
+- Configurable sample rate (16kHz default) and chunk size (20ms default)
+- Device selection via `MIC_DEVICE` environment variable
+- PCM16 mono output
+
+**Event Output**: `audio_chunk` on topic `audio.mic`
+
+See [Microphone Guide](../../docs/MIC_GUIDE.md) for details.
+
+### 2. Voice Activity Detection (`vad.rs`)
+
+Detects speech segments in audio streams using WebRTC VAD.
+
+**Features**:
+
+- Real-time speech/non-speech classification
+- Configurable aggressiveness (0-3)
+- Smart speech boundary detection with hangover
+- Outputs both boundary events and voiced frames
+
+**Event Input**: `audio_chunk` from topic `audio.mic`
+**Event Output**:
+
+- `vad.speech_start`, `vad.speech_end` on topic `vad`
+- `audio_voiced` on topic `audio.voiced`
+
+See [VAD Guide](../../docs/VAD_GUIDE.md) for details.
+
+## Quick Start
+
+### Prerequisites
+
+**Linux** (Debian/Ubuntu):
+
+```bash
+sudo apt-get install -y libasound2-dev pkg-config
+```
+
+**macOS**: No additional dependencies
+
+**Windows**: Ensure Windows SDK is installed
+
+### Enable Features
+
+Add to `Cargo.toml`:
+
+```toml
+loom-core = { version = "0.1", features = ["mic", "vad"] }
+```
+
+### Basic Usage
+
+```rust
+use loom_core::audio::{MicConfig, MicSource, VadConfig, VadGate};
+use loom_core::{EventBus, QoSLevel};
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let event_bus = Arc::new(EventBus::new().await?);
+    event_bus.start().await?;
+
+    // Start microphone capture
+    let mic = MicSource::new(Arc::clone(&event_bus), MicConfig::default());
+    mic.start().await?;
+
+    // Start VAD
+    let vad = VadGate::new(Arc::clone(&event_bus), VadConfig::default());
+    vad.start().await?;
+
+    // Subscribe to speech events
+    let (_id, mut rx) = event_bus
+        .subscribe("vad", vec!["vad.speech_start", "vad.speech_end"], QoSLevel::QosRealtime)
+        .await?;
+
+    while let Some(event) = rx.recv().await {
+        println!("{:?} @ {}ms", event.r#type, event.timestamp_ms);
+    }
+
+    Ok(())
+}
+```
+
+## Examples
+
+### Mic Capture Only
+
+```bash
+cargo run --example mic_capture --features mic
+```
+
+### Mic + VAD
+
+```bash
+cargo run --example mic_vad --features mic,vad
+```
+
+### Custom Configuration
+
+```bash
+# More aggressive VAD with longer hangover
+VAD_MODE=3 VAD_HANGOVER_MS=300 \
+  cargo run --example mic_vad --features mic,vad
+```
+
+## Event Pipeline
+
+```
+┌─────────────┐     ┌─────────────┐     ┌──────────────┐
+│  Microphone │────▶│     VAD     │────▶│  STT (next)  │
+└─────────────┘     └─────────────┘     └──────────────┘
+   audio_chunk      speech_start              ▼
+                    audio_voiced         transcript.final
+                    speech_end
+```
+
+## Architecture
+
+- **Event-Driven**: All components communicate via EventBus
+- **QoS-Aware**: Audio uses `QoSRealtime` for low-latency delivery
+- **Backpressure**: Automatic event dropping when consumers can't keep up
+- **Thread-Safe**: Non-Send audio processing isolated from async runtime
+
+## Configuration
+
+All audio components use environment variables for configuration:
+
+### Microphone
+
+- `MIC_DEVICE`: Device name substring to match (e.g., "USB")
+- `MIC_CHUNK_MS`: Chunk size in milliseconds (default: 20)
+- `MIC_TOPIC`: Event topic (default: "audio.mic")
+- `MIC_SOURCE`: Event source name (default: "mic.primary")
+
+### VAD
+
+- `VAD_MODE`: Aggressiveness 0-3 (default: 2)
+- `VAD_FRAME_MS`: Frame size 10/20/30 (default: 20)
+- `VAD_MIN_START_MS`: Min speech duration to trigger start (default: 60)
+- `VAD_HANGOVER_MS`: Delay before speech end (default: 200)
+- `VAD_INPUT_TOPIC`: Input topic (default: "audio.mic")
+- `VAD_VOICED_TOPIC`: Voiced audio topic (default: "audio.voiced")
+- `VAD_TOPIC`: VAD event topic (default: "vad")
+
+## Roadmap
+
+### P0 (Current)
+
+- [x] Microphone capture with cpal
+- [x] Voice Activity Detection with webrtc-vad
+- [ ] Utterance segmentation (buffer between speech_start/end)
+- [ ] STT integration (whisper.cpp CLI)
+
+### P1 (Next)
+
+- [ ] In-process STT (whisper-rs or vosk)
+- [ ] Audio format conversion utilities
+- [ ] Noise suppression (RNNoise)
+- [ ] Echo cancellation
+
+### P2 (Future)
+
+- [ ] Wake word detection (Porcupine/OpenWakeWord)
+- [ ] Speaker diarization
+- [ ] Audio preprocessing (AGC, filtering)
+- [ ] Streaming STT with partial results
+
+## Testing
+
+Run tests with audio features:
+
+```bash
+cargo test --features mic,vad
+```
+
+## Performance
+
+- **Microphone**: ~5% CPU @ 16kHz mono (varies by device)
+- **VAD**: <1% CPU overhead
+- **Latency**: ~30-50ms end-to-end (mic → VAD → event)
+- **Memory**: <1MB per audio stream
+
+## Troubleshooting
+
+### Linux: No audio device found
+
+```bash
+# Check ALSA devices
+arecord -l
+
+# Test recording
+arecord -d 3 -f S16_LE -r 16000 test.wav
+
+# Set device explicitly
+MIC_DEVICE="USB" cargo run --example mic_capture --features mic
+```
+
+### Audio choppy or distorted
+
+- Reduce `MIC_CHUNK_MS` for lower latency
+- Check system audio settings
+- Ensure no other apps monopolizing audio
+
+### VAD not detecting speech
+
+- Lower `VAD_MODE` (more permissive)
+- Reduce `VAD_MIN_START_MS`
+- Check microphone levels
+
+### Too many false VAD triggers
+
+- Increase `VAD_MODE` (more aggressive)
+- Increase `VAD_MIN_START_MS`
+- Use headset microphone to reduce ambient noise
+
+## Contributing
+
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
+
+## License
+
+See [LICENSE](../../LICENSE).

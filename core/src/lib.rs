@@ -3,7 +3,6 @@
 
 pub mod action_broker;
 pub mod agent;
-#[cfg(feature = "mic")]
 pub mod audio;
 pub mod context;
 pub mod event;
