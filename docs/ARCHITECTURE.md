@@ -147,7 +147,7 @@ Output: Route, Confidence, Reason
 
 **Decision Logging & Events**:
 
-- Each routing decision is logged with: route, reason, confidence, estimated latency/cost, and effective policy values
+- Each routing decision is logged with: route, reason, confidence, estimated latency/cost, and the individual policy fields (privacy, latency_budget_ms, cost_cap, quality_threshold)
 - An observability event `routing_decision` is published on the agent topic with the same fields for dashboards
 
 **Policy Configuration (per agent)**:
