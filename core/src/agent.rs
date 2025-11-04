@@ -111,7 +111,7 @@ impl Agent {
                 "act_{}",
                 chrono::Utc::now()
                     .timestamp_nanos_opt()
-                    .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as i64)
+                    .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() * 1_000_000)
             ),
             capability: action.action_type.clone(),
             version: "".to_string(), // resolve first provider by name if version unspecified
