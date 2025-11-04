@@ -57,16 +57,23 @@ pub struct Loom {
     pub agent_runtime: AgentRuntime,
     pub model_router: ModelRouter,
     pub plugin_manager: PluginManager,
+    pub action_broker: std::sync::Arc<ActionBroker>,
 }
 
 impl Loom {
     pub async fn new() -> Result<Self> {
         let event_bus = std::sync::Arc::new(EventBus::new().await?);
+        let action_broker = std::sync::Arc::new(ActionBroker::new());
         Ok(Self {
-            agent_runtime: AgentRuntime::new(std::sync::Arc::clone(&event_bus)).await?,
+            agent_runtime: AgentRuntime::new(
+                std::sync::Arc::clone(&event_bus),
+                std::sync::Arc::clone(&action_broker),
+            )
+            .await?,
             model_router: ModelRouter::new().await?,
             plugin_manager: PluginManager::new().await?,
             event_bus,
+            action_broker,
         })
     }
 
