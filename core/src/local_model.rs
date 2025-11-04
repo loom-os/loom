@@ -30,7 +30,14 @@ pub trait LocalModel: Send + Sync {
     /// Lightweight confidence estimation for routing decisions
     async fn estimate_confidence(&self, event: &Event) -> Result<f32>;
 
-    /// Optional full inference path used by Local/Hybrid execution
+    /// Performs a full local inference on the given event.
+    ///
+    /// Use this method when a complete inference result is required, such as during
+    /// Local or Hybrid execution paths. This method may be more computationally expensive
+    /// and returns detailed output (`LocalInference`), including confidence and metadata.
+    ///
+    /// For lightweight, fast routing decisions where only a confidence score is needed,
+    /// prefer `estimate_confidence()` instead.
     async fn infer(&self, event: &Event) -> Result<LocalInference>;
 }
 
