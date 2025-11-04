@@ -99,12 +99,29 @@ Your first agent and app:
 
 See `docs/EXAMPLES.md` for out‑of‑the‑box examples and onboarding.
 
+### Configure routing policy (per agent)
+
+Set policy via `AgentConfig.parameters` (string map):
+
+```
+"routing.privacy" = "sensitive"
+"routing.latency_budget_ms" = "300"
+"routing.cost_cap" = "0.02"
+"routing.quality_threshold" = "0.9"
+```
+
+These influence Local/Cloud/Hybrid selection; Hybrid will quick-pass locally then refine via cloud.
+
 ## 📦 Project Structure
 
 ```
 loom/
 ├── core/              # Rust core runtime
 │   ├── src/           # Event bus, agents, router, plugins
+│   │   └── agent/     # Agent module (split files)
+│   │       ├── behavior.rs   # AgentBehavior trait
+│   │       ├── instance.rs   # Agent struct & routing/hybrid logic
+│   │       └── runtime.rs    # AgentRuntime manager
 │   └── proto/         # Protobuf definitions
 ├── plugins/           # Plugins
 ├── examples/          # Demo applications
@@ -120,6 +137,30 @@ loom/
 - **Plugin System**: Extensible architecture with WASM isolation
 - **Storage**: RocksDB for state persistence, Vector DB integration for long-term memory
 - **Telemetry**: Built-in metrics, tracing, and observability
+
+### Routing: Local / Cloud / Hybrid
+
+The Model Router chooses where inference runs per event:
+
+- Local: on-device models when privacy, latency, and confidence allow
+- Cloud: high-capacity models when quality is the priority
+- Hybrid: local “quick pass” for immediate feedback, followed by a cloud “refine” pass
+
+Observability and policy:
+
+- Every decision is logged with route, reason, confidence, and estimates
+- A `routing_decision` event is published on the agent topic for dashboards
+- Policy is configurable per agent via `AgentConfig.parameters` keys:
+  - `routing.privacy` = `public | sensitive | private | local-only`
+  - `routing.latency_budget_ms` = integer (u64)
+  - `routing.cost_cap` = float (f32)
+  - `routing.quality_threshold` = float (f32)
+
+Hybrid two-phase metadata seen by behaviors:
+
+- `routing_target` = `local` (quick) or `cloud` (refine)
+- `phase` = `quick` or `refine`
+- `refine` = `true` on refine pass
 
 ## 🧩 Extensions and Plugins
 

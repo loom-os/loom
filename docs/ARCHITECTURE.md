@@ -12,7 +12,6 @@ Loom is an event-driven AI operating system that models intelligent agents as **
 - Observability & policy management
 - General action interface (Action System)
 
-
 ## Core Design Principles
 
 1. **Event-First**: All inputs modeled as events, not synchronous calls
@@ -145,6 +144,26 @@ Output: Route, Confidence, Reason
 
 - **Rule-Based** (current): Fast but rigid if-else rules
 - **ML-Based** (future): Learned classifier using event features and performance history
+
+**Decision Logging & Events**:
+
+- Each routing decision is logged with: route, reason, confidence, estimated latency/cost, and the individual policy fields (privacy, latency_budget_ms, cost_cap, quality_threshold)
+- An observability event `routing_decision` is published on the agent topic with the same fields for dashboards
+
+**Policy Configuration (per agent)**:
+
+Configure via `AgentConfig.parameters` (string map):
+
+- `routing.privacy` = `public | sensitive | private | local-only`
+- `routing.latency_budget_ms` = integer (u64)
+- `routing.cost_cap` = float (f32)
+- `routing.quality_threshold` = float (f32)
+
+Hybrid two-phase execution metadata for behaviors:
+
+- `routing_target` = `local` (quick) or `cloud` (refine)
+- `phase` = `quick` or `refine`
+- `refine` = `true` on refine pass
 
 ### Plugin System
 
