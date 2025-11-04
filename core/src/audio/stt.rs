@@ -303,21 +303,28 @@ async fn process_utterance(
         return Ok(());
     }
 
-    debug!("Wrote WAV file: {:?}", wav_path);
+    info!("💾 Wrote WAV file: {:?} ({} samples)", wav_path, pcm.len());
 
     // Call whisper.cpp
     let transcript = match transcribe_with_whisper(cfg, &wav_path).await {
         Ok(text) => text,
         Err(e) => {
             error!("Transcription failed: {}", e);
-            // Clean up WAV file
-            let _ = std::fs::remove_file(&wav_path);
+            // Clean up WAV file (unless debug mode)
+            if std::env::var("STT_KEEP_WAV").is_err() {
+                let _ = std::fs::remove_file(&wav_path);
+            }
             return Ok(());
         }
     };
 
-    // Clean up WAV file
-    let _ = std::fs::remove_file(&wav_path);
+    // Clean up WAV file (unless debug mode)
+    let keep_wav = std::env::var("STT_KEEP_WAV").is_ok();
+    if keep_wav {
+        info!("🔍 Kept WAV file for debugging: {:?}", wav_path);
+    } else {
+        let _ = std::fs::remove_file(&wav_path);
+    }
 
     // Publish transcript event
     if !transcript.is_empty() {
@@ -389,6 +396,12 @@ async fn transcribe_with_whisper(cfg: &SttConfig, wav_path: &PathBuf) -> Result<
 
     // Parse output - whisper.cpp writes transcript to stdout
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Log full output for debugging
+    debug!("Whisper stdout: {}", stdout);
+    debug!("Whisper stderr: {}", stderr);
+
     let transcript = stdout
         .lines()
         .filter(|line| {
@@ -397,6 +410,7 @@ async fn transcribe_with_whisper(cfg: &SttConfig, wav_path: &PathBuf) -> Result<
                 && !line.trim().is_empty()
                 && !line.contains("whisper_")
                 && !line.contains("load time")
+                && !line.contains("system_info")
         })
         .map(|line| line.trim())
         .collect::<Vec<_>>()
