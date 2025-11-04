@@ -3,6 +3,8 @@
 
 pub mod action_broker;
 pub mod agent;
+#[cfg(feature = "mic")]
+pub mod audio;
 pub mod context;
 pub mod event;
 pub mod local_model;
@@ -10,8 +12,6 @@ pub mod plugin;
 pub mod router;
 pub mod storage;
 pub mod telemetry;
-#[cfg(feature = "mic")]
-pub mod audio;
 
 // Export core types
 pub use action_broker::{ActionBroker, CapabilityProvider};

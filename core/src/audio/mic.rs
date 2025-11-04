@@ -111,13 +111,14 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, mut config: MicConfig) -> Re
         host.default_input_device()
     };
 
-    let input_device = input_device.ok_or_else(|| LoomError::EventBusError("No input device available".into()))?;
+    let input_device =
+        input_device.ok_or_else(|| LoomError::EventBusError("No input device available".into()))?;
     let device_name = input_device.name().unwrap_or_else(|_| "unknown".into());
 
     // Resolve supported configs and pick the best matching one
-    let supported_configs = input_device
-        .supported_input_configs()
-        .map_err(|e| LoomError::EventBusError(format!("failed to query supported input configs: {}", e)))?;
+    let supported_configs = input_device.supported_input_configs().map_err(|e| {
+        LoomError::EventBusError(format!("failed to query supported input configs: {}", e))
+    })?;
 
     // Preferred sample rates in order
     let preferred_rates = [16_000u32, 48_000u32, 32_000u32, 8_000u32];
@@ -150,9 +151,9 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, mut config: MicConfig) -> Re
         Some(c) => c,
         None => {
             warn!("Falling back to default input config; may not match requested sample rate/channels");
-            input_device
-                .default_input_config()
-                .map_err(|e| LoomError::EventBusError(format!("failed to get default input config: {}", e)))?
+            input_device.default_input_config().map_err(|e| {
+                LoomError::EventBusError(format!("failed to get default input config: {}", e))
+            })?
         }
     };
 
@@ -175,7 +176,9 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, mut config: MicConfig) -> Re
 
     // Create an async channel to pass samples from the audio callback to the publisher task
     // Capacity sized to a few chunks worth of samples
-    let samples_per_chunk = ((config.sample_rate_hz as u64) * (config.chunk_ms as u64) / 1000) as usize * (config.channels as usize);
+    let samples_per_chunk = ((config.sample_rate_hz as u64) * (config.chunk_ms as u64) / 1000)
+        as usize
+        * (config.channels as usize);
     let (tx, mut rx) = mpsc::channel::<Vec<i16>>(64);
 
     // Build input stream with proper sample type handling
@@ -190,19 +193,37 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, mut config: MicConfig) -> Re
     let tx_clone = tx.clone();
 
     let stream = match chosen_config.sample_format() {
-        cpal::SampleFormat::I16 => build_input_stream::<i16>(&input_device, &stream_config, err_fn, move |data: &[i16]| {
-            push_and_ship(data, &mut callback_acc, samples_per_chunk, &tx_clone);
-        })?,
-        cpal::SampleFormat::U16 => build_input_stream::<u16>(&input_device, &stream_config, err_fn, move |data: &[u16]| {
-            let converted: Vec<i16> = data.iter().map(|&s| u16_to_i16(s)).collect();
-            push_and_ship(&converted, &mut callback_acc, samples_per_chunk, &tx_clone);
-        })?,
-        cpal::SampleFormat::F32 => build_input_stream::<f32>(&input_device, &stream_config, err_fn, move |data: &[f32]| {
-            let converted: Vec<i16> = data.iter().map(|&s| f32_to_i16(s)).collect();
-            push_and_ship(&converted, &mut callback_acc, samples_per_chunk, &tx_clone);
-        })?,
+        cpal::SampleFormat::I16 => build_input_stream::<i16>(
+            &input_device,
+            &stream_config,
+            err_fn,
+            move |data: &[i16]| {
+                push_and_ship(data, &mut callback_acc, samples_per_chunk, &tx_clone);
+            },
+        )?,
+        cpal::SampleFormat::U16 => build_input_stream::<u16>(
+            &input_device,
+            &stream_config,
+            err_fn,
+            move |data: &[u16]| {
+                let converted: Vec<i16> = data.iter().map(|&s| u16_to_i16(s)).collect();
+                push_and_ship(&converted, &mut callback_acc, samples_per_chunk, &tx_clone);
+            },
+        )?,
+        cpal::SampleFormat::F32 => build_input_stream::<f32>(
+            &input_device,
+            &stream_config,
+            err_fn,
+            move |data: &[f32]| {
+                let converted: Vec<i16> = data.iter().map(|&s| f32_to_i16(s)).collect();
+                push_and_ship(&converted, &mut callback_acc, samples_per_chunk, &tx_clone);
+            },
+        )?,
         other => {
-            return Err(LoomError::EventBusError(format!("Unsupported sample format: {:?}", other)));
+            return Err(LoomError::EventBusError(format!(
+                "Unsupported sample format: {:?}",
+                other
+            )));
         }
     };
 
@@ -280,7 +301,12 @@ where
         .map_err(|e| LoomError::EventBusError(format!("failed to build input stream: {}", e)))
 }
 
-fn push_and_ship(data: &[i16], acc: &mut Vec<i16>, chunk_samples: usize, tx: &mpsc::Sender<Vec<i16>>) {
+fn push_and_ship(
+    data: &[i16],
+    acc: &mut Vec<i16>,
+    chunk_samples: usize,
+    tx: &mpsc::Sender<Vec<i16>>,
+) {
     acc.extend_from_slice(data);
     while acc.len() >= chunk_samples {
         let chunk: Vec<i16> = acc.drain(..chunk_samples).collect();
