@@ -32,20 +32,36 @@ use tracing::info;
 
 /// Simple event logger that prints speech boundary events
 fn handle_vad_event(event: &Event) {
+    const UNKNOWN: &str = "?";
+
     match event.r#type.as_str() {
         "vad.speech_start" => {
-            let unknown = "?".to_string();
-            let mode = event.metadata.get("mode").unwrap_or(&unknown);
-            let rate = event.metadata.get("sample_rate").unwrap_or(&unknown);
+            let mode = event
+                .metadata
+                .get("mode")
+                .map(|s| s.as_str())
+                .unwrap_or(UNKNOWN);
+            let rate = event
+                .metadata
+                .get("sample_rate")
+                .map(|s| s.as_str())
+                .unwrap_or(UNKNOWN);
             info!(
                 "🎤 SPEECH START (mode={}, rate={}Hz) @ {}ms",
                 mode, rate, event.timestamp_ms
             );
         }
         "vad.speech_end" => {
-            let unknown = "?".to_string();
-            let mode = event.metadata.get("mode").unwrap_or(&unknown);
-            let rate = event.metadata.get("sample_rate").unwrap_or(&unknown);
+            let mode = event
+                .metadata
+                .get("mode")
+                .map(|s| s.as_str())
+                .unwrap_or(UNKNOWN);
+            let rate = event
+                .metadata
+                .get("sample_rate")
+                .map(|s| s.as_str())
+                .unwrap_or(UNKNOWN);
             info!(
                 "🤫 SPEECH END (mode={}, rate={}Hz) @ {}ms",
                 mode, rate, event.timestamp_ms

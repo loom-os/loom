@@ -106,14 +106,6 @@ async fn run_vad(bus: Arc<EventBus>, cfg: VadConfig) -> Result<()> {
         )
         .await?;
 
-    let _mode = match cfg.mode {
-        0 => VadMode::Quality,
-        1 => VadMode::LowBitrate,
-        2 => VadMode::Aggressive,
-        3 => VadMode::VeryAggressive,
-        _ => VadMode::Aggressive,
-    };
-
     // State
     let mut in_speech = false;
     let frame_ms = cfg.frame_ms;
