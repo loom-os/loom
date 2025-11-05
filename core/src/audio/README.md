@@ -207,18 +207,17 @@ All audio components use environment variables for configuration:
 
 ### Microphone
 
-- `MIC_DEVICE`: Device name substring to match (e.g., "USB")
-- `MIC_CHUNK_MS`: Chunk size in milliseconds (default: 20)
-- `MIC_TOPIC`: Event topic (default: "audio.mic")
-- `MIC_SOURCE`: Event source name (default: "mic.primary")
+- `MIC_LOG_DEVICES`: If set (e.g., `1`), log all available input devices and their supported sample-rate range and max channels to help selection (use with `MIC_DEVICE`).
+
+Notes:
+
+- The runtime logs the actual device, sample rate, channels, and sample format chosen. Use `MIC_DEVICE` to force a specific device by substring.
+- For best STT accuracy, prefer internal/USB mics over Bluetooth HFP/HSP profiles (which are narrowband and low quality).
 
 ### VAD
 
-- `VAD_MODE`: Aggressiveness 0-3 (default: 2)
-- `VAD_FRAME_MS`: Frame size 10/20/30 (default: 20)
-- `VAD_MIN_START_MS`: Min speech duration to trigger start (default: 60)
-- `VAD_HANGOVER_MS`: Delay before speech end (default: 200)
-- `VAD_INPUT_TOPIC`: Input topic (default: "audio.mic")
+- `WAKE_MATCH_ANYWHERE`: Allow matching phrases anywhere in the sentence (default: `true`)
+- `WAKE_JW_THRESHOLD`: Jaro–Winkler similarity threshold 0.0–1.0 (default: `0.90`) — higher is stricter
 - `VAD_VOICED_TOPIC`: Voiced audio topic (default: "audio.voiced")
 - `VAD_TOPIC`: VAD event topic (default: "vad")
 
