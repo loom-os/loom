@@ -5,7 +5,7 @@
 
 #[cfg(all(feature = "mic", feature = "vad"))]
 mod vad_tests {
-    use loom_core::audio::{VadConfig, VadGate};
+    use loom_audio::{VadConfig, VadGate};
     use loom_core::{Event, EventBus, QoSLevel};
     use std::collections::HashMap;
     use std::sync::Arc;

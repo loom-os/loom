@@ -118,13 +118,12 @@ These influence Local/Cloud/Hybrid selection; Hybrid will quick-pass locally the
 
 ```
 loom/
-├── Cargo.toml         # Workspace manifest (core, loom-proto, ...)
-├── core/              # Rust core runtime
-│   ├── src/           # Event bus, agents, router, plugins
-│   │   └── agent/     # Agent module (split files)
-│   │       ├── behavior.rs   # AgentBehavior trait
-│   │       ├── instance.rs   # Agent struct & routing/hybrid logic
-│   │       └── runtime.rs    # AgentRuntime manager
+├── Cargo.toml         # Workspace manifest (core, loom-proto, loom-audio)
+├── core/              # Rust core runtime (event bus, agents, router, plugins)
+│   └── src/
+│       └── agent/
+├── loom-audio/        # Audio pipeline crate (mic, VAD, STT, TTS, wake)
+│   └── src/
 ├── loom-proto/        # Shared protobuf definitions + generated Rust
 │   └── proto/         # Protobuf (*.proto) definitions
 ├── plugins/           # Plugins
@@ -141,6 +140,8 @@ loom/
 - **Plugin System**: Extensible architecture with WASM isolation
 - **Storage**: RocksDB for state persistence, Vector DB integration for long-term memory
 - **Telemetry**: Built-in metrics, tracing, and observability
+
+Audio pipeline (mic/VAD/STT/TTS/wake) now lives in the separate crate `loom-audio` to keep the core runtime slim and avoid circular deps. Bring it into your app as an optional dependency with feature flags (see below).
 
 ### Routing: Local / Cloud / Hybrid
 
@@ -187,6 +188,50 @@ Example profiles:
 - desktop‑plus: `--features "event-bus,router,wasm,local-ml,cloud-ml,metrics,rocksdb"`
 
 Targets: < 5–8 MB code and 20–40 MB RAM for core mobile runtime; cold start ~< 200 ms
+
+## 🎙️ Using Audio (mic, VAD, STT, TTS)
+
+The audio stack has moved under the `loom-audio` crate. Add it to your application and enable only what you need via features:
+
+Add to your Cargo.toml:
+
+```
+[dependencies]
+loom-core = { path = "./core" }
+loom-audio = { path = "./loom-audio", features = ["mic", "vad", "stt"] }
+```
+
+Minimal usage:
+
+```rust
+use loom_core::event::{EventBus, QoSLevel};
+use loom_audio::{MicConfig, MicSource, VadConfig, VadGate};
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let bus = Arc::new(EventBus::new().await?);
+    bus.start().await?;
+
+    MicSource::new(bus.clone(), MicConfig::default()).start().await?;
+    VadGate::new(bus.clone(), VadConfig::default()).start().await?;
+
+    // Subscribe to speech boundaries
+    let (_id, mut rx) = bus
+        .subscribe("vad".into(), vec!["vad.speech_start".into(), "vad.speech_end".into()], QoSLevel::QosRealtime)
+        .await?;
+    while let Some(e) = rx.recv().await {
+        println!("{}", e.r#type);
+    }
+    Ok(())
+}
+```
+
+Notes:
+
+- On Linux, install ALSA headers: `sudo apt-get install -y libasound2-dev pkg-config`
+- STT uses whisper.cpp; see `docs/voice_agent/STT.md` for model setup.
+- Examples under `core/examples/` are temporary integration tests for an upcoming E2E voice demo and may change.
 
 ## 🖥️ Cross‑OS Adapters
 

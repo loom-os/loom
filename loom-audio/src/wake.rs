@@ -1,9 +1,5 @@
-use crate::{
-    audio::utils::{gen_id, now_ms},
-    event::EventBus,
-    proto::Event,
-    QoSLevel, Result,
-};
+use crate::utils::{gen_id, now_ms};
+use loom_core::{event::EventBus, proto::Event, QoSLevel, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;

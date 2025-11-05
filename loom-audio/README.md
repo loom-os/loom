@@ -105,21 +105,23 @@ sudo apt-get install -y libasound2-dev pkg-config
 
 ### Enable Features
 
-Add to `Cargo.toml`:
+Add to your app's `Cargo.toml`:
 
 ```toml
-loom-core = { version = "0.1", features = ["mic", "vad", "stt"] }
+[dependencies]
+loom-core = { path = "../core" }
+loom-audio = { path = "../loom-audio", features = ["mic", "vad", "stt"] }
 ```
 
 ### Basic Usage
 
 ```rust
-use loom_core::audio::{MicConfig, MicSource, VadConfig, VadGate};
-use loom_core::{EventBus, QoSLevel};
+use loom_core::event::{EventBus, QoSLevel};
+use loom_audio::{MicConfig, MicSource, VadConfig, VadGate};
 use std::sync::Arc;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     let event_bus = Arc::new(EventBus::new().await?);
     event_bus.start().await?;
 
@@ -144,45 +146,19 @@ async fn main() -> Result<()> {
 }
 ```
 
-## Examples
+## Running
 
-### Mic Capture Only
+The `loom-audio` crate doesn’t ship binaries; integrate it into your app and run with `cargo run`.
 
-```bash
-cargo run --example mic_capture --features mic
-```
+Examples previously under `core/examples/` are temporary integration tests and may be removed.
 
-### Mic + VAD
+For STT, set environment variables and run your app, e.g.:
 
 ```bash
-cargo run --example mic_vad --features mic,vad
-```
-
-### Mic + VAD + STT (Full Pipeline)
-
-```bash
-# Basic usage (requires whisper.cpp in PATH)
-cargo run --example mic_vad_stt --features mic,vad,stt
-
-# With custom whisper location (English-only default)
 WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
 WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.en.bin \
 WHISPER_LANG=en \
-cargo run --example mic_vad_stt --features mic,vad,stt
-
-# Chinese (multilingual model + language)
-WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
-WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.bin \
-WHISPER_LANG=zh \
-cargo run --example mic_vad_stt --features mic,vad,stt
-```
-
-### Custom Configuration
-
-```bash
-# More aggressive VAD with longer hangover
-VAD_MODE=3 VAD_HANGOVER_MS=300 \
-  cargo run --example mic_vad --features mic,vad
+cargo run
 ```
 
 ## Event Pipeline

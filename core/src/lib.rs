@@ -3,7 +3,6 @@
 
 pub mod action_broker;
 pub mod agent;
-pub mod audio;
 pub mod context;
 pub mod event;
 pub mod llm;
@@ -84,16 +83,8 @@ impl Loom {
                 );
             }
 
-            // TTS provider (best-effort); gated behind feature "tts"
-            #[cfg(feature = "tts")]
-            {
-                use crate::audio::tts::{TtsSpeakProvider, TtsSpeakProviderConfig};
-                let tts = TtsSpeakProvider::new(
-                    std::sync::Arc::clone(&event_bus),
-                    None::<TtsSpeakProviderConfig>,
-                );
-                action_broker.register_provider(SyncArc::new(tts));
-            }
+            // Note: Audio (e.g., TTS) providers have moved to the separate crate `loom-audio`.
+            // Core no longer registers audio providers by default to avoid circular dependencies.
         }
         Ok(Self {
             agent_runtime: AgentRuntime::new(

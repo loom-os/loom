@@ -1,5 +1,5 @@
-use crate::audio::utils::{gen_id, now_ms};
-use crate::{event::EventBus, proto::Event, QoSLevel, Result};
+use crate::utils::{gen_id, now_ms};
+use loom_core::{event::EventBus, proto::Event, QoSLevel, Result};
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
@@ -376,12 +376,14 @@ async fn transcribe_with_whisper(cfg: &SttConfig, wav_path: &PathBuf) -> Result<
     // Run command and capture output
     let output = tokio::task::spawn_blocking(move || cmd.output())
         .await
-        .map_err(|e| crate::LoomError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))?
-        .map_err(|e| crate::LoomError::IoError(e))?;
+        .map_err(|e| {
+            loom_core::LoomError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e))
+        })?
+        .map_err(|e| loom_core::LoomError::IoError(e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(crate::LoomError::IoError(std::io::Error::new(
+        return Err(loom_core::LoomError::IoError(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!("Whisper failed with status {}: {}", output.status, stderr),
         )));

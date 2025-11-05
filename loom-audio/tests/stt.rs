@@ -7,7 +7,7 @@
 
 #![cfg(feature = "stt")]
 
-use loom_core::audio::{SttConfig, SttEngine};
+use loom_audio::{SttConfig, SttEngine};
 use loom_core::{Event, EventBus, QoSLevel};
 use std::collections::HashMap;
 use std::sync::Arc;
