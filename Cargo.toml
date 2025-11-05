@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "core",
+    "demo/voice_agent",
     "loom-proto",
     "loom-audio",
 ]
