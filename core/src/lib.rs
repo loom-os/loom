@@ -6,6 +6,7 @@ pub mod agent;
 pub mod audio;
 pub mod context;
 pub mod event;
+pub mod llm;
 pub mod local_model;
 pub mod plugin;
 pub mod router;
@@ -17,6 +18,7 @@ pub use action_broker::{ActionBroker, CapabilityProvider};
 pub use agent::{Agent, AgentRuntime, AgentState};
 pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
 pub use event::{Event, EventBus, EventHandler, QoSLevel};
+pub use llm::{LlmClient, LlmClientConfig, LlmResponse};
 pub use local_model::{DummyLocalModel, LocalInference, LocalModel};
 pub use plugin::{Plugin, PluginManager};
 pub use router::{ModelRouter, Route, RoutingDecision};
@@ -69,6 +71,16 @@ impl Loom {
         let action_broker = std::sync::Arc::new(ActionBroker::new());
         // Initialize router first so we can pass a clone to the agent runtime
         let model_router = ModelRouter::new().await?;
+        // Register built-in capability providers
+        {
+            use crate::llm::LlmGenerateProvider;
+            use std::sync::Arc as SyncArc;
+            if let Ok(provider) = LlmGenerateProvider::new(None) {
+                action_broker.register_provider(SyncArc::new(provider));
+            } else {
+                tracing::warn!(target = "loom", "Failed to initialize LLM provider from env; llm.generate not registered");
+            }
+        }
         Ok(Self {
             agent_runtime: AgentRuntime::new(
                 std::sync::Arc::clone(&event_bus),
