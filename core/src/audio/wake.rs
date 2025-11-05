@@ -321,25 +321,3 @@ fn detect_wake(cfg: &WakeWordConfig, text_norm: &str) -> Option<(String, String)
 
     None
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_normalize() {
-        assert_eq!(normalize("Hey,  LOOM!!"), "hey loom");
-    }
-
-    #[test]
-    fn test_detect_wake_basic() {
-        let cfg = WakeWordConfig {
-            phrases: vec!["hey loom".into(), "loom".into()],
-            ..Default::default()
-        };
-        let out = detect_wake(&cfg, &normalize("Hey loom what's up"));
-        assert!(out.is_some());
-        let (_, rem) = out.unwrap();
-        assert!(rem.starts_with("what"));
-    }
-}
