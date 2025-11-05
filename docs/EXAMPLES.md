@@ -84,28 +84,8 @@ This will:
 
 ## Minimal: Mic → audio_chunk events (cpal)
 
-Capture microphone audio and publish `audio_chunk` events at a fixed chunk size. This demo requires enabling the `mic` feature and having system audio development libraries installed (on Debian/Ubuntu: `sudo apt-get install -y libasound2-dev pkg-config`).
+The audio examples have moved to the `loom-audio` crate. Core still contains temporary integration examples that will be removed once the E2E voice demo lands.
 
-Run:
+To try microphone capture, add `loom-audio` to your app and enable the `mic` feature. See `loom-audio/README.md` for up-to-date instructions and examples.
 
-```bash
-cd core
-# Run for ~5 seconds by default
-cargo run --example mic_capture --features mic
-# Or run until Ctrl-C
-MIC_DEMO_SECONDS=0 cargo run --example mic_capture --features mic
-```
-
-Environment variables (optional):
-
-- `MIC_DEVICE` — substring to select the input device by name (e.g., "USB").
-- `MIC_CHUNK_MS` — chunk size in milliseconds (default: 20).
-- `MIC_TOPIC` — event topic to publish to (default: `audio.mic`).
-- `MIC_SOURCE` — event source string (default: `mic.primary`).
-- `MIC_DEMO_SECONDS` — demo duration in seconds; set to `0` or `inf` to run until Ctrl-C (default: `5`).
-
-Each event includes metadata:
-
-- `sample_rate`, `channels`, `device`, `encoding` (pcm_s16le), `chunk_ms`, and `frame_samples`.
-
-Subscribe in code with `QoSRealtime` for best latency and drop behavior under load.
+Linux prerequisites: `sudo apt-get install -y libasound2-dev pkg-config`.

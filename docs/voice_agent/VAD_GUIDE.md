@@ -1,6 +1,9 @@
 # Voice Activity Detection (VAD) Guide
 
-This guide explains how to use the Voice Activity Detection (VAD) module in Loom to detect speech segments in audio streams.
+This guide explains how to use the Voice Activity Detection (VAD) module to detect speech segments in audio streams.
+
+Audio modules (mic, VAD, STT, TTS, wake) have been migrated out of the core runtime into a separate crate: `loom-audio`.
+Add it to your app and enable features as needed.
 
 ## Overview
 
@@ -12,25 +15,31 @@ The VAD module consumes raw `audio_chunk` events and produces:
 
 ## Quick Start
 
+Add to Cargo.toml:
+
+```
+[dependencies]
+loom-core = { path = "../../core" }
+loom-audio = { path = "../../loom-audio", features = ["mic", "vad"] }
+```
+
+Then in your app:
+
 ```rust
-use loom_core::audio::{MicConfig, MicSource, VadConfig, VadGate};
-use loom_core::{EventBus, QoSLevel};
+use loom_core::event::{EventBus, QoSLevel};
+use loom_audio::{MicConfig, MicSource, VadConfig, VadGate};
 use std::sync::Arc;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     let event_bus = Arc::new(EventBus::new().await?);
     event_bus.start().await?;
 
     // Start microphone
-    let mic_config = MicConfig::default();
-    let mic_source = MicSource::new(Arc::clone(&event_bus), mic_config);
-    mic_source.start().await?;
+    MicSource::new(Arc::clone(&event_bus), MicConfig::default()).start().await?;
 
     // Start VAD
-    let vad_config = VadConfig::default();
-    let vad_gate = VadGate::new(Arc::clone(&event_bus), vad_config);
-    vad_gate.start().await?;
+    VadGate::new(Arc::clone(&event_bus), VadConfig::default()).start().await?;
 
     // Subscribe to VAD events
     let (_sub_id, mut rx) = event_bus
@@ -149,18 +158,18 @@ Metadata:
 
 Payload: PCM16 mono audio frame (voiced speech)
 
-## Example: Running the VAD Demo
+## Example: Running a VAD Demo
 
 ```bash
 # Install dependencies (Linux)
 sudo apt-get install -y libasound2-dev pkg-config
 
-# Run with defaults
-cargo run --example mic_vad --features mic,vad
+# Build and run your app (with loom-audio features enabled in Cargo.toml)
+cargo run
 
-# Run with custom settings
+# Custom settings
 VAD_MODE=3 VAD_MIN_START_MS=100 VAD_HANGOVER_MS=300 \
-  cargo run --example mic_vad --features mic,vad
+    cargo run
 ```
 
 ## Integration with STT Pipeline
@@ -172,7 +181,7 @@ The typical flow for speech-to-text is:
 3. **Utterance Segmenter** → Buffer `audio_voiced` between start/end
 4. **STT** → Convert buffered audio to text → `transcript.final`
 
-See the full E2E voice pipeline example in `examples/e2e_voice_wake_llm_tts.rs` (coming soon).
+Note: Legacy audio examples under `core/examples/` are temporary integration tests for an upcoming E2E voice demo and will be removed. Prefer the pattern above in your own app.
 
 ## Troubleshooting
 

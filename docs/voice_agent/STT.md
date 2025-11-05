@@ -1,10 +1,12 @@
 # Speech-to-Text (STT)
 
-Real-time transcription for Loom using whisper.cpp, wired into the Mic → VAD → STT event pipeline.
+Real-time transcription using whisper.cpp, wired into the Mic → VAD → STT event pipeline.
+
+Audio modules live in the `loom-audio` crate. Enable the `mic`, `vad`, and `stt` features in your app to use the full pipeline.
 
 - Input events: `vad.speech_start`, `audio_voiced`, `vad.speech_end`
 - Output events: `transcript.final`
-- Example: `core/examples/mic_vad_stt.rs`
+- Example app pattern shown below (legacy examples under `core/examples/` are temporary and may be removed).
 
 ## Prerequisites
 
@@ -46,7 +48,42 @@ Microphone/VAD (for completeness):
 
 See also: `docs/VAD_GUIDE.md`.
 
-## Run the example
+## Add dependencies
+
+```
+[dependencies]
+loom-core = { path = "../../core" }
+loom-audio = { path = "../../loom-audio", features = ["mic", "vad", "stt"] }
+```
+
+## Minimal app
+
+```rust
+use loom_core::event::{EventBus, QoSLevel};
+use loom_audio::{MicConfig, MicSource, VadConfig, VadGate, SttConfig, SttEngine};
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+  let bus = Arc::new(EventBus::new().await?);
+  bus.start().await?;
+
+  MicSource::new(bus.clone(), MicConfig::default()).start().await?;
+  VadGate::new(bus.clone(), VadConfig::default()).start().await?;
+  SttEngine::new(bus.clone(), SttConfig::default()).start().await?;
+
+  // Subscribe to final transcripts
+  let (_id, mut rx) = bus
+    .subscribe("transcript".into(), vec!["transcript.final".into()], QoSLevel::QosBatched)
+    .await?;
+  while let Some(e) = rx.recv().await {
+    println!("TRANSCRIPT: {}", String::from_utf8_lossy(&e.payload));
+  }
+  Ok(())
+}
+```
+
+## Run
 
 English-only (default):
 
@@ -54,7 +91,7 @@ English-only (default):
 WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
 WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.en.bin \
 WHISPER_LANG=en \
-cargo run -p loom-core --example mic_vad_stt --features mic,vad,stt
+cargo run
 ```
 
 Chinese (or other non-English languages):
@@ -63,7 +100,7 @@ Chinese (or other non-English languages):
 WHISPER_BIN=./whisper.cpp/build/bin/whisper-cli \
 WHISPER_MODEL_PATH=./whisper.cpp/models/ggml-base.bin \
 WHISPER_LANG=zh \
-cargo run -p loom-core --example mic_vad_stt --features mic,vad,stt
+cargo run
 ```
 
 ## Troubleshooting
