@@ -172,6 +172,24 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, config: MicConfig) -> Result
             ch_penalty: usize,
         }
 
+        /// Return a relative "quality" rank for input sample formats when picking
+        /// a capture configuration.
+        ///
+        /// Why F32 > I16 > U16 > U8?
+        /// - F32 (3): Float input provides the most headroom and avoids device-side
+        ///   clipping/AGC effects. Even though our pipeline normalizes to i16 for
+        ///   events, capturing as f32 minimizes quantization, lets us clamp/scale
+        ///   deterministically, and generally yields cleaner VAD/STT inputs. The
+        ///   f32→i16 conversion cost is negligible compared to VAD/whisper.
+        /// - I16 (2): Matches our internal PCM16 pipeline and is widely supported
+        ///   with good fidelity on many devices/drivers.
+        /// - U16 (1) / U8 (0): Unsigned PCM has a DC offset and reduced effective
+        ///   dynamic range for speech. It requires re-centering and tends to come
+        ///   from lower-quality paths. We handle conversion, but prefer signed/float
+        ///   formats when available.
+        ///
+        /// Note: This ranking only influences capture selection. Regardless of the
+        /// input format, we convert to i16 samples before emitting `audio_chunk`.
         fn fmt_rank(fmt: cpal::SampleFormat) -> usize {
             match fmt {
                 cpal::SampleFormat::F32 => 3,
