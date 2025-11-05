@@ -9,9 +9,7 @@ description = "Loom - Event-driven AI Operating System - Core Runtime"
 tokio = { version = "1.35", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-prost = "0.12"
-prost-types = "0.12"
-tonic = "0.10"
+loom-proto = { path = "../loom-proto" }
 rocksdb = "0.21"
 tracing = "0.1"
 tracing-subscriber = "0.3"
@@ -35,8 +33,6 @@ wake = ["dep:strsim"]
 tts = []
 
 [build-dependencies]
-tonic-build = "0.10"
-protoc-bin-vendored = "3"
 
 [dev-dependencies]
 mockall = "0.12"

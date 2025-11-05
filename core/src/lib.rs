@@ -25,9 +25,8 @@ pub use plugin::{Plugin, PluginManager};
 pub use router::{ModelRouter, Route, RoutingDecision};
 
 // Generated proto code
-pub mod proto {
-    include!(concat!(env!("OUT_DIR"), concat!("/", "loom.v1", ".rs")));
-}
+// Re-export proto types from the shared crate so existing paths `crate::proto::...` continue to work.
+pub use loom_proto as proto;
 
 // Error types
 use thiserror::Error;
