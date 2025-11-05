@@ -39,3 +39,6 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# whisper.cpp
+whisper.cpp/
