@@ -75,7 +75,7 @@ fn get_from_path(bin: &str) -> Option<PathBuf> {
         return if p.exists() { Some(p) } else { None };
     }
     if let Ok(paths) = std::env::var("PATH") {
-        for dir in paths.split(':') {
+        for dir in paths.split(std::env::consts::PATH_SEPARATOR) {
             let candidate = Path::new(dir).join(bin);
             if candidate.exists() {
                 return Some(candidate);

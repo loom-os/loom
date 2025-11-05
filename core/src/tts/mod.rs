@@ -4,7 +4,7 @@
 //! local CLI engines with graceful degradation:
 //! - Prefer Piper (higher quality, requires voice model)
 //! - Fallback to espeak-ng (widely available)
-//! - If neither present, logs the text and returns OK
+//! - If neither present, returns OK
 //!
 //! Headers supported on ActionCall:
 //! - voice: string (piper voice model path or name; espeak voice code)
