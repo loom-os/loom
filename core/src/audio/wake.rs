@@ -1,7 +1,11 @@
-use crate::{event::EventBus, proto::Event, QoSLevel, Result};
+use crate::{
+    audio::utils::{gen_id, now_ms},
+    event::EventBus,
+    proto::Event,
+    QoSLevel, Result,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
@@ -108,8 +112,12 @@ impl WakeWordDetector {
                 let text_norm = normalize(&text);
 
                 // Check if we're already armed for a session
-                let mut arm_guard = armed.lock().await;
-                if let Some(session_id) = arm_guard.take() {
+                // Take the session id and drop the lock immediately to avoid deadlocks
+                let armed_session: Option<String> = {
+                    let mut guard = armed.lock().await;
+                    guard.take()
+                };
+                if let Some(session_id) = armed_session {
                     // Treat this transcript as the user's query
                     let mut md = HashMap::new();
                     md.insert("session_id".into(), session_id.clone());
@@ -191,8 +199,11 @@ impl WakeWordDetector {
                             info!(target: "wake", "📨 Published immediate user.query");
                         }
                     } else {
-                        // Arm for the next utterance
-                        *armed.lock().await = Some(session_id);
+                        // Arm for the next utterance (lock only while setting)
+                        {
+                            let mut guard = armed.lock().await;
+                            *guard = Some(session_id);
+                        }
                         debug!(target: "wake", "Armed for next utterance as query");
                     }
                 }
@@ -201,21 +212,6 @@ impl WakeWordDetector {
 
         Ok(handle)
     }
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn gen_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("{:x}", nanos)
 }
 
 fn normalize(s: &str) -> String {

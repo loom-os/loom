@@ -1,5 +1,8 @@
 // Audio-related event sources and utilities
 
+// Shared audio utilities
+pub(crate) mod utils;
+
 #[cfg(feature = "mic")]
 pub mod mic;
 
@@ -23,5 +26,4 @@ pub mod wake;
 
 #[cfg(feature = "wake")]
 pub use wake::{WakeWordConfig, WakeWordDetector};
-// Shared audio utilities
-pub mod utils;
+// (utils re-export intentionally crate-visible only)
