@@ -1,4 +1,4 @@
-use loom_core::audio::{mic::MicConfig, stt::SttConfig, vad::VadConfig, wake::WakeWordConfig};
+use loom_audio::{MicConfig, SttConfig, VadConfig, WakeWordConfig};
 use loom_core::context::{PromptBundle, TokenBudget};
 use loom_core::proto::{ActionCall, QoSLevel};
 use loom_core::{ActionBroker, EventBus, Loom};
@@ -11,13 +11,17 @@ use tracing::{error, info, warn};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Logging / tracing
-    let filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info,loom_core=info,voice_agent=info".to_string());
+    let filter = std::env::var("RUST_LOG")
+        .unwrap_or_else(|_| "info,loom_core=info,voice_agent=info".to_string());
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(true)
         .init();
 
-    info!(target = "voice_agent", "Starting Voice Agent demo: Mic → VAD → STT → Wake → LLM → TTS");
+    info!(
+        target = "voice_agent",
+        "Starting Voice Agent demo: Mic → VAD → STT → Wake → LLM → TTS"
+    );
 
     // Initialize Loom runtime essentials (event bus, action broker, built-ins)
     let mut loom = Loom::new().await?;
@@ -28,23 +32,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1) Mic capture → audio.mic (audio_chunk)
     let mic_cfg = MicConfig::default();
-    let mic = loom_core::audio::mic::MicSource::new(Arc::clone(&bus), mic_cfg);
+    let mic = loom_audio::MicSource::new(Arc::clone(&bus), mic_cfg);
     let mic_handle = mic.start().await?;
 
     // 2) VAD gating → vad (speech_start/end) and audio.voiced (audio_voiced)
     let vad_cfg = VadConfig::default();
-    let vad = loom_core::audio::vad::VadGate::new(Arc::clone(&bus), vad_cfg);
+    let vad = loom_audio::VadGate::new(Arc::clone(&bus), vad_cfg);
     let vad_handle = vad.start().await?;
 
     // 3) STT utterance segmentation via whisper.cpp → transcript (transcript.final)
     let stt_cfg = SttConfig::default();
-    let stt = loom_core::audio::stt::SttEngine::new(Arc::clone(&bus), stt_cfg);
+    let stt = loom_audio::SttEngine::new(Arc::clone(&bus), stt_cfg);
     let stt_handle = stt.start().await?;
 
     // 4) Wake word on transcripts → wake (wake_word_detected) + query (user.query)
     let wake_cfg = WakeWordConfig::default();
-    let wake = loom_core::audio::wake::WakeWordDetector::new(Arc::clone(&bus), wake_cfg);
+    let wake = loom_audio::WakeWordDetector::new(Arc::clone(&bus), wake_cfg);
     let wake_handle = wake.start().await?;
+
+    // Register local TTS capability provider (moved to loom-audio)
+    {
+        let tts = loom_audio::TtsSpeakProvider::new(Arc::clone(&bus), None);
+        broker.register_provider(Arc::new(tts));
+    }
 
     // 5) Subscribe to user queries → call LLM → TTS
     let (_sub_id, mut query_rx) = bus
@@ -80,7 +90,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 context_docs: vec![],
                 history: vec![],
             };
-            let budget = TokenBudget { max_input_tokens: 2048, max_output_tokens: 256 };
+            let budget = TokenBudget {
+                max_input_tokens: 2048,
+                max_output_tokens: 256,
+            };
 
             // Invoke LLM via action broker (llm.generate)
             let call_id = format!("call_{}", current_millis());
@@ -93,10 +106,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut headers = HashMap::new();
             // Allow dynamic overrides via env
-            if let Ok(model) = std::env::var("VLLM_MODEL") { if !model.is_empty() { headers.insert("model".into(), model); } }
-            if let Ok(base) = std::env::var("VLLM_BASE_URL") { if !base.is_empty() { headers.insert("base_url".into(), base); } }
-            if let Ok(t) = std::env::var("VLLM_TEMPERATURE") { headers.insert("temperature".into(), t); }
-            if let Ok(rt) = std::env::var("REQUEST_TIMEOUT_MS") { headers.insert("request_timeout_ms".into(), rt); }
+            if let Ok(model) = std::env::var("VLLM_MODEL") {
+                if !model.is_empty() {
+                    headers.insert("model".into(), model);
+                }
+            }
+            if let Ok(base) = std::env::var("VLLM_BASE_URL") {
+                if !base.is_empty() {
+                    headers.insert("base_url".into(), base);
+                }
+            }
+            if let Ok(t) = std::env::var("VLLM_TEMPERATURE") {
+                headers.insert("temperature".into(), t);
+            }
+            if let Ok(rt) = std::env::var("REQUEST_TIMEOUT_MS") {
+                headers.insert("request_timeout_ms".into(), rt);
+            }
 
             let call = ActionCall {
                 id: call_id.clone(),
@@ -112,11 +137,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let res = broker.invoke(call).await;
             let reply_text = match res {
                 Ok(r) if r.status == (loom_core::proto::ActionStatus::ActionOk as i32) => {
-                    let v: serde_json::Value = serde_json::from_slice(&r.output).unwrap_or_default();
-                    v.get("text").and_then(|x| x.as_str()).unwrap_or("").to_string()
+                    let v: serde_json::Value =
+                        serde_json::from_slice(&r.output).unwrap_or_default();
+                    v.get("text")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string()
                 }
                 Ok(r) => {
-                    warn!(target = "voice_agent", status = r.status, "llm.generate returned non-OK status");
+                    warn!(
+                        target = "voice_agent",
+                        status = r.status,
+                        "llm.generate returned non-OK status"
+                    );
                     String::new()
                 }
                 Err(e) => {
@@ -172,15 +205,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn current_millis() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
 }
 
 fn tts_headers_from_env() -> HashMap<String, String> {
     let mut h = HashMap::new();
-    if let Ok(v) = std::env::var("TTS_VOICE") { h.insert("voice".into(), v); }
-    if let Ok(v) = std::env::var("TTS_RATE") { h.insert("rate".into(), v); }
-    if let Ok(v) = std::env::var("TTS_VOLUME") { h.insert("volume".into(), v); }
-    if let Ok(v) = std::env::var("TTS_SAMPLE_RATE") { h.insert("sample_rate".into(), v); }
-    if let Ok(v) = std::env::var("TTS_PLAYER") { h.insert("player".into(), v); }
+    if let Ok(v) = std::env::var("TTS_VOICE") {
+        h.insert("voice".into(), v);
+    }
+    if let Ok(v) = std::env::var("TTS_RATE") {
+        h.insert("rate".into(), v);
+    }
+    if let Ok(v) = std::env::var("TTS_VOLUME") {
+        h.insert("volume".into(), v);
+    }
+    if let Ok(v) = std::env::var("TTS_SAMPLE_RATE") {
+        h.insert("sample_rate".into(), v);
+    }
+    if let Ok(v) = std::env::var("TTS_PLAYER") {
+        h.insert("player".into(), v);
+    }
     h
 }

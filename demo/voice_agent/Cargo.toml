@@ -11,7 +11,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
-loom-core = { path = "../../core", features = ["mic", "vad", "stt", "wake", "tts"] }
+loom-core = { path = "../../core" }
+loom-audio = { path = "../../loom-audio", features = ["mic", "vad", "stt", "wake", "tts"] }
 
 # Ensure reqwest’s rustls TLS is available via loom-core dependency chain
 # (loom-core already enables rustls on reqwest)

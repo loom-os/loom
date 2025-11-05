@@ -1,9 +1,9 @@
 [workspace]
 members = [
     "core",
+    "demo/voice_agent",
     "loom-proto",
     "loom-audio",
-    "demo/voice_agent",
 ]
 resolver = "2"
 
