@@ -1,0 +1,21 @@
+[package]
+name = "voice_agent"
+version = "0.1.0"
+edition = "2021"
+authors = ["Loom Team"]
+description = "End-to-end voice agent demo: Mic → VAD → STT → Wake → LLM → TTS"
+
+[dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.35", features = ["full"] }
+loom-core = { path = "../../core", features = ["mic", "vad", "stt", "wake", "tts"] }
+
+# Ensure reqwest’s rustls TLS is available via loom-core dependency chain
+# (loom-core already enables rustls on reqwest)
+
+[[bin]]
+name = "voice_agent"
+path = "src/main.rs"

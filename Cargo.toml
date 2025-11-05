@@ -3,6 +3,7 @@ members = [
     "core",
     "loom-proto",
     "loom-audio",
+    "demo/voice_agent",
 ]
 resolver = "2"
 
