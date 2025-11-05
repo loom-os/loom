@@ -1,4 +1,5 @@
 # Personalized Wake Word (Enrollment-based)
+wake_word_enhancement_plan
 
 This plan proposes a robust, privacy-first wake mechanism that combines
 (1) pronunciation similarity for the specific wake phrases ("hey loom" / "loom")
