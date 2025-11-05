@@ -137,12 +137,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let res = broker.invoke(call).await;
             let reply_text = match res {
                 Ok(r) if r.status == (loom_core::proto::ActionStatus::ActionOk as i32) => {
-                    let v: serde_json::Value =
-                        serde_json::from_slice(&r.output).unwrap_or_default();
-                    v.get("text")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("")
-                        .to_string()
+                    let v: Result<serde_json::Value, _> = serde_json::from_slice(&r.output);
+                    match v {
+                        Ok(val) => val.get("text")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        Err(e) => {
+                            warn!(
+                                target = "voice_agent",
+                                error = %e,
+                                raw_output = ?r.output,
+                                "Failed to deserialize LLM response"
+                            );
+                            String::new()
+                        }
+                    }
                 }
                 Ok(r) => {
                     warn!(
@@ -169,7 +179,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 id: format!("call_{}", current_millis()),
                 capability: "tts.speak".to_string(),
                 version: "0.1.0".to_string(),
-                payload: serde_json::to_vec(&json!({"text": reply_text})).unwrap_or_default(),
+                // Safe to unwrap: serializing a simple JSON object with a string field should never fail.
+                payload: serde_json::to_vec(&json!({"text": reply_text})).unwrap(),
                 headers: tts_headers_from_env(),
                 timeout_ms: 30_000,
                 correlation_id: ev.id.clone(),
@@ -207,7 +218,7 @@ fn current_millis() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .expect("System time before UNIX_EPOCH")
         .as_millis() as i64
 }
 
