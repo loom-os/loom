@@ -1,10 +1,32 @@
+//! Text-to-Speech (TTS) capability provider under the audio module
+//!
+//! Provides a native Action capability `tts.speak` that synthesizes speech using
+//! local CLI engines with graceful degradation:
+//! - Prefer Piper (higher quality, requires voice model)
+//! - Fallback to espeak-ng (widely available)
+//! - If neither present, logs the text and returns OK
+//!
+//! Headers supported on ActionCall:
+//! - voice: string (piper voice model path or name; espeak voice code)
+//! - rate:  float (0.5–2.0, default 1.0)
+//! - volume: float (0.5–2.0, default 1.0)
+//! - sample_rate: u32 (output WAV sample rate, default 16000)
+//! - player: string (aplay|paplay|ffplay), optional preference
+//!
+//! Env overrides:
+//! - PIPER_BIN, PIPER_VOICE, PIPER_VOICE_DIR
+//! - ESPEAK_BIN
+//! - TTS_TIMEOUT_MS, TTS_TEMP_DIR, TTS_TOPIC
+//!
+//! Emits observability events on `tts` topic by default:
+//! - tts.start, tts.done, tts.error
+
 use crate::action_broker::CapabilityProvider;
 use crate::audio::utils::{gen_id, now_ms};
 use crate::event::EventBus;
 use crate::proto::{
     ActionCall, ActionError, ActionResult, ActionStatus, CapabilityDescriptor, Event, ProviderKind,
 };
-use crate::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,6 +36,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use tokio::task;
+use tokio::time::{timeout, Duration};
 use tracing::{debug, info, warn};
 
 #[derive(Clone, Debug)]
@@ -121,7 +144,7 @@ impl CapabilityProvider for TtsSpeakProvider {
         }
     }
 
-    async fn invoke(&self, call: ActionCall) -> Result<ActionResult> {
+    async fn invoke(&self, call: ActionCall) -> crate::Result<ActionResult> {
         // Parse text from payload (JSON {text}) or fall back to utf8 payload
         let text = if !call.payload.is_empty() {
             if let Ok(sp) = serde_json::from_slice::<SpeakPayload>(&call.payload) {
@@ -188,14 +211,54 @@ impl CapabilityProvider for TtsSpeakProvider {
         };
         let _ = self.bus.publish(&self.cfg.topic, start_event).await;
 
+        // If no engine detected, degrade gracefully: log and publish done without audio
+        if engine == "none" {
+            warn!(
+                target = "tts",
+                "No TTS engine detected (Piper/espeak-ng missing). Printing only."
+            );
+            let mut meta_done = meta.clone();
+            meta_done.insert("no_engine".into(), "true".into());
+            let ev = Event {
+                id: gen_id(),
+                r#type: "tts.done".to_string(),
+                timestamp_ms: now_ms(),
+                source: "tts".to_string(),
+                metadata: meta_done,
+                payload: text.as_bytes().to_vec(), // echo text for visibility
+                confidence: 1.0,
+                tags: vec![],
+                priority: 50,
+            };
+            let _ = self.bus.publish(&self.cfg.topic, ev).await;
+
+            return Ok(ActionResult {
+                id: call.id,
+                status: ActionStatus::ActionOk as i32,
+                output: serde_json::to_vec(&serde_json::json!({
+                    "engine": "none",
+                    "printed": true,
+                    "voice": voice,
+                    "rate": rate,
+                    "volume": volume,
+                    "sample_rate": sample_rate,
+                    "player": player,
+                }))
+                .unwrap_or_default(),
+                error: None,
+            });
+        }
+
         // Execute synthesis + playback in blocking task
         let cfg = self.cfg.clone();
         let bus = Arc::clone(&self.bus);
         let topic = cfg.topic.clone();
         let call_id = call.id.clone();
         let t0 = now_ms();
+        let meta_for_timeout = meta.clone();
+        let call_id_for_timeout = call_id.clone();
 
-        let res = task::spawn_blocking(move || {
+        let join = task::spawn_blocking(move || {
             // Produce WAV (or degrade)
             let wav_path = cfg.temp_dir.join(format!("tts_{}.wav", gen_id()));
             let synthesis_ms: i64;
@@ -204,8 +267,10 @@ impl CapabilityProvider for TtsSpeakProvider {
             let synth_start = now_ms();
             let synth_ok = match engine.as_str() {
                 "piper" => synth_with_piper(&cfg, &voice, rate, sample_rate, &text, &wav_path),
-                "espeak-ng" => synth_with_espeak(&cfg, &voice, rate, volume, sample_rate, &text, &wav_path),
-                _ => Ok(())
+                "espeak-ng" => {
+                    synth_with_espeak(&cfg, &voice, rate, volume, sample_rate, &text, &wav_path)
+                }
+                _ => Ok(()),
             };
             synthesis_ms = now_ms() - synth_start;
 
@@ -228,7 +293,11 @@ impl CapabilityProvider for TtsSpeakProvider {
                     id: call_id,
                     status: ActionStatus::ActionError as i32,
                     output: Vec::new(),
-                    error: Some(ActionError { code: "TTS_SYNTH_ERROR".into(), message: err.to_string(), details: Default::default() }),
+                    error: Some(ActionError {
+                        code: "TTS_SYNTH_ERROR".into(),
+                        message: err.to_string(),
+                        details: Default::default(),
+                    }),
                 };
             }
 
@@ -239,17 +308,24 @@ impl CapabilityProvider for TtsSpeakProvider {
                 }
             }
 
-            // Playback if a player is available, else just keep WAV
+            // Playback if a player is available and file exists, else just keep WAV
             let play_start = now_ms();
-            if let Some(bin) = player.as_ref().and_then(|name| get_from_path(name)) {
-                let _ = play_wav_with(&bin, &wav_path);
-            } else {
-                // Try fallback chain
-                if let Some(bin) = get_from_path("aplay").or_else(|| get_from_path("paplay")).or_else(|| get_from_path("ffplay")) {
+            if wav_path.exists() {
+                if let Some(bin) = player.as_ref().and_then(|name| get_from_path(name)) {
                     let _ = play_wav_with(&bin, &wav_path);
                 } else {
-                    info!(target = "tts", path = ?wav_path, "No audio player found; kept WAV on disk");
+                    // Try fallback chain
+                    if let Some(bin) = get_from_path("aplay")
+                        .or_else(|| get_from_path("paplay"))
+                        .or_else(|| get_from_path("ffplay"))
+                    {
+                        let _ = play_wav_with(&bin, &wav_path);
+                    } else {
+                        info!(target = "tts", path = ?wav_path, "No audio player found; kept WAV on disk");
+                    }
                 }
+            } else {
+                warn!(target = "tts", "WAV output not found; skipping playback");
             }
             playback_ms = now_ms() - play_start;
 
@@ -284,20 +360,52 @@ impl CapabilityProvider for TtsSpeakProvider {
                     "sample_rate": sample_rate,
                     "player": player,
                     "wav_path": wav_path,
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
                 error: None,
             }
-        })
-        .await
-        .map_err(|e| crate::LoomError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+        });
 
-        Ok(res)
+        // Apply internal timeout to the blocking task
+        match timeout(Duration::from_millis(self.cfg.timeout_ms), join).await {
+            Ok(join_res) => {
+                let r = join_res.map_err(|e| {
+                    crate::LoomError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e))
+                })?;
+                Ok(r)
+            }
+            Err(_) => {
+                let mut meta_err = meta_for_timeout;
+                meta_err.insert("timeout_ms".into(), self.cfg.timeout_ms.to_string());
+                let ev = Event {
+                    id: gen_id(),
+                    r#type: "tts.error".to_string(),
+                    timestamp_ms: now_ms(),
+                    source: "tts".to_string(),
+                    metadata: meta_err,
+                    payload: Vec::new(),
+                    confidence: 0.0,
+                    tags: vec![],
+                    priority: 50,
+                };
+                let _ = self.bus.publish(&self.cfg.topic, ev).await;
+                Ok(ActionResult {
+                    id: call_id_for_timeout,
+                    status: ActionStatus::ActionTimeout as i32,
+                    output: Vec::new(),
+                    error: Some(ActionError {
+                        code: "TTS_TIMEOUT".into(),
+                        message: "TTS synthesis/playback timed out".into(),
+                        details: Default::default(),
+                    }),
+                })
+            }
+        }
     }
 }
 
 fn select_engine(cfg: &TtsSpeakProviderConfig, _voice_header: &str) -> String {
     if cfg.piper_bin.is_some() {
-        // ensure voice exists either from env or header mapping; if not, still try Piper and let it fail gracefully
         return "piper".into();
     }
     if cfg.espeak_bin.is_some() {
@@ -322,7 +430,6 @@ fn resolve_piper_voice_path(cfg: &TtsSpeakProviderConfig, voice_header: &str) ->
         if candidate.exists() {
             return Some(candidate);
         }
-        // Try common extensions
         for ext in ["onnx", "onnx.gz", "pt", "pth"].iter() {
             let c = dir.join(format!("{}.{}", voice_header, ext));
             if c.exists() {
@@ -340,7 +447,7 @@ fn synth_with_piper(
     sample_rate: u32,
     text: &str,
     out_wav: &Path,
-) -> Result<()> {
+) -> crate::Result<()> {
     let piper = cfg
         .piper_bin
         .as_ref()
@@ -351,15 +458,12 @@ fn synth_with_piper(
         )
     })?;
 
-    // Piper CLI: `piper -m <model> -f <out.wav>` reading text from stdin
     let mut cmd = Command::new(piper);
     cmd.arg("-m").arg(voice_path);
     cmd.arg("-f").arg(out_wav);
-    // Approximate rate using length_scale if available (higher rate -> lower length_scale)
     let length_scale = (1.0f32 / rate).clamp(0.5, 2.0);
     cmd.arg("--length_scale")
         .arg(format!("{:.2}", length_scale));
-    // Some builds support --sample_rate
     cmd.arg("--sample_rate").arg(sample_rate.to_string());
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
@@ -392,15 +496,13 @@ fn synth_with_espeak(
     _sample_rate: u32,
     text: &str,
     out_wav: &Path,
-) -> Result<()> {
+) -> crate::Result<()> {
     let espeak = cfg
         .espeak_bin
         .as_ref()
         .ok_or_else(|| crate::LoomError::PluginError("espeak-ng not found".into()))?;
     let mut cmd = Command::new(espeak);
-    // rate mapping: 160 * rate
     let wpm = (160.0 * rate).round().clamp(80.0, 450.0) as i32;
-    // volume mapping: 100 * volume
     let amp = (100.0 * volume).round().clamp(50.0, 200.0) as i32;
     if !voice.is_empty() {
         cmd.arg("-v").arg(voice);
@@ -443,7 +545,6 @@ fn play_wav_with(player_bin: &Path, wav_path: &Path) -> std::io::Result<()> {
                 .status()?;
         }
         _ => {
-            // Try generic
             Command::new(player_bin).arg(wav_path).status()?;
         }
     }
@@ -451,16 +552,14 @@ fn play_wav_with(player_bin: &Path, wav_path: &Path) -> std::io::Result<()> {
 }
 
 fn scale_wav_pcm16_inplace(path: &Path, gain: f32) -> std::io::Result<()> {
-    // Read entire file
     let mut f = File::open(path)?;
     let mut buf = Vec::new();
     f.read_to_end(&mut buf)?;
 
-    // Simple WAV parser: find 'data' chunk; assume PCM16 LE
     if &buf[0..4] != b"RIFF" || &buf[8..12] != b"WAVE" {
-        return Ok(()); // not a WAV, ignore
+        return Ok(());
     }
-    let mut idx = 12; // after RIFF/WAVE
+    let mut idx = 12;
     let mut data_start = None;
     let mut data_len = 0usize;
     while idx + 8 <= buf.len() {
@@ -484,7 +583,6 @@ fn scale_wav_pcm16_inplace(path: &Path, gain: f32) -> std::io::Result<()> {
             chunk[0] = bytes[0];
             chunk[1] = bytes[1];
         }
-        // Write back
         let mut out = File::create(path)?;
         out.write_all(&buf)?;
     }

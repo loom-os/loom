@@ -32,6 +32,7 @@ mic = ["dep:cpal"]
 vad = ["dep:webrtc-vad"]
 stt = []
 wake = ["dep:strsim"]
+tts = []
 
 [build-dependencies]
 tonic-build = "0.10"

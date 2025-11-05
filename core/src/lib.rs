@@ -12,7 +12,7 @@ pub mod plugin;
 pub mod router;
 pub mod storage;
 pub mod telemetry;
-pub mod tts;
+// tts now lives under audio::tts and is feature-gated
 
 // Export core types
 pub use action_broker::{ActionBroker, CapabilityProvider};
@@ -85,9 +85,10 @@ impl Loom {
                 );
             }
 
-            // TTS provider (best-effort)
+            // TTS provider (best-effort); gated behind feature "tts"
+            #[cfg(feature = "tts")]
             {
-                use crate::tts::{TtsSpeakProvider, TtsSpeakProviderConfig};
+                use crate::audio::tts::{TtsSpeakProvider, TtsSpeakProviderConfig};
                 let tts = TtsSpeakProvider::new(
                     std::sync::Arc::clone(&event_bus),
                     None::<TtsSpeakProviderConfig>,

@@ -26,4 +26,10 @@ pub mod wake;
 
 #[cfg(feature = "wake")]
 pub use wake::{WakeWordConfig, WakeWordDetector};
+
+#[cfg(feature = "tts")]
+pub mod tts;
+
+#[cfg(feature = "tts")]
+pub use tts::{TtsSpeakProvider, TtsSpeakProviderConfig};
 // (utils re-export intentionally crate-visible only)
