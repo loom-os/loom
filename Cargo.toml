@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "core",
+    "loom-proto",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"

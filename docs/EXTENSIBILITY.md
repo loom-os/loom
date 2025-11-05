@@ -8,7 +8,7 @@ Plugin tiers (choose by trust/perf/isolation):
 
 Protocol
 
-- Protobuf‑defined plugin API (`core/proto/plugin.proto`): init, handle event, health, shutdown
+- Protobuf‑defined plugin API (`loom-proto/proto/plugin.proto`): init, handle event, health, shutdown
 - Capability declaration during init; runtime issues scoped tokens
 
 Security

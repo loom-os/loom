@@ -1,0 +1,19 @@
+[package]
+name = "loom-proto"
+version = "0.1.0"
+edition = "2021"
+authors = ["Loom Team"]
+description = "Loom shared protobuf/gRPC types (v1)"
+
+[lib]
+name = "loom_proto"
+path = "src/lib.rs"
+
+[dependencies]
+prost = "0.12"
+prost-types = "0.12"
+tonic = { version = "0.10", default-features = false, features = ["transport", "prost", "codegen"] }
+
+[build-dependencies]
+tonic-build = "0.10"
+protoc-bin-vendored = "3"
