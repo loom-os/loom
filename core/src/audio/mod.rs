@@ -23,3 +23,5 @@ pub mod wake;
 
 #[cfg(feature = "wake")]
 pub use wake::{WakeWordConfig, WakeWordDetector};
+// Shared audio utilities
+pub mod utils;

@@ -1,3 +1,4 @@
+use crate::audio::utils::{gen_id, now_ms};
 use crate::{event::EventBus, proto::Event, QoSLevel, Result};
 use std::collections::HashMap;
 use std::io::Write;
@@ -117,20 +118,7 @@ impl SttEngine {
     }
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn gen_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("{:x}", nanos)
-}
+// now_ms and gen_id are provided by audio::utils
 
 /// Utterance buffer for audio frames between speech_start and speech_end
 #[derive(Debug)]
@@ -252,7 +240,10 @@ async fn run_stt(bus: Arc<EventBus>, cfg: SttConfig) -> Result<()> {
             if ev.r#type == "audio_voiced" {
                 // Decode payload as i16 samples
                 if ev.payload.len() % 2 != 0 {
-                    warn!("audio_voiced payload length not even");
+                    warn!(
+                        "audio_voiced payload length ({}) is not even, expected i16 samples (2 bytes each)",
+                        ev.payload.len()
+                    );
                     continue;
                 }
 
