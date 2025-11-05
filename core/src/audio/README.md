@@ -84,6 +84,8 @@ Configuration:
 - `WAKE_PHRASES`: Comma-separated list of phrases (default: `"hey loom,loom"`)
 - `WAKE_FUZZY_DISTANCE`: Max edit distance (default: `1`)
 - `WAKE_MIN_QUERY_CHARS`: Min chars to consider same-utterance query (default: `4`)
+- `WAKE_MATCH_ANYWHERE`: Allow matching phrases anywhere in the sentence (default: `true`)
+- `WAKE_JW_THRESHOLD`: Jaro–Winkler similarity threshold 0.0–1.0 (default: `0.90`) — higher is stricter
 - `WAKE_TOPIC`: Output topic for wake events (default: `"wake"`)
 - `QUERY_TOPIC`: Output topic for queries (default: `"query"`)
 
@@ -216,10 +218,13 @@ Notes:
 
 ### VAD
 
-- `WAKE_MATCH_ANYWHERE`: Allow matching phrases anywhere in the sentence (default: `true`)
-- `WAKE_JW_THRESHOLD`: Jaro–Winkler similarity threshold 0.0–1.0 (default: `0.90`) — higher is stricter
-- `VAD_VOICED_TOPIC`: Voiced audio topic (default: "audio.voiced")
-- `VAD_TOPIC`: VAD event topic (default: "vad")
+- `VAD_MODE`: Aggressiveness (0–3, default: `2`)
+- `VAD_FRAME_MS`: Frame size in milliseconds (one of `10`, `20`, `30`; default: `20`)
+- `VAD_MIN_START_MS`: Minimum voiced duration before emitting `vad.speech_start` (default: `60`)
+- `VAD_HANGOVER_MS`: Delay after last voiced frame before emitting `vad.speech_end` (default: `200`)
+- `VAD_INPUT_TOPIC`: Input audio chunk topic (default: `"audio.mic"`)
+- `VAD_VOICED_TOPIC`: Voiced audio topic (default: `"audio.voiced"`)
+- `VAD_TOPIC`: VAD event topic (default: `"vad"`)
 
 ### STT
 
