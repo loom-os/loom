@@ -58,14 +58,16 @@ More docs:
 ### Prerequisites
 
 - Rust 1.70+
-- Protocol Buffers compiler
+- Protocol Buffers compiler (vendored automatically via `protoc-bin-vendored` in `loom-proto`; no system install required)
 
 ### Installation
 
 ```bash
 git clone https://github.com/yourusername/loom.git
-cd loom/core
-cargo build --release
+cd loom
+cargo build --release                     # build the whole workspace
+# or build just the core crate
+cargo build -p loom-core --release
 ```
 
 ### Basic Usage
@@ -116,13 +118,15 @@ These influence Local/Cloud/Hybrid selection; Hybrid will quick-pass locally the
 
 ```
 loom/
+├── Cargo.toml         # Workspace manifest (core, loom-proto, ...)
 ├── core/              # Rust core runtime
 │   ├── src/           # Event bus, agents, router, plugins
 │   │   └── agent/     # Agent module (split files)
 │   │       ├── behavior.rs   # AgentBehavior trait
 │   │       ├── instance.rs   # Agent struct & routing/hybrid logic
 │   │       └── runtime.rs    # AgentRuntime manager
-│   └── proto/         # Protobuf definitions
+├── loom-proto/        # Shared protobuf definitions + generated Rust
+│   └── proto/         # Protobuf (*.proto) definitions
 ├── plugins/           # Plugins
 ├── examples/          # Demo applications
 ├── infra/             # Infrastructure (Docker, k8s)
@@ -170,7 +174,7 @@ Loom supports a tiered extension model:
 - Tier 2 — WASM plugins for third‑party and sandboxed execution (portable, capability‑based security). For mobile, prefer AOT runtimes (e.g., WAMR) due to iOS JIT restrictions
 - Tier 3 — Out‑of‑process plugins over gRPC/UDS for heavyweight or remote services (strong isolation, language‑agnostic)
 
-All tiers share the same protobuf‑defined plugin protocol (see `core/proto/plugin.proto`).
+All tiers share the same protobuf‑defined plugin protocol (see `loom-proto/proto/plugin.proto`).
 
 ## 📐 Scope: mobile‑first core, feature‑gated plus
 
