@@ -242,7 +242,10 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, config: MicConfig) -> Result
             cpal::SampleFormat::U16 => "u16",
             cpal::SampleFormat::U8 => "u8",
             other => {
-                warn!("Using uncommon sample format: {:?}", other);
+                warn!(
+                    "Using uncommon sample format: {:?}. Audio quality may be degraded. Consider configuring your device to use F32 or I16 format.",
+                    other
+                );
                 "other"
             }
         };

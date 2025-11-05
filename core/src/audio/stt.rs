@@ -252,7 +252,10 @@ async fn run_stt(bus: Arc<EventBus>, cfg: SttConfig) -> Result<()> {
             if ev.r#type == "audio_voiced" {
                 // Decode payload as i16 samples
                 if ev.payload.len() % 2 != 0 {
-                    warn!("audio_voiced payload length not even");
+                    warn!(
+                        "audio_voiced payload length ({}) is not even, expected i16 samples (2 bytes each)",
+                        ev.payload.len()
+                    );
                     continue;
                 }
 

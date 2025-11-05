@@ -234,8 +234,9 @@ async fn run_vad(bus: Arc<EventBus>, cfg: VadConfig) -> Result<()> {
                 if !in_speech {
                     pre_speech_buffer.push_back(decision.frame_data.clone());
                     // Cap at min_start_frames to avoid unbounded growth
-                    while pre_speech_buffer.len() > min_start_frames as usize {
-                        pre_speech_buffer.pop_front();
+                    if pre_speech_buffer.len() > min_start_frames as usize {
+                        let excess = pre_speech_buffer.len() - min_start_frames as usize;
+                        pre_speech_buffer.drain(0..excess);
                     }
                 }
             } else {

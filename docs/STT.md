@@ -69,7 +69,7 @@ cargo run -p loom-core --example mic_vad_stt --features mic,vad,stt
 ## Troubleshooting
 
 - Whisper prints `[BLANK_AUDIO]` or transcripts are empty:
-  - Ensure mic input isn’t U8/8‑bit; Loom prefers F32/I16 and falls back smartly. Set `MIC_DEVICE` if needed.
+  - Ensure mic input isn’t U8/8-bit; Loom prefers F32/I16 and falls back smartly. Set `MIC_DEVICE` if needed.
   - Check input volume in GNOME Settings → Sound → Input (or use a USB headset).
   - Verify `/tmp/utterance_*.wav` quality; play with `aplay /tmp/utterance_*.wav`.
   - Confirm `test_whisper.sh` works on a known-good sample.
