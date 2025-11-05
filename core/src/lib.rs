@@ -78,7 +78,10 @@ impl Loom {
             if let Ok(provider) = LlmGenerateProvider::new(None) {
                 action_broker.register_provider(SyncArc::new(provider));
             } else {
-                tracing::warn!(target = "loom", "Failed to initialize LLM provider from env; llm.generate not registered");
+                tracing::warn!(
+                    target = "loom",
+                    "Failed to initialize LLM provider from env; llm.generate not registered"
+                );
             }
         }
         Ok(Self {
