@@ -34,6 +34,6 @@ fn adapter_respects_char_budget_and_builds_messages() {
     assert!(
         fused.chars().count() <= 128 + 64,
         "fused too large: {} chars",
-        fused.len()
+        fused.chars().count()
     );
 }
