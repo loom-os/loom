@@ -9,7 +9,7 @@ pub fn promptbundle_to_messages_and_text(
     // Approximate token->char ratio; conservative safety factor ~4 chars/token
     let char_budget = budget.max_input_tokens.saturating_mul(4);
 
-    let mut system = bundle.system.clone();
+    let system = bundle.system.clone();
     let mut context_block = String::new();
     if !bundle.context_docs.is_empty() {
         context_block.push_str("Context:\n");
@@ -33,15 +33,10 @@ pub fn promptbundle_to_messages_and_text(
     }
     // If still too large, truncate instructions
     if assemble_len > char_budget && !instructions.is_empty() {
-        let keep = instructions
-            .char_indices()
-            .take_while(|(i, _)| {
-                *i < char_budget.saturating_sub(system.len() + context_block.len())
-            })
-            .last()
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        instructions.truncate(keep);
+        // Use character-based truncation to avoid slicing on a non-UTF8 boundary
+        let allowed_chars =
+            char_budget.saturating_sub(system.chars().count() + context_block.chars().count());
+        instructions = instructions.chars().take(allowed_chars).collect();
     }
 
     // Build chat messages (system + optional context + history as user + user instructions)
