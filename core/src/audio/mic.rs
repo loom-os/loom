@@ -109,6 +109,51 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, config: MicConfig) -> Result
         // Choose host and input device
         let host = cpal::default_host();
 
+        // Optional: Log available input devices and their basic capabilities
+        if std::env::var("MIC_LOG_DEVICES").is_ok() {
+            match host.input_devices() {
+                Ok(devices) => {
+                    info!("Listing input devices (set MIC_DEVICE to choose by substring):");
+                    for dev in devices {
+                        match dev.name() {
+                            Ok(name) => {
+                                let mut caps = String::new();
+                                if let Ok(mut cfgs) = dev.supported_input_configs() {
+                                    // Just summarize min..max sample rates and max channels seen
+                                    let mut min_sr = u32::MAX;
+                                    let mut max_sr = 0u32;
+                                    let mut max_ch = 0u16;
+                                    while let Some(r) = cfgs.next() {
+                                        let min = r.min_sample_rate().0;
+                                        let max = r.max_sample_rate().0;
+                                        let ch = r.channels();
+                                        if min < min_sr {
+                                            min_sr = min;
+                                        }
+                                        if max > max_sr {
+                                            max_sr = max;
+                                        }
+                                        if ch > max_ch {
+                                            max_ch = ch;
+                                        }
+                                    }
+                                    if min_sr != u32::MAX {
+                                        caps = format!(
+                                            " ({}-{} Hz, up to {}ch)",
+                                            min_sr, max_sr, max_ch
+                                        );
+                                    }
+                                }
+                                info!(" • {}{}", name, caps);
+                            }
+                            Err(_) => info!(" • <unamed device>"),
+                        }
+                    }
+                }
+                Err(e) => warn!("Failed to list input devices: {}", e),
+            }
+        }
+
         // Enumerate devices and optionally filter by name
         let input_device = if let Some(ref needle) = cfg_for_thread.device_name {
             let mut found: Option<cpal::Device> = None;
@@ -246,23 +291,15 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, config: MicConfig) -> Result
                 "other"
             }
         };
-        if actual_rate != cfg_for_thread.sample_rate_hz
-            || actual_channels != cfg_for_thread.channels
-        {
-            warn!(
-                "Mic using rate={}Hz channels={} fmt={} (requested {}Hz/{}ch)",
-                actual_rate,
-                actual_channels,
-                fmt_str,
-                cfg_for_thread.sample_rate_hz,
-                cfg_for_thread.channels
-            );
-        } else {
-            info!(
-                "Mic configured rate={}Hz channels={} device=\"{}\" fmt={}",
-                actual_rate, actual_channels, device_name, fmt_str
-            );
-        }
+        info!(
+            "Mic device=\"{}\" fmt={} using rate={}Hz channels={} (requested {}Hz/{}ch)",
+            device_name,
+            fmt_str,
+            actual_rate,
+            actual_channels,
+            cfg_for_thread.sample_rate_hz,
+            cfg_for_thread.channels
+        );
 
         let samples_per_chunk = ((actual_rate as u64) * (cfg_for_thread.chunk_ms as u64) / 1000)
             as usize

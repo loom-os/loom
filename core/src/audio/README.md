@@ -59,6 +59,34 @@ Transcribes speech segments to text using whisper.cpp.
 
 See [STT Guide](../../docs/STT.md) for details.
 
+### 4. Wake Word on Transcript (`wake.rs`)
+
+Lightweight wake word detection using final transcripts (no extra model).
+
+**Features**:
+
+- Listens to `transcript.final` events and matches phrases like "hey loom" or "loom"
+- Fuzzy matching via Levenshtein distance (configurable, default <= 1)
+- Publishes `wake_word_detected` with a fresh `session_id`
+- If the same utterance has remainder after the wake phrase, publishes `user.query` immediately; otherwise arms and treats the next utterance as the query
+
+**Event Input**: `transcript.final` from topic `transcript`
+
+**Event Output**:
+
+- `wake_word_detected` on topic `wake`
+- `user.query` on topic `query`
+
+Enable with feature flag `wake`.
+
+Configuration:
+
+- `WAKE_PHRASES`: Comma-separated list of phrases (default: `"hey loom,loom"`)
+- `WAKE_FUZZY_DISTANCE`: Max edit distance (default: `1`)
+- `WAKE_MIN_QUERY_CHARS`: Min chars to consider same-utterance query (default: `4`)
+- `WAKE_TOPIC`: Output topic for wake events (default: `"wake"`)
+- `QUERY_TOPIC`: Output topic for queries (default: `"query"`)
+
 ## Quick Start
 
 ### Prerequisites

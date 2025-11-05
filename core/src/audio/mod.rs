@@ -17,3 +17,9 @@ pub mod stt;
 
 #[cfg(feature = "stt")]
 pub use stt::{SttConfig, SttEngine};
+
+#[cfg(feature = "wake")]
+pub mod wake;
+
+#[cfg(feature = "wake")]
+pub use wake::{WakeWordConfig, WakeWordDetector};

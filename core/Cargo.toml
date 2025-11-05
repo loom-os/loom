@@ -22,6 +22,7 @@ crossbeam = "0.8"
 chrono = "0.4"
 cpal = { version = "0.15", optional = true }
 webrtc-vad = { version = "0.4", optional = true }
+strsim = { version = "0.11", optional = true }
 
 [features]
 default = []
@@ -29,6 +30,7 @@ default = []
 mic = ["dep:cpal"]
 vad = ["dep:webrtc-vad"]
 stt = []
+wake = ["dep:strsim"]
 
 [build-dependencies]
 tonic-build = "0.10"
@@ -59,3 +61,7 @@ required-features = ["mic", "vad"]
 [[example]]
 name = "mic_vad_stt"
 required-features = ["mic", "vad", "stt"]
+
+[[example]]
+name = "wake_from_transcript"
+required-features = ["wake"]

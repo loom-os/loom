@@ -38,6 +38,8 @@
 //!   cargo run -p loom-core --example mic_vad_stt --features mic,vad,stt
 
 use loom_core::audio::{MicConfig, MicSource, SttConfig, SttEngine, VadConfig, VadGate};
+#[cfg(feature = "wake")]
+use loom_core::audio::{WakeWordConfig, WakeWordDetector};
 use loom_core::{Event, EventBus, QoSLevel, Result};
 use std::sync::Arc;
 use tracing::info;
@@ -159,6 +161,35 @@ async fn main() -> Result<()> {
     let _stt_handle = stt_engine.start().await?;
     info!("✅ STT engine started");
 
+    // Optionally start Wake Word detector (transcript-based)
+    #[cfg(feature = "wake")]
+    {
+        let wake = WakeWordDetector::new(Arc::clone(&event_bus), WakeWordConfig::default());
+        let _wake_handle = wake.start().await?;
+        info!("✅ Wake detector started");
+    }
+
+    // Print the actual device used (from first audio_chunk metadata)
+    {
+        let (sub_id_dev, mut rx_dev) = event_bus
+            .subscribe(
+                "audio.mic".into(),
+                vec!["audio_chunk".to_string()],
+                QoSLevel::QosRealtime,
+            )
+            .await?;
+        if let Some(ev) = rx_dev.recv().await {
+            let dev = ev.metadata.get("device").cloned().unwrap_or_default();
+            let rate = ev.metadata.get("sample_rate").cloned().unwrap_or_default();
+            let ch = ev.metadata.get("channels").cloned().unwrap_or_default();
+            info!(
+                "🎛️  Mic device in use: \"{}\" ({} Hz, {} ch)",
+                dev, rate, ch
+            );
+        }
+        // Drop subscription
+        let _ = event_bus.unsubscribe(&sub_id_dev).await;
+    }
     info!("");
     info!("🎙️  Listening... speak into your microphone!");
     info!("   Your speech will be transcribed in real-time.");
@@ -166,19 +197,71 @@ async fn main() -> Result<()> {
     info!("");
 
     // Process events
-    tokio::select! {
-        _ = async {
-            while let Some(event) = vad_rx.recv().await {
-                handle_event(&event);
+    #[cfg(not(feature = "wake"))]
+    {
+        tokio::select! {
+            _ = async {
+                while let Some(event) = vad_rx.recv().await {
+                    handle_event(&event);
+                }
+            } => {},
+            _ = async {
+                while let Some(event) = transcript_rx.recv().await {
+                    handle_event(&event);
+                }
+            } => {},
+            _ = tokio::signal::ctrl_c() => {
+                info!("Received Ctrl+C, shutting down...");
             }
-        } => {},
-        _ = async {
-            while let Some(event) = transcript_rx.recv().await {
-                handle_event(&event);
+        }
+    }
+
+    #[cfg(feature = "wake")]
+    {
+        // Subscribe to wake + query topics
+        let (_w_id, mut w_rx) = event_bus
+            .subscribe(
+                "wake".into(),
+                vec!["wake_word_detected".into()],
+                QoSLevel::QosRealtime,
+            )
+            .await?;
+        let (_q_id, mut q_rx) = event_bus
+            .subscribe(
+                "query".into(),
+                vec!["user.query".into()],
+                QoSLevel::QosRealtime,
+            )
+            .await?;
+
+        tokio::select! {
+            _ = async {
+                while let Some(event) = vad_rx.recv().await {
+                    handle_event(&event);
+                }
+            } => {},
+            _ = async {
+                while let Some(event) = transcript_rx.recv().await {
+                    handle_event(&event);
+                }
+            } => {},
+            _ = async {
+                while let Some(event) = w_rx.recv().await {
+                    let phrase = event.metadata.get("phrase").cloned().unwrap_or_default();
+                    let sid = event.metadata.get("session_id").cloned().unwrap_or_default();
+                    info!("🔔 WAKE: phrase='{}' session={}", phrase, sid);
+                }
+            } => {},
+            _ = async {
+                while let Some(event) = q_rx.recv().await {
+                    let text = event.metadata.get("text").cloned().unwrap_or_default();
+                    let sid = event.metadata.get("session_id").cloned().unwrap_or_default();
+                    info!("💬 QUERY ({}): {}", sid, text);
+                }
+            } => {},
+            _ = tokio::signal::ctrl_c() => {
+                info!("Received Ctrl+C, shutting down...");
             }
-        } => {},
-        _ = tokio::signal::ctrl_c() => {
-            info!("Received Ctrl+C, shutting down...");
         }
     }
 
