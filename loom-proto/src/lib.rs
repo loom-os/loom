@@ -3,4 +3,4 @@
 #![allow(clippy::all)]
 #![allow(warnings)]
 
-include!(concat!(env!("OUT_DIR"), concat!("/", "loom.v1", ".rs")));
+include!(concat!(env!("OUT_DIR"), "/loom.v1.rs"));
