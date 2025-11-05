@@ -2,6 +2,7 @@
 members = [
     "core",
     "loom-proto",
+    "loom-audio",
 ]
 resolver = "2"
 

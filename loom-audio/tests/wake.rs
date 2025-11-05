@@ -3,7 +3,7 @@
 // When the 'wake' feature is enabled, run the real tests
 #[cfg(feature = "wake")]
 mod wake_tests {
-    use loom_core::audio::{WakeWordConfig, WakeWordDetector};
+    use loom_audio::{WakeWordConfig, WakeWordDetector};
     use loom_core::{Event, EventBus, QoSLevel};
     use std::collections::HashMap;
     use std::sync::Arc;

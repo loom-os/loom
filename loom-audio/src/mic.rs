@@ -5,9 +5,9 @@
 //!   sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
 //! Then run the example with:
 //!   cargo run -p loom-core --example mic_capture --features mic
-use crate::audio::utils::{gen_id, now_ms};
-use crate::{event::EventBus, proto::Event, LoomError, Result};
+use crate::utils::{gen_id, now_ms};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use loom_core::{event::EventBus, proto::Event, LoomError, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;

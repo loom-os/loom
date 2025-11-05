@@ -21,13 +21,13 @@
 //! Emits observability events on `tts` topic by default:
 //! - tts.start, tts.done, tts.error
 
-use crate::action_broker::CapabilityProvider;
-use crate::audio::utils::{gen_id, now_ms};
-use crate::event::EventBus;
-use crate::proto::{
+use crate::utils::{gen_id, now_ms};
+use async_trait::async_trait;
+use loom_core::action_broker::CapabilityProvider;
+use loom_core::event::EventBus;
+use loom_core::proto::{
     ActionCall, ActionError, ActionResult, ActionStatus, CapabilityDescriptor, Event, ProviderKind,
 };
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
@@ -93,13 +93,16 @@ fn get_from_env_or_path(env_key: &str, default_bin: &str) -> Option<PathBuf> {
 }
 
 fn get_from_path(bin: &str) -> Option<PathBuf> {
+    // If a path-like string is provided, respect it directly
     if bin.contains(std::path::MAIN_SEPARATOR) {
         let p = PathBuf::from(bin);
         return if p.exists() { Some(p) } else { None };
     }
-    if let Ok(paths) = std::env::var("PATH") {
-        for dir in paths.split(std::env::consts::PATH_SEPARATOR) {
-            let candidate = Path::new(dir).join(bin);
+
+    // Search PATH portably
+    if let Some(paths_os) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths_os) {
+            let candidate = dir.join(bin);
             if candidate.exists() {
                 return Some(candidate);
             }
@@ -144,7 +147,7 @@ impl CapabilityProvider for TtsSpeakProvider {
         }
     }
 
-    async fn invoke(&self, call: ActionCall) -> crate::Result<ActionResult> {
+    async fn invoke(&self, call: ActionCall) -> loom_core::Result<ActionResult> {
         // Parse text from payload (JSON {text}) or fall back to utf8 payload
         let text = if !call.payload.is_empty() {
             if let Ok(sp) = serde_json::from_slice::<SpeakPayload>(&call.payload) {
@@ -370,7 +373,7 @@ impl CapabilityProvider for TtsSpeakProvider {
         match timeout(Duration::from_millis(self.cfg.timeout_ms), join).await {
             Ok(join_res) => {
                 let r = join_res.map_err(|e| {
-                    crate::LoomError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    loom_core::LoomError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e))
                 })?;
                 Ok(r)
             }
@@ -447,13 +450,13 @@ fn synth_with_piper(
     sample_rate: u32,
     text: &str,
     out_wav: &Path,
-) -> crate::Result<()> {
+) -> loom_core::Result<()> {
     let piper = cfg
         .piper_bin
         .as_ref()
-        .ok_or_else(|| crate::LoomError::PluginError("Piper binary not found".into()))?;
+        .ok_or_else(|| loom_core::LoomError::PluginError("Piper binary not found".into()))?;
     let voice_path = resolve_piper_voice_path(cfg, voice).ok_or_else(|| {
-        crate::LoomError::PluginError(
+        loom_core::LoomError::PluginError(
             "Piper voice not found; set PIPER_VOICE or headers.voice".into(),
         )
     })?;
@@ -470,17 +473,17 @@ fn synth_with_piper(
     cmd.stderr(Stdio::piped());
 
     debug!(target = "tts", command = ?cmd, "Running piper");
-    let mut child = cmd.spawn().map_err(crate::LoomError::IoError)?;
+    let mut child = cmd.spawn().map_err(loom_core::LoomError::IoError)?;
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(text.as_bytes())
-            .map_err(crate::LoomError::IoError)?;
+            .map_err(loom_core::LoomError::IoError)?;
     }
     let output = child
         .wait_with_output()
-        .map_err(crate::LoomError::IoError)?;
+        .map_err(loom_core::LoomError::IoError)?;
     if !output.status.success() {
-        return Err(crate::LoomError::PluginError(format!(
+        return Err(loom_core::LoomError::PluginError(format!(
             "Piper failed: {}",
             String::from_utf8_lossy(&output.stderr)
         )));
@@ -496,11 +499,11 @@ fn synth_with_espeak(
     _sample_rate: u32,
     text: &str,
     out_wav: &Path,
-) -> crate::Result<()> {
+) -> loom_core::Result<()> {
     let espeak = cfg
         .espeak_bin
         .as_ref()
-        .ok_or_else(|| crate::LoomError::PluginError("espeak-ng not found".into()))?;
+        .ok_or_else(|| loom_core::LoomError::PluginError("espeak-ng not found".into()))?;
     let mut cmd = Command::new(espeak);
     let wpm = (160.0 * rate).round().clamp(80.0, 450.0) as i32;
     let amp = (100.0 * volume).round().clamp(50.0, 200.0) as i32;
@@ -515,9 +518,9 @@ fn synth_with_espeak(
     let output = Command::new(cmd.get_program())
         .args(cmd.get_args())
         .output()
-        .map_err(crate::LoomError::IoError)?;
+        .map_err(loom_core::LoomError::IoError)?;
     if !output.status.success() {
-        return Err(crate::LoomError::PluginError(format!(
+        return Err(loom_core::LoomError::PluginError(format!(
             "espeak-ng failed: {}",
             String::from_utf8_lossy(&output.stderr)
         )));

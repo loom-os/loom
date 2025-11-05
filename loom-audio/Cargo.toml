@@ -1,0 +1,29 @@
+[package]
+name = "loom-audio"
+version = "0.1.0"
+edition = "2021"
+authors = ["Loom Team"]
+description = "Loom audio capabilities: mic, VAD, STT, TTS, wake"
+
+[lib]
+name = "loom_audio"
+path = "src/lib.rs"
+
+[dependencies]
+loom-core = { path = "../core" }
+tokio = { version = "1.35", features = ["rt-multi-thread", "time", "sync"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+async-trait = "0.1"
+cpal = { version = "0.15", optional = true }
+webrtc-vad = { version = "0.4", optional = true }
+strsim = { version = "0.11", optional = true }
+
+[features]
+default = []
+mic = ["dep:cpal"]
+vad = ["dep:webrtc-vad"]
+stt = []
+wake = ["dep:strsim"]
+tts = []
