@@ -32,10 +32,10 @@ pub trait AgentBehavior: Send + Sync {
 
 - Owns config, state, behavior, an event mailbox, ActionBroker, EventBus, and a ModelRouter.
 - Event loop:
-  1) Route event via ModelRouter with an AgentContext snapshot
-  2) Call behavior.on_event with route annotations in event.metadata
-  3) Execute returned actions (QoS derived from action.priority)
-  4) Publish observability events
+  1. Route event via ModelRouter with an AgentContext snapshot
+  2. Call behavior.on_event with route annotations in event.metadata
+  3. Execute returned actions (QoS derived from action.priority)
+  4. Publish observability events
 
 Routing modes:
 

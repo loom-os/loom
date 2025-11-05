@@ -5,13 +5,13 @@ HTTP client, prompt adapter, and capability provider for OpenAI-compatible backe
 ## Components
 
 - client.rs — `LlmClient`, `LlmClientConfig`, and `LlmResponse`
-	- Prefers `/v1/responses` and falls back to `/v1/chat/completions`
-	- Extracts assistant text from multiple compatible shapes
+  - Prefers `/v1/responses` and falls back to `/v1/chat/completions`
+  - Extracts assistant text from multiple compatible shapes
 - adapter.rs — `promptbundle_to_messages_and_text`
-	- Converts a `PromptBundle` into chat `messages` and a single fused `input` text
-	- Character-based budgeting and trimming (UTF‑8 safe)
+  - Converts a `PromptBundle` into chat `messages` and a single fused `input` text
+  - Character-based budgeting and trimming (UTF‑8 safe)
 - provider.rs — `LlmGenerateProvider`
-	- Native capability registered as `llm.generate` via the `ActionBroker`
+  - Native capability registered as `llm.generate` via the `ActionBroker`
 
 ## Prompt adapter details
 
@@ -23,8 +23,8 @@ Algorithm:
 2. Keep `history` (user turns) oldest→newest and trim the oldest first to fit the budget
 3. If still over budget, truncate `instructions` using character counts
 4. Emit:
-	 - Chat messages: `system`, optional `Context:` (as system), each history line as `user`, and `instructions` as final `user`
-	 - Fused text for `/responses`: `System:`, `Context:`, `History:`, `User:` blocks
+   - Chat messages: `system`, optional `Context:` (as system), each history line as `user`, and `instructions` as final `user`
+   - Fused text for `/responses`: `System:`, `Context:`, `History:`, `User:` blocks
 
 Budgeting: we approximate 4 characters per token to compute a conservative character budget from `max_input_tokens`. All slicing uses `chars()` to be UTF‑8 safe.
 
@@ -48,9 +48,14 @@ The provider wraps `LlmClient::generate` and accepts a JSON payload:
 
 ```json
 {
-	"input": "optional plain text",
-	"bundle": { "system": "...", "instructions": "...", "context_docs": ["..."], "history": ["..."] },
-	"budget": { "max_input_tokens": 2048, "max_output_tokens": 512 }
+  "input": "optional plain text",
+  "bundle": {
+    "system": "...",
+    "instructions": "...",
+    "context_docs": ["..."],
+    "history": ["..."]
+  },
+  "budget": { "max_input_tokens": 2048, "max_output_tokens": 512 }
 }
 ```
 
