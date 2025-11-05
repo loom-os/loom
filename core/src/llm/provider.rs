@@ -34,11 +34,18 @@ impl LlmGenerateProvider {
     ) -> crate::Result<ActionResult> {
         let payload: GeneratePayload = match serde_json::from_slice(&call.payload) {
             Ok(v) => v,
-            Err(_) => GeneratePayload {
-                input: String::new(),
-                bundle: None,
-                budget: None,
-            },
+            Err(e) => {
+                return Ok(ActionResult {
+                    id: call.id.clone(),
+                    status: ActionStatus::ActionError as i32,
+                    output: Vec::new(),
+                    error: Some(ActionError {
+                        code: "DESERIALIZATION_ERROR".to_string(),
+                        message: format!("Failed to deserialize payload: {}", e),
+                        details: Default::default(),
+                    }),
+                });
+            }
         };
 
         let bundle = if let Some(b) = payload.bundle {
