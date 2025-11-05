@@ -1,10 +1,10 @@
+use crate::audio::utils::{gen_id, now_ms};
 use crate::{event::EventBus, proto::Event, QoSLevel, Result};
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
@@ -117,20 +117,7 @@ impl SttEngine {
     }
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn gen_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("{:x}", nanos)
-}
+// now_ms and gen_id are provided by audio::utils
 
 /// Utterance buffer for audio frames between speech_start and speech_end
 #[derive(Debug)]

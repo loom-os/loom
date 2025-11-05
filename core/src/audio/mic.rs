@@ -5,11 +5,11 @@
 //!   sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
 //! Then run the example with:
 //!   cargo run -p loom-core --example mic_capture --features mic
+use crate::audio::utils::{gen_id, now_ms};
 use crate::{event::EventBus, proto::Event, LoomError, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -77,20 +77,7 @@ impl MicSource {
     }
 }
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn gen_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("{:x}", nanos)
-}
+// now_ms and gen_id are provided by audio::utils
 
 struct AudioPacket {
     samples: Vec<i16>,

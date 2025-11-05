@@ -17,3 +17,6 @@ pub mod stt;
 
 #[cfg(feature = "stt")]
 pub use stt::{SttConfig, SttEngine};
+
+// Shared audio utilities
+pub mod utils;
