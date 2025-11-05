@@ -133,7 +133,7 @@ async fn run_capture_loop(event_bus: Arc<EventBus>, config: MicConfig) -> Result
                                 }
                                 info!(" • {}{}", name, caps);
                             }
-                            Err(_) => info!(" • <unamed device>"),
+                            Err(_) => info!(" • <unnamed device>"),
                         }
                     }
                 }
