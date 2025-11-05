@@ -22,20 +22,24 @@ pub fn promptbundle_to_messages_and_text(
     let mut history_blocks: Vec<String> = bundle.history.clone();
     let mut instructions = bundle.instructions.clone();
 
-    // Trim oldest history first until within char budget
-    let mut assemble_len = system.len()
-        + context_block.len()
-        + instructions.len()
-        + history_blocks.iter().map(|s| s.len()).sum::<usize>();
-    while assemble_len > char_budget && !history_blocks.is_empty() {
+    // Compute current assembled size in characters
+    let mut assembled_chars = system.chars().count()
+        + context_block.chars().count()
+        + instructions.chars().count()
+        + history_blocks
+            .iter()
+            .map(|s| s.chars().count())
+            .sum::<usize>();
+
+    // Trim oldest history first until within char budget (character-accurate)
+    while assembled_chars > char_budget && !history_blocks.is_empty() {
         let removed = history_blocks.remove(0);
-        assemble_len -= removed.len();
+        assembled_chars = assembled_chars.saturating_sub(removed.chars().count());
     }
-    // If still too large, truncate instructions
-    if assemble_len > char_budget && !instructions.is_empty() {
-        // Use character-based truncation to avoid slicing on a non-UTF8 boundary
-        let allowed_chars =
-            char_budget.saturating_sub(system.chars().count() + context_block.chars().count());
+    // If still too large, truncate instructions using character-based slicing
+    if assembled_chars > char_budget && !instructions.is_empty() {
+        let fixed_overhead = system.chars().count() + context_block.chars().count();
+        let allowed_chars = char_budget.saturating_sub(fixed_overhead);
         instructions = instructions.chars().take(allowed_chars).collect();
     }
 

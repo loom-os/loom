@@ -27,20 +27,33 @@ impl<R: MemoryReader, W: MemoryWriter> ContextBuilder<R, W> {
     pub async fn build(&self, trigger: TriggerInput) -> Result<PromptBundle> {
         debug!(target: "context_builder", session = %trigger.session_id, "Building prompt bundle");
 
-        // TODO: pull recent events window and episodic summaries from writer/reader
-        // TODO: run retrieval based on goal/query
-        let _retrieved = self
+        // Pull episodic summary and run simple retrieval against in-memory store
+        let mut context_docs: Vec<String> = Vec::new();
+
+        if let Ok(Some(summary)) = self.writer.summarize_episode(&trigger.session_id).await {
+            if !summary.is_empty() {
+                context_docs.push(format!("Recent episode summary:\n{}", summary));
+            }
+        }
+
+        let retrieved = self
             .reader
             .retrieve(trigger.goal.as_deref().unwrap_or(""), 4, None)
             .await
             .unwrap_or_default();
+        if !retrieved.is_empty() {
+            context_docs.push("Retrieved context:".to_string());
+            for r in retrieved {
+                context_docs.push(r);
+            }
+        }
 
-        // Minimal prompt bundle (no-op)
+        // Assemble prompt bundle; history is left empty at P0 (no dialog turns tracked yet)
         Ok(PromptBundle {
             system: "You are Loom Agent. Be concise and precise.".to_string(),
             instructions: trigger.goal.unwrap_or_default(),
             tools_json_schema: None,
-            context_docs: vec![],
+            context_docs,
             history: vec![],
         })
     }
