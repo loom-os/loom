@@ -32,8 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bus = Arc::clone(&loom.event_bus);
     let broker = Arc::clone(&loom.action_broker);
 
-    // Load configuration (defaults + env)
-    let cfg = VoiceAgentConfig::default();
+    // Load configuration (defaults + env + optional TOML overlay)
+    let cfg = VoiceAgentConfig::load();
 
     // 1) Mic capture → audio.mic (audio_chunk)
     let mic = MicSource::new(Arc::clone(&bus), cfg.mic.clone());

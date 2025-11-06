@@ -43,6 +43,59 @@ cargo build --workspace --features mic,vad,stt,wake,tts
 
 ## Configure
 
+You can configure the demo via a TOML file or environment variables.
+
+### Option A — voice_agent.toml (recommended)
+
+Create a `voice_agent.toml` in your working directory (or set `VOICE_AGENT_CONFIG=/path/to/file`). Only set what you need; unspecified fields use sane defaults and env fallbacks.
+
+Example:
+
+```toml
+query_topic = "query"
+
+[llm]
+base_url = "http://localhost:8000/v1"
+model = "qwen2.5-0.5b-instruct"
+temperature = 0.6
+request_timeout_ms = 30000
+system_prompt = "You are Loom's helpful and concise voice assistant."
+
+[tts]
+voice = "/models/piper/en_US-amy-medium.onnx"
+rate = 1.0
+volume = 1.0
+sample_rate = 16000
+player = "aplay"
+
+[mic]
+device_name = "alsa"
+chunk_ms = 20
+sample_rate_hz = 16000
+channels = 1
+
+[vad]
+mode = 2
+frame_ms = 20
+min_start_ms = 60
+hangover_ms = 200
+
+[stt]
+whisper_bin = "./loom-audio/whisper.cpp/build/bin/whisper"
+whisper_model = "./loom-audio/whisper.cpp/models/ggml-base.en.bin"
+language = "en"
+extra_args = ["--threads", "4"]
+
+[wake]
+phrases = ["hey loom", "loom"]
+max_distance = 1
+match_anywhere = true
+jaro_winkler_threshold = 0.9
+min_query_chars = 4
+```
+
+### Option B — Environment variables
+
 Environment variables (sane defaults included):
 
 - Microphone
