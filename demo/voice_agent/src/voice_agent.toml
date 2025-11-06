@@ -2,7 +2,7 @@ query_topic = "query"
 
 [llm]
 base_url = "http://localhost:8000/v1"
-model = "qwen2.5-0.5b-instruct"
+model = "Qwen/Qwen2.5-0.5B-Instruct"
 temperature = 0.6
 request_timeout_ms = 30000
 system_prompt = "You are Loom's helpful and concise voice assistant."

@@ -94,6 +94,30 @@ jaro_winkler_threshold = 0.9
 min_query_chars = 4
 ```
 
+## Get default STT/TTS models
+
+Use the helper script to download a small, fast Whisper model for STT and a Piper voice for TTS. It supports Hugging Face mirrors via `HF_ENDPOINT`.
+
+```bash
+# From repo root
+bash demo/voice_agent/scripts/setup_models.sh
+
+# Customize (optional)
+# WHISPER_MODEL: ggml-base.en.bin | ggml-small.en.bin | ggml-base.bin | ...
+# PIPER_VOICE:   en_US-amy-medium | en_US-lessac-high | ...
+# HF_ENDPOINT:   set a mirror domain if needed (e.g., https://hf-mirror.com)
+# Example:
+# WHISPER_MODEL=ggml-small.en.bin PIPER_VOICE=en_US-lessac-high \
+#   HF_ENDPOINT=https://hf-mirror.com bash demo/voice_agent/scripts/setup_models.sh
+```
+
+Defaults and where files are placed:
+
+- Whisper model → `./loom-audio/whisper.cpp/models/ggml-base.en.bin`
+- Piper voice → `./demo/voice_agent/models/piper/en_US-amy-medium/en_US-amy-medium.onnx`
+
+Update your `voice_agent.toml` to point to these files if your paths differ. The script prints the exact paths on completion.
+
 ### Option B — Environment variables
 
 Environment variables (sane defaults included):
@@ -158,6 +182,104 @@ cargo run -p voice_agent
 
 Speak a wake phrase like "hey loom". The next utterance is treated as your query. The assistant will reply and TTS will speak it.
 
+## Serve a local LLM with vLLM (Qwen2.5-0.5B-Instruct)
+
+vLLM typically requires a GPU. If you don’t have one, consider using an OpenAI-compatible alternative (e.g., Ollama), then set `llm.base_url` and `llm.model` accordingly in your `voice_agent.toml`.
+
+- Model: `Qwen/Qwen2.5-0.5B-Instruct` on Hugging Face
+
+### Option A — Docker
+
+```bash
+docker run --gpus all --rm -it -p 8000:8000 \
+  -e HF_TOKEN=$HF_TOKEN \
+  vllm/vllm-openai:latest \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --max-model-len 4096 \
+  --gpu-memory-utilization 0.90
+```
+
+### Option B — Python (pip)
+
+```bash
+pip install "vllm>=0.6.0.post1"  # or a recent version compatible with your CUDA/ROCm
+python -m vllm.entrypoints.openai.api_server \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --max-model-len 4096
+```
+
+Once the server is up, wire the demo via `voice_agent.toml`:
+
+```toml
+[llm]
+base_url = "http://localhost:8000/v1"
+model = "Qwen/Qwen2.5-0.5B-Instruct" # must match what vLLM serves
+temperature = 0.6
+request_timeout_ms = 30000
+```
+
+If you run vLLM on a different host/port, update `base_url` accordingly (e.g., `http://127.0.0.1:8080/v1`). If your model requires auth, set `HF_TOKEN` in Docker, or pass credentials as appropriate for your environment.
+
+### Option C — Direct `vllm serve` CLI
+
+If you installed vLLM as a tool, this mirrors your example:
+
+```bash
+vllm serve "Qwen/Qwen2.5-0.5B-Instruct" \
+  --port 8000 \
+  --host 0.0.0.0 \
+  --max-model-len 1024
+```
+
+Tip: You can set the name that the API reports with `--served-model-name`, then use the exact same value in your `voice_agent.toml`:
+
+```bash
+vllm serve ./models/Qwen2.5-0.5B-Instruct \
+  --host 0.0.0.0 --port 8000 \
+  --served-model-name Qwen/Qwen2.5-0.5B-Instruct
+```
+
+### Network-restricted environments
+
+If accessing huggingface.co is unreliable or blocked:
+
+- Use a mirror for the Hugging Face Hub (if your environment provides one). For example:
+
+```bash
+export HF_ENDPOINT="https://hf-mirror.com"   # Example mirror domain; replace with one you trust
+```
+
+- Or pre-download models, then run vLLM against the local folder. This avoids any network access at runtime:
+
+```bash
+pip install -U "huggingface_hub[cli]"
+huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct \
+  --local-dir ./models/Qwen2.5-0.5B-Instruct \
+  --local-dir-use-symlinks False
+
+# Serve the local directory and fix the API model name for the client
+vllm serve ./models/Qwen2.5-0.5B-Instruct \
+  --host 0.0.0.0 --port 8000 \
+  --served-model-name Qwen/Qwen2.5-0.5B-Instruct
+
+# Match the served model name in your app config
+cat > voice_agent.toml <<'EOF'
+[llm]
+base_url = "http://localhost:8000/v1"
+model = "Qwen/Qwen2.5-0.5B-Instruct"
+EOF
+```
+
+Advanced tips:
+
+- Set `HF_HOME=/path/to/cache` to control where models are cached.
+- vLLM also supports `--download-dir /path/to/cache` to cache downloads under a specific directory.
+- For private models, set `HF_TOKEN` (Docker env or shell env) before serving.
+
 ## Architecture
 
 High-level topics and event types:
@@ -186,3 +308,15 @@ The demo uses the Loom `ActionBroker` to invoke built-in capabilities:
 
 - STT runs per-utterance via the whisper CLI for reliability and simplicity. For streaming STT, consider an in-process engine in a future iteration.
 - This demo is event-driven end-to-end; each stage can fail independently without blocking the others.
+
+## Project structure (quick review)
+
+- `loom-proto`: shared protobuf-generated types; re-exported by `loom-core` as `loom_core::proto`
+- `loom-audio`: mic/VAD/STT/wake/TTS modules and providers
+- `core` (loom-core): runtime (event bus, agent runtime, router, LLM client, etc.)
+- `demo/voice_agent`: this E2E app, with `voice_agent.toml` config
+
+Tips:
+
+- Prefer keeping `voice_agent.toml` at the demo root and run the app from that directory. Otherwise set `VOICE_AGENT_CONFIG` to an absolute path.
+- The model name in your config must match the model name vLLM serves. For HF IDs, prefer the full `org/name` form (e.g., `Qwen/Qwen2.5-0.5B-Instruct`).

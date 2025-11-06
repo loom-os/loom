@@ -1,9 +1,17 @@
 [workspace]
+
+# Crates
+# - core
+# - loom-proto
+# - loom-audio
+# Demo app
+# - demo/voice_agent
+
 members = [
     "core",
-    "demo/voice_agent",
     "loom-proto",
     "loom-audio",
+    "demo/voice_agent",
 ]
 resolver = "2"
 
