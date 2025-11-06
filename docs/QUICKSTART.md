@@ -2,37 +2,36 @@
 
 ## Prerequisites
 
-1. **Rust toolchain** (1.70+)
+1. Rust toolchain (1.70+)
 
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    ```
 
-2. **Protocol Buffers compiler**
+2. Protocol Buffers compiler — not required on your system. We vendor `protoc` in `loom-proto` via `protoc-bin-vendored`.
 
-   ```bash
-   # macOS
-   brew install protobuf
+## Option A — Run the Voice Agent demo (recommended)
 
-   # Ubuntu/Debian
-   sudo apt install protobuf-compiler
-   ```
-
-## Build
+From the repository root:
 
 ```bash
-git clone https://github.com/loom-os/loom.git
-cd loom/core
-cargo build --release
-cargo test
+cargo build --workspace
+bash demo/voice_agent/scripts/setup_models.sh   # optional helper to fetch a small Whisper model and a Piper voice
+cargo run -p voice_agent
 ```
 
-## Basic Example
+Tips:
 
-Create `core/examples/basic_pubsub.rs`:
+- The demo prefers Piper for TTS; if Piper isn’t installed, it falls back to espeak‑ng.
+- vLLM (or any OpenAI‑compatible server) is optional; see `demo/voice_agent/README.md` to point the LLM client to your backend.
+- On Linux, install `libasound2-dev` and `pkg-config` for audio.
+
+## Option B — Minimal `loom-core` pub/sub
+
+Create a new Rust binary project and add `loom-core` as a dependency (or use a workspace member). Paste this into `main.rs`:
 
 ```rust
-use loom_core::{Loom, proto::Event, proto::QoSLevel};
+use loom_core::{Loom, Event, QoSLevel};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,7 +39,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     system.start().await?;
 
     // Subscribe to events
-    let (sub_id, mut rx) = system.event_bus
+    let (_sub_id, mut rx) = system
+        .event_bus
         .subscribe("test.topic".to_string(), vec![], QoSLevel::QosBatched)
         .await?;
 
@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Publish events
+    // Publish an event
     let event = Event {
         id: "evt_001".to_string(),
         r#type: "test_event".to_string(),
@@ -62,55 +62,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     system.event_bus.publish("test.topic", event).await?;
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     system.shutdown().await?;
-
     Ok(())
 }
 ```
 
-Run:
+## Routing policy (per agent)
 
-```bash
-cargo run --example basic_pubsub
-```
-
-## Next Steps
-
-- Read [Architecture](ARCHITECTURE.md) for system design
-- Check `examples/` for more demos
-- See [Contributing](../CONTRIBUTING.md) to get involved
-
-## Routing Policy Configuration (per agent)
-
-The router decides between Local/Cloud/Hybrid per event. You can tune the policy per agent via `AgentConfig.parameters`:
+Tune Local/Cloud/Hybrid behavior via `AgentConfig.parameters`:
 
 ```rust
-use loom_core::agent::AgentConfig;
-use std::collections::HashMap;
-
-let mut params: HashMap<String, String> = HashMap::new();
-params.insert("routing.privacy".into(), "sensitive".into());
-params.insert("routing.latency_budget_ms".into(), "300".into());
-params.insert("routing.cost_cap".into(), "0.02".into());
-params.insert("routing.quality_threshold".into(), "0.9".into());
-
-let config = AgentConfig {
-    agent_id: "agent_1".into(),
-    agent_type: "demo".into(),
-    subscribed_topics: vec!["test.topic".into()],
-    capabilities: vec![],
-    parameters: params,
-};
+// key → string values
+// routing.privacy = public | sensitive | private | local-only
+// routing.latency_budget_ms = integer (u64)
+// routing.cost_cap = float (f32)
+// routing.quality_threshold = float (f32)
 ```
 
-Hybrid processing runs a local quick pass followed by a cloud refine pass; behavior receives metadata: `routing_target`, `phase` (quick/refine), and `refine=true` on the second pass.
+Hybrid processing runs a quick local pass and, if needed, a cloud refine pass. Behaviors receive metadata: `routing_target`, `phase` (quick/refine), and `refine=true` on the second pass.
 
 ## Troubleshooting
 
-**"protoc not found"**: Install Protocol Buffers compiler  
-**Enable debug logs**: `RUST_LOG=debug cargo run`  
-**Need GPU?**: Core doesn't require GPU, but some plugins might
+- "protoc not found": not needed — `loom-proto` vendors `protoc` during build.
+- Enable debug logs: `RUST_LOG=debug cargo run ...`
+- Audio build issues on Linux: `sudo apt-get install -y libasound2-dev pkg-config`
 
 ---
 
