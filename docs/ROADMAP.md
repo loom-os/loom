@@ -20,13 +20,24 @@ Remaining
 - Local TTS capability provider
   - Detect piper first, fallback to espeak-ng; headers: voice/rate/volume
   - Degrade gracefully if missing; print guidance
-- E2E example: `core/examples/e2e_voice_wake_llm_tts.rs`
+- E2E app: `demo/voice_agent` (binary)
   - Wire Mic → VAD → STT → Wake → Agent invoking `llm.generate` → TTS
   - Clear logs, robust error handling at each step
+- Core test suite (loom-core)
+  - Unit tests: EventBus (subscribe/unsubscribe, QoS, backpressure), AgentRuntime (lifecycle/state), ModelRouter (policy rules), LlmClient (responses/chat compat, timeouts), ActionBroker (registration/permissions)
+  - Integration: minimal end-to-end loop (mock capability) publishing `action_done` and observing `routing_decision`
+  - Stress/bench: single-node throughput baseline and P50/P99 latency under different QoS/backpressure strategies; markdown report
 - Docs: Voice E2E guide (docs/voice_agent)
   - Install whisper.cpp and models OR choose alternative STT
   - Start a local vLLM (or point to cloud); env config matrix
   - Run the example; troubleshooting (devices, sampling rate, permissions)
+- Tool Use path (LLM → ActionBroker)
+  - Parse tool calls from LLM output; dispatch to capability providers; feed results back to LLM or present directly
+  - New providers: `web.search` (query/top_k → title/url/summary[]) and `weather.get` (location/units → temp/summary)
+  - Integrate into Voice Agent; add examples for "simple search / weather query"
+  - Core/docs coverage
+    - Core overview and per-component pages: EventBus, AgentRuntime, Router, ActionBroker, LLM, Plugin System, Storage, Telemetry
+  - Complete audio docs: mic / TTS / wake (STT and VAD already exist)
 - Observability (minimal)
   - Publish assistant.message and action_result events; summarize latency per stage
   - Enable basic tracing in demo path
@@ -36,6 +47,7 @@ Acceptance for P0
 - Demo runs on Linux/macOS with CPU-only setup in ≤15 minutes
 - End-to-end latency per utterance documented; robust failure messages and fallbacks
 - Single command to run the example; environment variables documented
+- Core unit/integration tests green in CI; baseline throughput and latency documented
 
 ## P1 — Quality and developer ergonomics
 
@@ -50,14 +62,22 @@ Improve latency, stability, and app authoring experience while staying within th
 - PromptBuilder enhancements
   - Retrieval via MemoryReader; episodic summaries via MemoryWriter
   - Role-aware history; tokenizer-based budgeting (optional feature)
-- Tool/function calling path
-  - Parse tool calls; dispatch through ActionBroker; feed results back to LLM
+- Extended Tool Use (beyond P0)
+  - Multi-tool orchestration, better argument schema/validation, retries/backoff
 - Router improvements
   - Quick (local) + refine (cloud) policy for the demo, configurable per agent
   - Basic price/latency estimates surfaced in routing_decision
 - Observability
   - Counters and simple dashboards (latency per stage, error rates)
   - Structured logs and sampling in examples
+- Audio codebase refactor (maintainability)
+  - Split large files into cohesive modules (mic/vad/stt/tts/wake): unify config.rs, provider traits, and error types
+  - TTS provider abstraction and cleanup of Piper/espeak implementations; unify return types and fallback paths
+  - Encapsulate STT subprocess invocation (timeouts/cancellation/temp file management) and improve testability
+  - Increase unit and integration test coverage
+- Docs & engineering hygiene
+  - Documentation index and navigation: create cross-links between README, ARCHITECTURE, QUICKSTART, EXAMPLES, and voice_agent
+  - CI: test matrix (unit/integration), optional scheduled benchmarks; produce benchmark reports
 
 ## P2 — Broader OS and ecosystem (medium priority)
 
@@ -73,8 +93,8 @@ Focus on extensibility, integration, and mobile/runtime breadth beyond the voice
   - Replace LocalModel stub with TFLite/ONNX RT variants (vision/audio examples)
   - Event schemas for detections; policy hooks for privacy-preserving on-device inference
 - Event bus hardening
-  - Backpressure/load tests, QoS tuning, bounded memory
-  - Benchmark harness and artifacts
+  - Beyond P0 baselines: heavier load and long-run stability, QoS tuning, bounded memory
+    - Benchmark harness and artifacts — persist results and compare different strategies/parameters
 - Docs/site
   - Quickstart upgrades; example catalog; troubleshooting matrix
   - Configuration/secrets guidance
