@@ -1,7 +1,9 @@
-use loom_audio::{MicConfig, SttConfig, VadConfig, WakeWordConfig};
+mod config;
+use config::VoiceAgentConfig;
+use loom_audio::{MicSource, SttEngine, VadGate, WakeWordDetector};
 use loom_core::context::{PromptBundle, TokenBudget};
 use loom_core::proto::{ActionCall, QoSLevel};
-use loom_core::{ActionBroker, EventBus, Loom};
+use loom_core::Loom;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -30,44 +32,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bus = Arc::clone(&loom.event_bus);
     let broker = Arc::clone(&loom.action_broker);
 
+    // Load configuration (defaults + env + optional TOML overlay)
+    let cfg = VoiceAgentConfig::load();
+
     // 1) Mic capture → audio.mic (audio_chunk)
-    let mic_cfg = MicConfig::default();
-    let mic = loom_audio::MicSource::new(Arc::clone(&bus), mic_cfg);
+    let mic = MicSource::new(Arc::clone(&bus), cfg.mic.clone());
     let mic_handle = mic.start().await?;
 
     // 2) VAD gating → vad (speech_start/end) and audio.voiced (audio_voiced)
-    let vad_cfg = VadConfig::default();
-    let vad = loom_audio::VadGate::new(Arc::clone(&bus), vad_cfg);
+    let vad = VadGate::new(Arc::clone(&bus), cfg.vad.clone());
     let vad_handle = vad.start().await?;
 
     // 3) STT utterance segmentation via whisper.cpp → transcript (transcript.final)
-    let stt_cfg = SttConfig::default();
-    let stt = loom_audio::SttEngine::new(Arc::clone(&bus), stt_cfg);
+    let stt = SttEngine::new(Arc::clone(&bus), cfg.stt.clone());
     let stt_handle = stt.start().await?;
 
     // 4) Wake word on transcripts → wake (wake_word_detected) + query (user.query)
-    let wake_cfg = WakeWordConfig::default();
-    let wake = loom_audio::WakeWordDetector::new(Arc::clone(&bus), wake_cfg);
+    let wake = WakeWordDetector::new(Arc::clone(&bus), cfg.wake.clone());
     let wake_handle = wake.start().await?;
 
     // Register local TTS capability provider (moved to loom-audio)
     {
-        let tts = loom_audio::TtsSpeakProvider::new(Arc::clone(&bus), None);
+        let tts_cfg = cfg.build_tts_config();
+        let tts = loom_audio::TtsSpeakProvider::new(Arc::clone(&bus), Some(tts_cfg));
         broker.register_provider(Arc::new(tts));
     }
 
     // 5) Subscribe to user queries → call LLM → TTS
     let (_sub_id, mut query_rx) = bus
         .subscribe(
-            std::env::var("QUERY_TOPIC").unwrap_or_else(|_| "query".to_string()),
+            cfg.query_topic.clone(),
             vec!["user.query".to_string()],
             QoSLevel::QosBatched,
         )
         .await?;
-
-    let llm_system = std::env::var("VOICE_SYSTEM_PROMPT").unwrap_or_else(|_| {
-        "You are Loom's helpful and concise voice assistant. Answer briefly and clearly.".into()
-    });
+    let llm_system = cfg.llm.system_prompt.clone();
 
     // Spawn task to process queries
     let broker_task = tokio::spawn(async move {
@@ -104,24 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .to_string()
             .into_bytes();
 
-            let mut headers = HashMap::new();
-            // Allow dynamic overrides via env
-            if let Ok(model) = std::env::var("VLLM_MODEL") {
-                if !model.is_empty() {
-                    headers.insert("model".into(), model);
-                }
-            }
-            if let Ok(base) = std::env::var("VLLM_BASE_URL") {
-                if !base.is_empty() {
-                    headers.insert("base_url".into(), base);
-                }
-            }
-            if let Ok(t) = std::env::var("VLLM_TEMPERATURE") {
-                headers.insert("temperature".into(), t);
-            }
-            if let Ok(rt) = std::env::var("REQUEST_TIMEOUT_MS") {
-                headers.insert("request_timeout_ms".into(), rt);
-            }
+            let headers = cfg.llm_headers();
 
             let call = ActionCall {
                 id: call_id.clone(),
@@ -139,7 +121,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(r) if r.status == (loom_core::proto::ActionStatus::ActionOk as i32) => {
                     let v: Result<serde_json::Value, _> = serde_json::from_slice(&r.output);
                     match v {
-                        Ok(val) => val.get("text")
+                        Ok(val) => val
+                            .get("text")
                             .and_then(|x| x.as_str())
                             .unwrap_or("")
                             .to_string(),
@@ -181,12 +164,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 version: "0.1.0".to_string(),
                 // Safe to unwrap: serializing a simple JSON object with a string field should never fail.
                 payload: serde_json::to_vec(&json!({"text": reply_text})).unwrap(),
-                headers: tts_headers_from_env(),
+                headers: cfg.tts_headers(),
                 timeout_ms: 30_000,
                 correlation_id: ev.id.clone(),
                 qos: QoSLevel::QosRealtime as i32,
             };
-            let _ = broker.invoke(tts_call).await;
+            match broker.invoke(tts_call).await {
+                Ok(result) => {
+                    if result.status != (loom_core::proto::ActionStatus::ActionOk as i32) {
+                        warn!(
+                            target = "voice_agent",
+                            status = result.status,
+                            error = ?result.error,
+                            "TTS invocation returned non-OK status"
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!(target = "voice_agent", error = %e, "TTS invocation failed");
+                }
+            }
         }
     });
 
@@ -222,22 +219,4 @@ fn current_millis() -> i64 {
         .as_millis() as i64
 }
 
-fn tts_headers_from_env() -> HashMap<String, String> {
-    let mut h = HashMap::new();
-    if let Ok(v) = std::env::var("TTS_VOICE") {
-        h.insert("voice".into(), v);
-    }
-    if let Ok(v) = std::env::var("TTS_RATE") {
-        h.insert("rate".into(), v);
-    }
-    if let Ok(v) = std::env::var("TTS_VOLUME") {
-        h.insert("volume".into(), v);
-    }
-    if let Ok(v) = std::env::var("TTS_SAMPLE_RATE") {
-        h.insert("sample_rate".into(), v);
-    }
-    if let Ok(v) = std::env::var("TTS_PLAYER") {
-        h.insert("player".into(), v);
-    }
-    h
-}
+// TTS headers are provided by VoiceAgentConfig::tts_headers()

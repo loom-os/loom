@@ -24,8 +24,11 @@ Mic → VAD → STT → Wake → LLM → TTS
   - Default base URL: `http://localhost:8000/v1`
   - You can also point to a cloud provider compatible with OpenAI API
 - Optional TTS engines:
-  - Piper (better quality) with a voice model, or
-  - espeak-ng (widely available)
+  - **Piper** (recommended, better quality) with a voice model
+    - Download from: https://github.com/rhasspy/piper/releases
+    - Requires: `libpiper_phonemize.so.1` (included in official releases)
+  - **espeak-ng** (fallback, widely available)
+    - Install: `sudo apt-get install espeak-ng` (Ubuntu/Debian)
 
 ## Build
 
@@ -42,6 +45,122 @@ cargo build --workspace --features mic,vad,stt,wake,tts
 ```
 
 ## Configure
+
+You can configure the demo via a TOML file or environment variables.
+
+### Option A — voice_agent.toml (recommended)
+
+Create a `voice_agent.toml` in your working directory (or set `VOICE_AGENT_CONFIG=/path/to/file`). Only set what you need; unspecified fields use sane defaults and env fallbacks.
+
+Example:
+
+```toml
+query_topic = "query"
+
+[llm]
+base_url = "http://localhost:8000/v1"
+model = "Qwen/Qwen2.5-0.5B-Instruct"
+temperature = 0.6
+request_timeout_ms = 30000
+system_prompt = "You are Loom's helpful and concise voice assistant."
+
+[tts]
+piper_bin = "/usr/local/bin/piper"  # or "/opt/piper/piper"
+voice = "./demo/voice_agent/models/piper/en_US-amy-medium/en_US-amy-medium.onnx"
+rate = 1.0
+volume = 1.0
+sample_rate = 16000
+player = "aplay"
+
+[mic]
+device_name = "alsa"
+chunk_ms = 20
+sample_rate_hz = 16000
+channels = 1
+
+[vad]
+mode = 2
+frame_ms = 20
+min_start_ms = 60
+hangover_ms = 200
+
+[stt]
+whisper_bin = "./loom-audio/whisper.cpp/build/bin/whisper"
+whisper_model = "./loom-audio/whisper.cpp/models/ggml-base.en.bin"
+language = "en"
+extra_args = ["--threads", "4"]
+
+[wake]
+phrases = ["hey loom", "loom"]
+max_distance = 1
+match_anywhere = true
+jaro_winkler_threshold = 0.9
+min_query_chars = 4
+```
+
+## Install TTS Engine (Piper)
+
+### Quick Install (Recommended)
+
+Download and install the complete Piper release with all dependencies:
+
+```bash
+# Download Piper with phonemize library (amd64 Linux)
+cd /tmp
+wget https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_amd64.tar.gz
+tar -xzf piper_amd64.tar.gz
+
+# Install to system directory
+sudo cp -r piper /opt/piper
+
+# Create symlink for easy access
+sudo ln -sf /opt/piper/piper /usr/local/bin/piper
+
+# Verify installation
+piper --version
+```
+
+**Important**: The complete Piper release includes the required `libpiper_phonemize.so.1` library. Do not install just the binary alone, or you'll encounter "shared library" errors.
+
+### Alternative: Use espeak-ng (Fallback)
+
+If you prefer a simpler setup or don't need high-quality TTS:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install espeak-ng
+
+# Fedora/RHEL
+sudo dnf install espeak-ng
+```
+
+The voice agent automatically detects which TTS engine is available and uses Piper if present, falling back to espeak-ng.
+
+## Get STT Models and TTS Voices
+
+Use the helper script to download a small, fast Whisper model for STT and a Piper voice for TTS. It supports Hugging Face mirrors via `HF_ENDPOINT`.
+
+```bash
+# From repo root
+bash demo/voice_agent/scripts/setup_models.sh
+
+# Customize (optional)
+# WHISPER_MODEL: ggml-base.en.bin | ggml-small.en.bin | ggml-base.bin | ...
+# PIPER_VOICE:   en_US-amy-medium | en_US-lessac-high | ...
+# HF_ENDPOINT:   set a mirror domain if needed (e.g., https://hf-mirror.com)
+# Example:
+# WHISPER_MODEL=ggml-small.en.bin PIPER_VOICE=en_US-lessac-high \
+#   HF_ENDPOINT=https://hf-mirror.com bash demo/voice_agent/scripts/setup_models.sh
+```
+
+Defaults and where files are placed:
+
+- Whisper model → `./loom-audio/whisper.cpp/models/ggml-base.en.bin`
+- Piper voice → `./demo/voice_agent/models/piper/en_US-amy-medium/en_US-amy-medium.onnx`
+
+Update your `voice_agent.toml` to point to these files if your paths differ. The script prints the exact paths on completion.
+
+### Option B — Environment variables
 
 Environment variables (sane defaults included):
 
@@ -105,6 +224,104 @@ cargo run -p voice_agent
 
 Speak a wake phrase like "hey loom". The next utterance is treated as your query. The assistant will reply and TTS will speak it.
 
+## Serve a local LLM with vLLM (Qwen2.5-0.5B-Instruct)
+
+vLLM typically requires a GPU. If you don’t have one, consider using an OpenAI-compatible alternative (e.g., Ollama), then set `llm.base_url` and `llm.model` accordingly in your `voice_agent.toml`.
+
+- Model: `Qwen/Qwen2.5-0.5B-Instruct` on Hugging Face
+
+### Option A — Docker
+
+```bash
+docker run --gpus all --rm -it -p 8000:8000 \
+  -e HF_TOKEN=$HF_TOKEN \
+  vllm/vllm-openai:latest \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --max-model-len 4096 \
+  --gpu-memory-utilization 0.90
+```
+
+### Option B — Python (pip)
+
+```bash
+pip install "vllm>=0.6.0.post1"  # or a recent version compatible with your CUDA/ROCm
+python -m vllm.entrypoints.openai.api_server \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --max-model-len 4096
+```
+
+Once the server is up, wire the demo via `voice_agent.toml`:
+
+```toml
+[llm]
+base_url = "http://localhost:8000/v1"
+model = "Qwen/Qwen2.5-0.5B-Instruct" # must match what vLLM serves
+temperature = 0.6
+request_timeout_ms = 30000
+```
+
+If you run vLLM on a different host/port, update `base_url` accordingly (e.g., `http://127.0.0.1:8080/v1`). If your model requires auth, set `HF_TOKEN` in Docker, or pass credentials as appropriate for your environment.
+
+### Option C — Direct `vllm serve` CLI
+
+If you installed vLLM as a tool, this mirrors your example:
+
+```bash
+vllm serve "Qwen/Qwen2.5-0.5B-Instruct" \
+  --port 8000 \
+  --host 0.0.0.0 \
+  --max-model-len 1024
+```
+
+Tip: You can set the name that the API reports with `--served-model-name`, then use the exact same value in your `voice_agent.toml`:
+
+```bash
+vllm serve ./models/Qwen2.5-0.5B-Instruct \
+  --host 0.0.0.0 --port 8000 \
+  --served-model-name Qwen/Qwen2.5-0.5B-Instruct
+```
+
+### Network-restricted environments
+
+If accessing huggingface.co is unreliable or blocked:
+
+- Use a mirror for the Hugging Face Hub (if your environment provides one). For example:
+
+```bash
+export HF_ENDPOINT="https://hf-mirror.com"   # Example mirror domain; replace with one you trust
+```
+
+- Or pre-download models, then run vLLM against the local folder. This avoids any network access at runtime:
+
+```bash
+pip install -U "huggingface_hub[cli]"
+huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct \
+  --local-dir ./models/Qwen2.5-0.5B-Instruct \
+  --local-dir-use-symlinks False
+
+# Serve the local directory and fix the API model name for the client
+vllm serve ./models/Qwen2.5-0.5B-Instruct \
+  --host 0.0.0.0 --port 8000 \
+  --served-model-name Qwen/Qwen2.5-0.5B-Instruct
+
+# Match the served model name in your app config
+cat > voice_agent.toml <<'EOF'
+[llm]
+base_url = "http://localhost:8000/v1"
+model = "Qwen/Qwen2.5-0.5B-Instruct"
+EOF
+```
+
+Advanced tips:
+
+- Set `HF_HOME=/path/to/cache` to control where models are cached.
+- vLLM also supports `--download-dir /path/to/cache` to cache downloads under a specific directory.
+- For private models, set `HF_TOKEN` (Docker env or shell env) before serving.
+
 ## Architecture
 
 High-level topics and event types:
@@ -124,12 +341,26 @@ The demo uses the Loom `ActionBroker` to invoke built-in capabilities:
 
 ## Troubleshooting
 
-- Microphone not found: set `MIC_LOG_DEVICES=1` to list devices and set `MIC_DEVICE` accordingly.
-- No STT: ensure `WHISPER_BIN` and `WHISPER_MODEL_PATH` exist; check CPU load and use a smaller model.
-- LLM errors: confirm your base URL/model, and that the backend is running. Inspect logs for HTTP status/output.
-- No audio playback: install `aplay` (ALSA), `paplay` (PulseAudio), or `ffplay` (FFmpeg). The WAV file path is logged when synthesis succeeds.
+- **Microphone not found**: set `MIC_LOG_DEVICES=1` to list devices and set `MIC_DEVICE` accordingly.
+- **No STT**: ensure `WHISPER_BIN` and `WHISPER_MODEL_PATH` exist; check CPU load and use a smaller model.
+- **LLM errors**: confirm your base URL/model, and that the backend is running. Inspect logs for HTTP status/output.
+- **No audio playback**: install `aplay` (ALSA), `paplay` (PulseAudio), or `ffplay` (FFmpeg). The WAV file path is logged when synthesis succeeds.
+- **TTS "libpiper_phonemize.so.1 not found"**: You installed only the Piper binary without dependencies. Follow the "Install TTS Engine (Piper)" section above to install the complete release, or use espeak-ng as a fallback.
+- **TTS not speaking**: Check that either Piper or espeak-ng is properly installed and detectable. The logs will show `Detected Piper binary` or `Detected espeak-ng binary` on startup. If neither appears, the agent will print text-only output.
 
 ## Notes
 
 - STT runs per-utterance via the whisper CLI for reliability and simplicity. For streaming STT, consider an in-process engine in a future iteration.
 - This demo is event-driven end-to-end; each stage can fail independently without blocking the others.
+
+## Project structure (quick review)
+
+- `loom-proto`: shared protobuf-generated types; re-exported by `loom-core` as `loom_core::proto`
+- `loom-audio`: mic/VAD/STT/wake/TTS modules and providers
+- `core` (loom-core): runtime (event bus, agent runtime, router, LLM client, etc.)
+- `demo/voice_agent`: this E2E app, with `voice_agent.toml` config
+
+Tips:
+
+- Prefer keeping `voice_agent.toml` at the demo root and run the app from that directory. Otherwise set `VOICE_AGENT_CONFIG` to an absolute path.
+- The model name in your config must match the model name vLLM serves. For HF IDs, prefer the full `org/name` form (e.g., `Qwen/Qwen2.5-0.5B-Instruct`).

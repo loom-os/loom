@@ -1,0 +1,41 @@
+query_topic = "query"
+
+[llm]
+base_url = "http://localhost:8000/v1"
+model = "Qwen/Qwen2.5-0.5B-Instruct"
+temperature = 0.6
+request_timeout_ms = 30000
+system_prompt = "You are Loom's helpful and concise voice assistant."
+
+[tts]
+piper_bin = "/opt/piper/piper"
+voice = "./demo/voice_agent/models/piper/en_US-amy-medium/en_US-amy-medium.onnx"
+rate = 1.0
+volume = 1.0
+sample_rate = 16000
+player = "aplay"
+
+[mic]
+device_name = "alsa"
+chunk_ms = 20
+sample_rate_hz = 16000
+channels = 1
+
+[vad]
+mode = 2
+frame_ms = 20
+min_start_ms = 60
+hangover_ms = 200
+
+[stt]
+whisper_bin = "./loom-audio/whisper.cpp/build/bin/whisper-cli"
+whisper_model = "./loom-audio/whisper.cpp/models/ggml-base.en.bin"
+language = "en"
+extra_args = ["--threads", "4"]
+
+[wake]
+phrases = ["hey loom", "loom", "hey", "hi", "hello"]
+max_distance = 1
+match_anywhere = true
+jaro_winkler_threshold = 0.9
+min_query_chars = 4

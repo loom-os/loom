@@ -42,3 +42,10 @@ Thumbs.db
 
 # whisper.cpp
 whisper.cpp/
+
+# HF models and caches
+models/
+cache/
+
+# Piper
+piper/
