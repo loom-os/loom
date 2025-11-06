@@ -31,6 +31,7 @@ pub struct LlmConfig {
 /// Local TTS preferences (mapped to tts.speak headers)
 #[derive(Clone, Debug, Default)]
 pub struct TtsConfig {
+    pub piper_bin: Option<String>,
     pub voice: Option<String>,
     pub rate: Option<f32>,
     pub volume: Option<f32>,
@@ -157,6 +158,37 @@ impl VoiceAgentConfig {
             h.insert("player".into(), v.clone());
         }
         h
+    }
+
+    /// Build TtsSpeakProviderConfig from voice_agent.toml [tts] section
+    pub fn build_tts_config(&self) -> loom_audio::TtsSpeakProviderConfig {
+        let mut cfg = loom_audio::TtsSpeakProviderConfig::default();
+
+        // Override piper_bin from TOML if present
+        if let Some(ref piper_bin) = self.tts.piper_bin {
+            let bin_path = PathBuf::from(piper_bin);
+            if bin_path.exists() {
+                cfg.piper_bin = Some(bin_path);
+            }
+        }
+
+        // Override with TOML config if present
+        if let Some(ref voice) = self.tts.voice {
+            // Check if voice is a path (contains separators) or just a name
+            let voice_path = PathBuf::from(voice);
+            if voice_path.exists() {
+                cfg.piper_voice = Some(voice_path);
+            } else {
+                // Could be a voice name or path that will be resolved later
+                cfg.piper_voice = Some(voice_path);
+            }
+        }
+
+        if let Some(sample_rate) = self.tts.sample_rate {
+            cfg.default_sample_rate = sample_rate;
+        }
+
+        cfg
     }
 }
 
@@ -329,7 +361,7 @@ impl WakeToml {
         if let Some(x) = self.wake_topic {
             w.wake_topic = x;
         }
-        if let Some(x) = self.query_topic { /* prefer top-level query_topic, but keep backward-compat */
+        if let Some(_x) = self.query_topic { /* prefer top-level query_topic, but keep backward-compat */
         }
         if let Some(x) = self.phrases {
             w.phrases = x.into_iter().map(|s| s.to_lowercase()).collect();
@@ -383,6 +415,7 @@ impl LlmToml {
 
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 struct TtsToml {
+    pub piper_bin: Option<String>,
     pub voice: Option<String>,
     pub rate: Option<f32>,
     pub volume: Option<f32>,
@@ -391,6 +424,9 @@ struct TtsToml {
 }
 impl TtsToml {
     fn apply(self, t: &mut TtsConfig) {
+        if let Some(x) = self.piper_bin {
+            t.piper_bin = Some(x);
+        }
         if let Some(x) = self.voice {
             t.voice = Some(x);
         }

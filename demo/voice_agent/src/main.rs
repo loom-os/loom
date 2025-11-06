@@ -53,7 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Register local TTS capability provider (moved to loom-audio)
     {
-        let tts = loom_audio::TtsSpeakProvider::new(Arc::clone(&bus), None);
+        let tts_cfg = cfg.build_tts_config();
+        let tts = loom_audio::TtsSpeakProvider::new(Arc::clone(&bus), Some(tts_cfg));
         broker.register_provider(Arc::new(tts));
     }
 
@@ -168,7 +169,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 correlation_id: ev.id.clone(),
                 qos: QoSLevel::QosRealtime as i32,
             };
-            let _ = broker.invoke(tts_call).await;
+            match broker.invoke(tts_call).await {
+                Ok(result) => {
+                    if result.status != (loom_core::proto::ActionStatus::ActionOk as i32) {
+                        warn!(
+                            target = "voice_agent",
+                            status = result.status,
+                            error = ?result.error,
+                            "TTS invocation returned non-OK status"
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!(target = "voice_agent", error = %e, "TTS invocation failed");
+                }
+            }
         }
     });
 

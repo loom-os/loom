@@ -355,6 +355,44 @@ async fn transcribe_with_whisper(cfg: &SttConfig, wav_path: &PathBuf) -> Result<
     // Build whisper command
     // Example: ./whisper.cpp/main -m ./models/ggml-base.en.bin -f input.wav -l en --no-timestamps
     let mut cmd = Command::new(&cfg.whisper_bin);
+    // Help whisper-cli find its shared libraries if built dynamically.
+    // Typical layout:
+    //   build/bin/whisper-cli
+    //   build/src/libwhisper.so.*
+    //   build/ggml/src/libggml.so.*
+    if let Some(bin_dir) = cfg.whisper_bin.parent() {
+        if let Some(build_dir) = bin_dir.parent() {
+            let mut lib_dirs = Vec::new();
+            let lib_whisper = build_dir.join("src");
+            let lib_ggml = build_dir.join("ggml").join("src");
+            if lib_whisper.exists() {
+                lib_dirs.push(lib_whisper);
+            }
+            if lib_ggml.exists() {
+                lib_dirs.push(lib_ggml);
+            }
+
+            if !lib_dirs.is_empty() {
+                let key = if cfg!(target_os = "macos") {
+                    "DYLD_LIBRARY_PATH"
+                } else {
+                    "LD_LIBRARY_PATH"
+                };
+                let prev = std::env::var(key).unwrap_or_default();
+                let prefix = lib_dirs
+                    .iter()
+                    .map(|p| p.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join(":");
+                let newv = if prev.is_empty() {
+                    prefix
+                } else {
+                    format!("{}:{}", prefix, prev)
+                };
+                cmd.env(key, newv);
+            }
+        }
+    }
     cmd.arg("-m").arg(&cfg.whisper_model);
     cmd.arg("-f").arg(wav_path);
 
