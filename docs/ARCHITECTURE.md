@@ -1,5 +1,20 @@
 # Loom Architecture
 
+This document reflects the current repository shape, centered on the first end‑to‑end Voice Agent demo and a modular, parallel crate layout.
+
+## Crate relationships (parallel layout)
+
+```
+loom-proto   ──▶   core (loom-core)
+  └────────────▶ loom-audio (optional)
+
+apps / demos (e.g., demo/voice_agent) ──▶ depend on core and optionally loom-audio
+```
+
+- `loom-proto` contains only protobuf definitions and generated Rust. `protoc` is vendored; no system install is required.
+- `core` depends on `loom-proto` and implements the runtime (Event Bus, Agent Runtime, Router, LLM client, ActionBroker, Plugin Manager). It intentionally does not depend on `loom-audio`.
+- `loom-audio` is a capability provider set with mic/VAD/STT/wake/TTS and depends on both `loom-proto` and `core`. Applications can opt‑in to audio features.
+
 ## Overview
 
 Loom is an event-driven AI operating system that models intelligent agents as **stateful event-responsive entities**.
@@ -245,7 +260,7 @@ Camera → VideoFrame Event
             → UI updates
 ```
 
-### Example 2: Hybrid Voice Assistant
+### Example 2: Hybrid Voice Assistant (current demo path)
 
 ```
 Mic → AudioChunk Event
@@ -255,8 +270,8 @@ Mic → AudioChunk Event
         ├─ Local: whisper-tiny → "what's the weather" (0.7 conf)
         │   → UI shows immediate feedback
         └─ Cloud: GPT-4 → refined intent
-            → Weather API tool call
-              → TTS plugin speaks result
+            → Tool calls via ActionBroker (e.g., Weather API)
+              → TTS provider (Piper preferred, falls back to espeak-ng)
 ```
 
 ## Component Interaction

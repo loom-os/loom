@@ -1,91 +1,33 @@
-# Out‑of‑the‑box Examples
+# Examples and Demos
 
-Zero‑background path (≈10 minutes):
+This repository currently focuses on a complete end‑to‑end Voice Agent demo. Additional demos will follow as the core and capability crates evolve.
 
-1. Build core (release)
-2. Run basic pub/sub example
-3. Switch router policy (local vs cloud) and observe latency/privacy differences
-4. Add a Python gRPC plugin without writing Rust
+## Primary: Voice Agent (E2E)
 
-Example set
+Mic → VAD → STT → Wake → LLM → TTS. See `demo/voice_agent/README.md` for setup and detailed instructions.
 
-- Voice assistant: Mic → wake‑word (WASM) → Router → cloud LLM → TTS action
-- Camera pipeline: Camera → local detector (WASM/local ML) → annotated events → UI/TTS
-- Workflow bridge: Loom topic ↔ n8n → email/calendar task
-- Memory agent: dialog events → short‑term context + long‑term memory → action selection
-- Desktop automation: system events → rules/LLM tools → safe actions
-- Hybrid routing demo: local small model + cloud LLM, policy‑driven switching
-- Crypto Advisor (planned): market + sentiment streams → indicators → signals → paper broker
-
-Locations
-
-- Minimal examples: `core/examples/`
-- End‑to‑end demos: `examples/`
-  - Planned: `examples/crypto_advisor/` (spec + backlog)
-
-## Minimal: ActionBroker + Echo TTS
-
-A tiny example that registers a native capability `tts.echo` and invokes it through the ActionBroker.
-
-Run:
+Quick run:
 
 ```bash
-cd core
-cargo run --example echo_tts
+cargo run -p voice_agent
 ```
 
-Expected output:
+The demo is designed to run locally on Linux/macOS (CPU‑only acceptable). It detects Piper first for TTS and falls back to espeak‑ng when Piper is not available.
 
-```
-[EchoTts] speaking: Hello Loom!
-ActionResult: status=0, error=None, output={"spoken":"Hello Loom!"}
-```
+## Planned / in-progress
 
-If you see a build error mentioning libclang (bindgen), install the system packages (Debian/Ubuntu):
+- Camera/vision demo (dependent on a forthcoming `loom-vision` crate)
+- Workflow bridge (Loom ↔ n8n)
+- Memory agent (episodic + semantic memory)
+- Desktop automation
+- Crypto Advisor (spec and plan under `demo/crypto_advisor/`)
 
-```bash
-sudo apt-get update
-sudo apt-get install -y clang libclang-dev pkg-config build-essential
-```
+## Minimal snippets (DIY)
 
-Then re-run the example command.
+If you want to quickly play with the core runtime without the audio stack, see `docs/QUICKSTART.md` for a tiny pub/sub code sample you can paste into a project. It covers:
 
-## Minimal: ContextBuilder + InMemoryMemory + Echo TTS
+- EventBus creation and start
+- Subscribing and publishing events
+- Tuning QoS for batched vs realtime topics
 
-This example shows how to build a small prompt context from recent session events and then invoke a capability.
-
-Run:
-
-```bash
-cd core
-cargo run --example echo_tts_with_context
-```
-
-It will print the minimal instructions from ContextBuilder and then call `tts.echo` through the broker.
-
-## E2E: Mock LLM tool-use → ActionBroker → EventBus
-
-A minimal end-to-end loop where a mock LLM decides to call a tool, the broker executes it, and the result is published as an event.
-
-Run:
-
-```bash
-cd core
-cargo run --example e2e_tool_use
-```
-
-This will:
-
-- Seed a session with a couple of events
-- Build a minimal context
-- Mock LLM selects `tts.echo` with arguments
-- ActionBroker executes the tool call
-- Publish a final `action_done` event on the bus
-
-## Minimal: Mic → audio_chunk events (cpal)
-
-The audio examples have moved to the `loom-audio` crate. Core still contains temporary integration examples that will be removed once the E2E voice demo lands.
-
-To try microphone capture, add `loom-audio` to your app and enable the `mic` feature. See `loom-audio/README.md` for up-to-date instructions and examples.
-
-Linux prerequisites: `sudo apt-get install -y libasound2-dev pkg-config`.
+For audio capture and VAD, add `loom-audio` to your app and enable the appropriate features. Linux packages: `libasound2-dev`, `pkg-config`.

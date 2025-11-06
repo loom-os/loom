@@ -11,6 +11,11 @@ Mic → VAD → STT → Wake → LLM → TTS
 - LLM client (vLLM/OpenAI-compatible) generates an answer from a `PromptBundle`
 - Local TTS (Piper preferred, falls back to espeak-ng) speaks the reply
 
+See also:
+
+- Repository overview and architecture: `../../docs/ARCHITECTURE.md`
+- Quickstart for minimal `loom-core` usage: `../../docs/QUICKSTART.md`
+
 ## Prerequisites
 
 - Rust toolchain (1.74+ recommended)
