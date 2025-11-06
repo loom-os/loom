@@ -24,8 +24,11 @@ Mic → VAD → STT → Wake → LLM → TTS
   - Default base URL: `http://localhost:8000/v1`
   - You can also point to a cloud provider compatible with OpenAI API
 - Optional TTS engines:
-  - Piper (better quality) with a voice model, or
-  - espeak-ng (widely available)
+  - **Piper** (recommended, better quality) with a voice model
+    - Download from: https://github.com/rhasspy/piper/releases
+    - Requires: `libpiper_phonemize.so.1` (included in official releases)
+  - **espeak-ng** (fallback, widely available)
+    - Install: `sudo apt-get install espeak-ng` (Ubuntu/Debian)
 
 ## Build
 
@@ -56,13 +59,14 @@ query_topic = "query"
 
 [llm]
 base_url = "http://localhost:8000/v1"
-model = "qwen2.5-0.5b-instruct"
+model = "Qwen/Qwen2.5-0.5B-Instruct"
 temperature = 0.6
 request_timeout_ms = 30000
 system_prompt = "You are Loom's helpful and concise voice assistant."
 
 [tts]
-voice = "/models/piper/en_US-amy-medium.onnx"
+piper_bin = "/usr/local/bin/piper"  # or "/opt/piper/piper"
+voice = "./demo/voice_agent/models/piper/en_US-amy-medium/en_US-amy-medium.onnx"
 rate = 1.0
 volume = 1.0
 sample_rate = 16000
@@ -94,7 +98,45 @@ jaro_winkler_threshold = 0.9
 min_query_chars = 4
 ```
 
-## Get default STT/TTS models
+## Install TTS Engine (Piper)
+
+### Quick Install (Recommended)
+
+Download and install the complete Piper release with all dependencies:
+
+```bash
+# Download Piper with phonemize library (amd64 Linux)
+cd /tmp
+wget https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_amd64.tar.gz
+tar -xzf piper_amd64.tar.gz
+
+# Install to system directory
+sudo cp -r piper /opt/piper
+
+# Create symlink for easy access
+sudo ln -sf /opt/piper/piper /usr/local/bin/piper
+
+# Verify installation
+piper --version
+```
+
+**Important**: The complete Piper release includes the required `libpiper_phonemize.so.1` library. Do not install just the binary alone, or you'll encounter "shared library" errors.
+
+### Alternative: Use espeak-ng (Fallback)
+
+If you prefer a simpler setup or don't need high-quality TTS:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install espeak-ng
+
+# Fedora/RHEL
+sudo dnf install espeak-ng
+```
+
+The voice agent automatically detects which TTS engine is available and uses Piper if present, falling back to espeak-ng.
+
+## Get STT Models and TTS Voices
 
 Use the helper script to download a small, fast Whisper model for STT and a Piper voice for TTS. It supports Hugging Face mirrors via `HF_ENDPOINT`.
 
@@ -299,10 +341,12 @@ The demo uses the Loom `ActionBroker` to invoke built-in capabilities:
 
 ## Troubleshooting
 
-- Microphone not found: set `MIC_LOG_DEVICES=1` to list devices and set `MIC_DEVICE` accordingly.
-- No STT: ensure `WHISPER_BIN` and `WHISPER_MODEL_PATH` exist; check CPU load and use a smaller model.
-- LLM errors: confirm your base URL/model, and that the backend is running. Inspect logs for HTTP status/output.
-- No audio playback: install `aplay` (ALSA), `paplay` (PulseAudio), or `ffplay` (FFmpeg). The WAV file path is logged when synthesis succeeds.
+- **Microphone not found**: set `MIC_LOG_DEVICES=1` to list devices and set `MIC_DEVICE` accordingly.
+- **No STT**: ensure `WHISPER_BIN` and `WHISPER_MODEL_PATH` exist; check CPU load and use a smaller model.
+- **LLM errors**: confirm your base URL/model, and that the backend is running. Inspect logs for HTTP status/output.
+- **No audio playback**: install `aplay` (ALSA), `paplay` (PulseAudio), or `ffplay` (FFmpeg). The WAV file path is logged when synthesis succeeds.
+- **TTS "libpiper_phonemize.so.1 not found"**: You installed only the Piper binary without dependencies. Follow the "Install TTS Engine (Piper)" section above to install the complete release, or use espeak-ng as a fallback.
+- **TTS not speaking**: Check that either Piper or espeak-ng is properly installed and detectable. The logs will show `Detected Piper binary` or `Detected espeak-ng binary` on startup. If neither appears, the agent will print text-only output.
 
 ## Notes
 
