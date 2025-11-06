@@ -46,3 +46,6 @@ whisper.cpp/
 # HF models and caches
 models/
 cache/
+
+# Piper
+piper/
