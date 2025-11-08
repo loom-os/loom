@@ -15,6 +15,19 @@ Each test file follows the naming convention `<module>_test.rs` and corresponds 
 | `llm_test.rs`           | `src/llm/`             | LLM client config, adapter logic, token budget enforcement     |
 | `integration_test.rs`   | Core Pipeline          | End-to-end event → agent → action → result flow                |
 
+### Integration Test Structure
+
+Integration tests are organized into submodules under `integration/`:
+
+| Module                            | File                                | Coverage                                      |
+| --------------------------------- | ----------------------------------- | --------------------------------------------- |
+| `integration::mod`                | `integration/mod.rs`                | Shared mock components (providers, behaviors) |
+| `integration::e2e_basic`          | `integration/e2e_basic.rs`          | Basic pipeline, event filtering               |
+| `integration::e2e_multi_agent`    | `integration/e2e_multi_agent.rs`    | Multi-agent topic routing                     |
+| `integration::e2e_error_handling` | `integration/e2e_error_handling.rs` | Error propagation                             |
+| `integration::e2e_routing`        | `integration/e2e_routing.rs`        | Routing decisions, privacy policies           |
+| `integration::e2e_action_broker`  | `integration/e2e_action_broker.rs`  | Timeout handling, idempotency                 |
+
 ## Running Tests
 
 ```bash
