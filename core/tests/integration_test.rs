@@ -12,11 +12,11 @@
 //! ## Test Organization
 //!
 //! Tests are organized into submodules by functionality:
-//! - `integration::e2e_basic` - Basic end-to-end pipeline tests
-//! - `integration::e2e_multi_agent` - Multi-agent interaction tests
-//! - `integration::e2e_error_handling` - Error propagation tests
-//! - `integration::e2e_routing` - Routing decision tests
-//! - `integration::e2e_action_broker` - ActionBroker-specific tests
+//! - `test_e2e_event_to_action_to_result`, `test_e2e_event_type_filtering` - Basic end-to-end pipeline tests
+//! - `test_multiple_agents_different_topics` - Multi-agent interaction tests
+//! - `test_action_broker_error_propagation` - Error propagation tests
+//! - `test_routing_decision_with_privacy_policy` - Routing decision tests
+//! - `test_action_timeout_handling`, `test_idempotent_action_invocation` - ActionBroker-specific tests
 //!
 //! All mock components (MockEchoProvider, MockSlowProvider, MockFailingProvider,
 //! MockEchoBehavior) are defined in `integration::mod.rs` for reuse across tests.

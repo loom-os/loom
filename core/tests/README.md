@@ -63,11 +63,11 @@ cargo test --test integration_test test_e2e_event_to_action_to_result
 
 - **End-to-End Pipeline**: 7 tests - complete event flow validation
   1. `test_e2e_event_to_action_to_result` - Minimal pipeline: Event → Agent → ActionBroker → Result → EventBus
-  2. `test_e2e_multiple_agents` - Multiple agents with different topics
-  3. `test_e2e_action_error_handling` - Error propagation and handling
-  4. `test_e2e_routing_decision_observation` - Routing decision events
-  5. `test_e2e_action_timeout` - Action timeout handling
-  6. `test_e2e_idempotent_action` - Idempotent action invocation caching
+  2. `test_multiple_agents_different_topics` - Multiple agents with different topics
+  3. `test_action_broker_error_propagation` - Error propagation and handling
+  4. `test_routing_decision_with_privacy_policy` - Routing decision events
+  5. `test_action_timeout_handling` - Action timeout handling
+  6. `test_idempotent_action_invocation` - Idempotent action invocation caching
   7. `test_e2e_event_type_filtering` - Event type filtering in subscriptions
 
 **Total Integration Tests**: 7
