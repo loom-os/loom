@@ -11,7 +11,6 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use loom_core::event::EventBus;
 use loom_core::proto::{Event, QoSLevel};
 use std::sync::Arc;
-use tokio::runtime::Runtime;
 
 fn make_event(id: u64, event_type: &str) -> Event {
     Event {
@@ -37,35 +36,37 @@ fn bench_single_publisher(c: &mut Criterion) {
             BenchmarkId::from_parameter(event_count),
             event_count,
             |b, &count| {
-                let rt = Runtime::new().unwrap();
-                b.to_async(&rt).iter(|| async {
-                    let bus = EventBus::new().await.unwrap();
-                    let topic = "bench.single";
+                b.iter(|| {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async {
+                        let bus = EventBus::new().await.unwrap();
+                        let topic = "bench.single";
 
-                    let (_sub_id, mut rx) = bus
-                        .subscribe(topic.to_string(), vec![], QoSLevel::QosBatched)
-                        .await
-                        .unwrap();
+                        let (_sub_id, mut rx) = bus
+                            .subscribe(topic.to_string(), vec![], QoSLevel::QosBatched)
+                            .await
+                            .unwrap();
 
-                    // Consumer task
-                    let consumer = tokio::spawn(async move {
-                        let mut received = 0;
-                        while let Some(_) = rx.recv().await {
-                            received += 1;
-                            if received >= count {
-                                break;
+                        // Consumer task
+                        let consumer = tokio::spawn(async move {
+                            let mut received = 0;
+                            while let Some(_) = rx.recv().await {
+                                received += 1;
+                                if received >= count {
+                                    break;
+                                }
                             }
+                        });
+
+                        // Publish
+                        for i in 0..count {
+                            let evt = make_event(i as u64, "bench");
+                            bus.publish(topic, evt).await.unwrap();
                         }
-                    });
 
-                    // Publish
-                    for i in 0..count {
-                        let evt = make_event(i as u64, "bench");
-                        bus.publish(topic, evt).await.unwrap();
-                    }
-
-                    consumer.await.unwrap();
-                    black_box(bus);
+                        consumer.await.unwrap();
+                        black_box(bus);
+                    })
                 });
             },
         );
@@ -86,48 +87,50 @@ fn bench_concurrent_publishers(c: &mut Criterion) {
             BenchmarkId::from_parameter(format!("{}x{}", publisher_count, events_per_publisher)),
             publisher_count,
             |b, &pubs| {
-                let rt = Runtime::new().unwrap();
-                b.to_async(&rt).iter(|| async {
-                    let bus = Arc::new(EventBus::new().await.unwrap());
-                    let topic = "bench.concurrent";
+                b.iter(|| {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async {
+                        let bus = Arc::new(EventBus::new().await.unwrap());
+                        let topic = "bench.concurrent";
 
-                    let (_sub_id, mut rx) = bus
-                        .subscribe(topic.to_string(), vec![], QoSLevel::QosBatched)
-                        .await
-                        .unwrap();
+                        let (_sub_id, mut rx) = bus
+                            .subscribe(topic.to_string(), vec![], QoSLevel::QosBatched)
+                            .await
+                            .unwrap();
 
-                    // Consumer
-                    let total = pubs * events_per_publisher;
-                    let consumer = tokio::spawn(async move {
-                        let mut received = 0;
-                        while let Some(_) = rx.recv().await {
-                            received += 1;
-                            if received >= total {
-                                break;
+                        // Consumer
+                        let total = pubs * events_per_publisher;
+                        let consumer = tokio::spawn(async move {
+                            let mut received = 0;
+                            while let Some(_) = rx.recv().await {
+                                received += 1;
+                                if received >= total {
+                                    break;
+                                }
                             }
+                        });
+
+                        // Publishers
+                        let mut tasks = vec![];
+                        for p in 0..pubs {
+                            let bus_clone = bus.clone();
+                            let topic_str = topic.to_string();
+                            tasks.push(tokio::spawn(async move {
+                                for i in 0..events_per_publisher {
+                                    let evt =
+                                        make_event((p * events_per_publisher + i) as u64, "bench");
+                                    let _ = bus_clone.publish(&topic_str, evt).await;
+                                }
+                            }));
                         }
-                    });
 
-                    // Publishers
-                    let mut tasks = vec![];
-                    for p in 0..pubs {
-                        let bus_clone = bus.clone();
-                        let topic_str = topic.to_string();
-                        tasks.push(tokio::spawn(async move {
-                            for i in 0..events_per_publisher {
-                                let evt =
-                                    make_event((p * events_per_publisher + i) as u64, "bench");
-                                let _ = bus_clone.publish(&topic_str, evt).await;
-                            }
-                        }));
-                    }
+                        for task in tasks {
+                            task.await.unwrap();
+                        }
 
-                    for task in tasks {
-                        task.await.unwrap();
-                    }
-
-                    consumer.await.unwrap();
-                    black_box(bus);
+                        consumer.await.unwrap();
+                        black_box(bus);
+                    })
                 });
             },
         );
@@ -158,35 +161,38 @@ fn bench_qos_levels(c: &mut Criterion) {
             BenchmarkId::from_parameter(qos_name),
             qos,
             |b, &qos_level| {
-                let rt = Runtime::new().unwrap();
-                b.to_async(&rt).iter(|| async {
-                    let bus = EventBus::new().await.unwrap();
-                    let topic = format!("bench.qos.{}", qos_name);
+                b.iter(|| {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async {
+                        let bus = EventBus::new().await.unwrap();
+                        let topic = format!("bench.qos.{}", qos_name);
 
-                    let (_sub_id, mut rx) = bus
-                        .subscribe(topic.clone(), vec![], qos_level)
-                        .await
-                        .unwrap();
+                        let (_sub_id, mut rx) = bus
+                            .subscribe(topic.clone(), vec![], qos_level)
+                            .await
+                            .unwrap();
 
-                    // Consumer
-                    let consumer = tokio::spawn(async move {
-                        let mut received = 0;
-                        while let Some(_) = rx.recv().await {
-                            received += 1;
-                            if received >= event_count {
-                                break;
+                        // Consumer
+                        let consumer = tokio::spawn(async move {
+                            let mut received = 0;
+                            while let Some(_) = rx.recv().await {
+                                received += 1;
+                                if received >= event_count {
+                                    break;
+                                }
                             }
+                        });
+
+                        // Publish
+                        for i in 0..event_count {
+                            let evt = make_event(i as u64, "qos_bench");
+                            let _ = bus.publish(&topic, evt).await;
                         }
-                    });
 
-                    // Publish
-                    for i in 0..event_count {
-                        let evt = make_event(i as u64, "qos_bench");
-                        let _ = bus.publish(&topic, evt).await;
-                    }
-
-                    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), consumer).await;
-                    black_box(bus);
+                        let _ =
+                            tokio::time::timeout(std::time::Duration::from_secs(5), consumer).await;
+                        black_box(bus);
+                    })
                 });
             },
         );
@@ -199,19 +205,21 @@ fn bench_publish_latency(c: &mut Criterion) {
     let mut group = c.benchmark_group("eventbus_publish_latency");
 
     group.bench_function("single_event_latency", |b| {
-        let rt = Runtime::new().unwrap();
-        b.to_async(&rt).iter(|| async {
-            let bus = EventBus::new().await.unwrap();
-            let topic = "bench.latency";
+        b.iter(|| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let bus = EventBus::new().await.unwrap();
+                let topic = "bench.latency";
 
-            let (_sub_id, _rx) = bus
-                .subscribe(topic.to_string(), vec![], QoSLevel::QosBatched)
-                .await
-                .unwrap();
+                let (_sub_id, _rx) = bus
+                    .subscribe(topic.to_string(), vec![], QoSLevel::QosBatched)
+                    .await
+                    .unwrap();
 
-            let evt = make_event(1, "latency");
-            bus.publish(topic, evt).await.unwrap();
-            black_box(bus);
+                let evt = make_event(1, "latency");
+                bus.publish(topic, evt).await.unwrap();
+                black_box(bus);
+            })
         });
     });
 
@@ -229,43 +237,46 @@ fn bench_multiple_subscribers(c: &mut Criterion) {
             BenchmarkId::from_parameter(format!("{}_subs", sub_count)),
             sub_count,
             |b, &subs| {
-                let rt = Runtime::new().unwrap();
-                b.to_async(&rt).iter(|| async {
-                    let bus = Arc::new(EventBus::new().await.unwrap());
-                    let topic = "bench.multi_sub";
+                b.iter(|| {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async {
+                        let bus = Arc::new(EventBus::new().await.unwrap());
+                        let topic = "bench.multi_sub";
 
-                    // Create multiple subscribers
-                    let mut consumers = vec![];
-                    for _ in 0..subs {
-                        let (_sub_id, mut rx) = bus
-                            .subscribe(topic.to_string(), vec![], QoSLevel::QosBatched)
-                            .await
-                            .unwrap();
+                        // Create multiple subscribers
+                        let mut consumers = vec![];
+                        for _ in 0..subs {
+                            let (_sub_id, mut rx) = bus
+                                .subscribe(topic.to_string(), vec![], QoSLevel::QosBatched)
+                                .await
+                                .unwrap();
 
-                        consumers.push(tokio::spawn(async move {
-                            let mut received = 0;
-                            while let Some(_) = rx.recv().await {
-                                received += 1;
-                                if received >= event_count {
-                                    break;
+                            consumers.push(tokio::spawn(async move {
+                                let mut received = 0;
+                                while let Some(_) = rx.recv().await {
+                                    received += 1;
+                                    if received >= event_count {
+                                        break;
+                                    }
                                 }
-                            }
-                        }));
-                    }
+                            }));
+                        }
 
-                    // Publish
-                    for i in 0..event_count {
-                        let evt = make_event(i as u64, "multi_sub_bench");
-                        bus.publish(topic, evt).await.unwrap();
-                    }
+                        // Publish
+                        for i in 0..event_count {
+                            let evt = make_event(i as u64, "multi_sub_bench");
+                            bus.publish(topic, evt).await.unwrap();
+                        }
 
-                    // Wait for all consumers
-                    for consumer in consumers {
-                        let _ =
-                            tokio::time::timeout(std::time::Duration::from_secs(5), consumer).await;
-                    }
+                        // Wait for all consumers
+                        for consumer in consumers {
+                            let _ =
+                                tokio::time::timeout(std::time::Duration::from_secs(5), consumer)
+                                    .await;
+                        }
 
-                    black_box(bus);
+                        black_box(bus);
+                    })
                 });
             },
         );
@@ -279,70 +290,74 @@ fn bench_event_filtering(c: &mut Criterion) {
     let event_count = 1_000;
 
     group.bench_function("no_filter", |b| {
-        let rt = Runtime::new().unwrap();
-        b.to_async(&rt).iter(|| async {
-            let bus = EventBus::new().await.unwrap();
-            let topic = "bench.filter";
+        b.iter(|| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let bus = EventBus::new().await.unwrap();
+                let topic = "bench.filter";
 
-            let (_sub_id, mut rx) = bus
-                .subscribe(topic.to_string(), vec![], QoSLevel::QosBatched)
-                .await
-                .unwrap();
+                let (_sub_id, mut rx) = bus
+                    .subscribe(topic.to_string(), vec![], QoSLevel::QosBatched)
+                    .await
+                    .unwrap();
 
-            let consumer = tokio::spawn(async move {
-                let mut received = 0;
-                while let Some(_) = rx.recv().await {
-                    received += 1;
-                    if received >= event_count {
-                        break;
+                let consumer = tokio::spawn(async move {
+                    let mut received = 0;
+                    while let Some(_) = rx.recv().await {
+                        received += 1;
+                        if received >= event_count {
+                            break;
+                        }
                     }
+                });
+
+                for i in 0..event_count {
+                    let evt = make_event(i as u64, "type_a");
+                    bus.publish(topic, evt).await.unwrap();
                 }
-            });
 
-            for i in 0..event_count {
-                let evt = make_event(i as u64, "type_a");
-                bus.publish(topic, evt).await.unwrap();
-            }
-
-            consumer.await.unwrap();
-            black_box(bus);
+                consumer.await.unwrap();
+                black_box(bus);
+            })
         });
     });
 
     group.bench_function("with_filter", |b| {
-        let rt = Runtime::new().unwrap();
-        b.to_async(&rt).iter(|| async {
-            let bus = EventBus::new().await.unwrap();
-            let topic = "bench.filter";
+        b.iter(|| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let bus = EventBus::new().await.unwrap();
+                let topic = "bench.filter";
 
-            let (_sub_id, mut rx) = bus
-                .subscribe(
-                    topic.to_string(),
-                    vec!["type_a".to_string()],
-                    QoSLevel::QosBatched,
-                )
-                .await
-                .unwrap();
+                let (_sub_id, mut rx) = bus
+                    .subscribe(
+                        topic.to_string(),
+                        vec!["type_a".to_string()],
+                        QoSLevel::QosBatched,
+                    )
+                    .await
+                    .unwrap();
 
-            let consumer = tokio::spawn(async move {
-                let mut received = 0;
-                while let Some(_) = rx.recv().await {
-                    received += 1;
-                    if received >= event_count / 2 {
-                        break;
+                let consumer = tokio::spawn(async move {
+                    let mut received = 0;
+                    while let Some(_) = rx.recv().await {
+                        received += 1;
+                        if received >= event_count / 2 {
+                            break;
+                        }
                     }
+                });
+
+                // Publish 50% type_a, 50% type_b
+                for i in 0..event_count {
+                    let event_type = if i % 2 == 0 { "type_a" } else { "type_b" };
+                    let evt = make_event(i as u64, event_type);
+                    bus.publish(topic, evt).await.unwrap();
                 }
-            });
 
-            // Publish 50% type_a, 50% type_b
-            for i in 0..event_count {
-                let event_type = if i % 2 == 0 { "type_a" } else { "type_b" };
-                let evt = make_event(i as u64, event_type);
-                bus.publish(topic, evt).await.unwrap();
-            }
-
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), consumer).await;
-            black_box(bus);
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(5), consumer).await;
+                black_box(bus);
+            })
         });
     });
 
