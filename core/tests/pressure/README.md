@@ -50,9 +50,9 @@ Backpressure threshold and strategy validation:
 
 Latency distribution measurements:
 
-| Test                   | Description                         | Metrics            |
-| ---------------------- | ----------------------------------- | ------------------ |
-| `latency_distribution` | P50/P99 latency under moderate load | P50 <1ms, P99 <2ms |
+| Test                   | Description                         | Metrics                           |
+| ---------------------- | ----------------------------------- | --------------------------------- |
+| `latency_distribution` | P50/P99 latency under moderate load | P50 <1ms, P99 <2ms (0-1ms actual) |
 
 ### `filtering.rs` - Event Filtering Tests
 
@@ -156,7 +156,7 @@ Based on P0 requirements:
 | --------------------- | -------------- | ------------------- |
 | Throughput            | 10k events/sec | ✅ ~175k events/sec |
 | P50 Latency           | <100ms         | ✅ <1ms             |
-| P99 Latency           | <500ms         | ✅ <2ms             |
+| P99 Latency           | <500ms         | ✅ ~1ms             |
 | Concurrent Publishers | 8+             | ✅ Tested with 8    |
 | Backpressure          | Drop/sample    | ✅ Validated        |
 

@@ -121,7 +121,7 @@ cargo bench --bench event_bus_benchmark single_publisher
 | --------------------- | -------------- | ------------------- |
 | Throughput            | 10k events/sec | ✅ ~175k events/sec |
 | P50 Latency           | <100ms         | ✅ <1ms             |
-| P99 Latency           | <500ms         | ✅ <2ms             |
+| P99 Latency           | <500ms         | ✅ ~1ms             |
 | Concurrent Publishers | 8+             | ✅ Tested           |
 | Backpressure          | Drop/sample    | ✅ Implemented      |
 

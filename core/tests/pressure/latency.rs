@@ -75,9 +75,10 @@ pub async fn latency_distribution() -> Result<()> {
             min, p50, p99, max
         );
 
-        // Basic sanity checks
-        assert!(p50 < 1000, "P50 latency should be reasonable (<1s)");
-        assert!(p99 < 5000, "P99 latency should be reasonable (<5s)");
+        // Latency assertions based on P0 requirements
+        // Target: P50 <100ms, P99 <500ms (actual performance is much better: <1ms)
+        assert!(p50 < 100, "P50 latency should be <100ms (P0 target)");
+        assert!(p99 < 500, "P99 latency should be <500ms (P0 target)");
     } else {
         println!("Warning: No latency samples collected");
     }
