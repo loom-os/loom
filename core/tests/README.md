@@ -9,12 +9,26 @@ Each test file follows the naming convention `<module>_test.rs` and corresponds 
 | Test File                | Source Module          | Coverage                                                       |
 | ------------------------ | ---------------------- | -------------------------------------------------------------- |
 | `event_test.rs`          | `src/event.rs`         | EventBus pub/sub, QoS levels, backpressure strategies          |
-| `event_pressure_test.rs` | `src/event.rs`         | EventBus pressure testing, throughput, latency, backpressure   |
+| `event_pressure_test.rs` | `src/event.rs`         | EventBus pressure testing (modularized in `pressure/`)         |
 | `action_broker_test.rs`  | `src/action_broker.rs` | Capability registration, invocation, timeout, error handling   |
 | `agent_runtime_test.rs`  | `src/agent/runtime.rs` | Agent lifecycle, mailbox distribution, multi-agent scenarios   |
 | `router_test.rs`         | `src/router.rs`        | Model routing decisions, privacy levels, confidence thresholds |
 | `llm_test.rs`            | `src/llm/`             | LLM client config, adapter logic, token budget enforcement     |
 | `integration_test.rs`    | Core Pipeline          | End-to-end event → agent → action → result flow                |
+
+### Pressure Test Structure (Modularized)
+
+Pressure tests are organized into submodules under `pressure/`:
+
+| Module                   | File                       | Coverage                               |
+| ------------------------ | -------------------------- | -------------------------------------- |
+| `pressure::mod`          | `pressure/mod.rs`          | Shared utilities (`make_event()`)      |
+| `pressure::throughput`   | `pressure/throughput.rs`   | Baseline & concurrent throughput tests |
+| `pressure::qos_behavior` | `pressure/qos_behavior.rs` | QoS level-specific behavior tests      |
+| `pressure::backpressure` | `pressure/backpressure.rs` | Backpressure threshold enforcement     |
+| `pressure::latency`      | `pressure/latency.rs`      | P50/P99 latency measurements           |
+| `pressure::filtering`    | `pressure/filtering.rs`    | Event type filtering under load        |
+| `pressure::stats`        | `pressure/stats.rs`        | Statistics tracking accuracy           |
 
 ### Integration Test Structure
 
@@ -71,6 +85,21 @@ cargo test --test event_pressure_test -- --test-threads=1 --nocapture
 ```
 
 The `--nocapture` flag shows detailed metrics output.
+
+**Run specific module:**
+
+```bash
+# Throughput tests only
+cargo test --test event_pressure_test throughput -- --nocapture
+
+# QoS behavior tests only
+cargo test --test event_pressure_test qos_behavior -- --nocapture
+
+# Latency tests only
+cargo test --test event_pressure_test latency -- --nocapture
+```
+
+See `pressure/README.md` for detailed module documentation.
 
 ### Running Benchmarks
 
