@@ -2,8 +2,10 @@ use loom_core::context::{PromptBundle, TokenBudget};
 use loom_core::llm::{LlmClient, LlmClientConfig};
 use loom_core::Result;
 use serde_json::json;
+use serial_test::serial;
 
 #[test]
+#[serial]
 fn config_loads_from_defaults() {
     // Clear env vars to test defaults (including ones from config_loads_from_env test)
     std::env::remove_var("VLLM_BASE_URL");
@@ -25,6 +27,7 @@ fn config_loads_from_defaults() {
 }
 
 #[test]
+#[serial]
 fn config_loads_from_env() {
     std::env::set_var("VLLM_BASE_URL", "http://test:9000/v1");
     std::env::set_var("VLLM_MODEL", "test-model");

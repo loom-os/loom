@@ -1,6 +1,30 @@
 use crate::context::{PromptBundle, TokenBudget};
 use serde_json::json;
 
+// Formatting overhead constants for fused text assembly
+const SYSTEM_LABEL_OVERHEAD: usize = "System:\n\n\n".len(); // "System:\n" + "\n\n"
+const CONTEXT_NEWLINE_OVERHEAD: usize = "\n".len(); // extra newline after context
+const HISTORY_LABEL_OVERHEAD: usize = "History:\n\n".len(); // "History:\n" + final "\n"
+const HISTORY_ITEM_OVERHEAD: usize = "- \n".len(); // "- " + "\n" per history item
+const USER_LABEL_OVERHEAD: usize = "User:\n\n".len(); // "User:\n" + "\n"
+
+/// Helper function to calculate assembled character count including formatting overhead
+fn calculate_assembled_chars(system: &str, context_block: &str, instructions: &str) -> usize {
+    let mut total =
+        system.chars().count() + context_block.chars().count() + instructions.chars().count();
+
+    if !system.is_empty() {
+        total += SYSTEM_LABEL_OVERHEAD;
+    }
+    if !context_block.is_empty() {
+        total += CONTEXT_NEWLINE_OVERHEAD;
+    }
+    if !instructions.is_empty() {
+        total += USER_LABEL_OVERHEAD;
+    }
+    total
+}
+
 /// Convert PromptBundle into both chat messages and a single fused text for the Responses API
 pub fn promptbundle_to_messages_and_text(
     bundle: &PromptBundle,
@@ -34,17 +58,17 @@ pub fn promptbundle_to_messages_and_text(
     // Add overhead for fused text formatting labels
     let mut formatting_overhead = 0;
     if !system.is_empty() {
-        formatting_overhead += "System:\n\n\n".len(); // "System:\n" + "\n\n"
+        formatting_overhead += SYSTEM_LABEL_OVERHEAD;
     }
     if !context_block.is_empty() {
-        formatting_overhead += "\n".len(); // extra newline after context
+        formatting_overhead += CONTEXT_NEWLINE_OVERHEAD;
     }
     if !history_blocks.is_empty() {
-        formatting_overhead += "History:\n\n".len(); // "History:\n" + final "\n"
-        formatting_overhead += history_blocks.len() * "- \n".len(); // "- " + "\n" per item
+        formatting_overhead += HISTORY_LABEL_OVERHEAD;
+        formatting_overhead += history_blocks.len() * HISTORY_ITEM_OVERHEAD;
     }
     if !instructions.is_empty() {
-        formatting_overhead += "User:\n\n".len(); // "User:\n" + "\n"
+        formatting_overhead += USER_LABEL_OVERHEAD;
     }
 
     assembled_chars += formatting_overhead;
@@ -52,11 +76,12 @@ pub fn promptbundle_to_messages_and_text(
     // Trim oldest history first until within char budget (character-accurate)
     while assembled_chars > char_budget && !history_blocks.is_empty() {
         let removed = history_blocks.remove(0);
-        assembled_chars = assembled_chars.saturating_sub(removed.chars().count() + "- \n".len());
+        assembled_chars =
+            assembled_chars.saturating_sub(removed.chars().count() + HISTORY_ITEM_OVERHEAD);
     }
     // Update formatting overhead if all history was removed
     if history_blocks.is_empty() {
-        assembled_chars = assembled_chars.saturating_sub("History:\n\n".len());
+        assembled_chars = assembled_chars.saturating_sub(HISTORY_LABEL_OVERHEAD);
     }
 
     // If still too large, truncate instructions
@@ -64,52 +89,35 @@ pub fn promptbundle_to_messages_and_text(
         let fixed_overhead = system.chars().count()
             + context_block.chars().count()
             + if !system.is_empty() {
-                "System:\n\n\n".len()
+                SYSTEM_LABEL_OVERHEAD
             } else {
                 0
             }
             + if !context_block.is_empty() {
-                "\n".len()
+                CONTEXT_NEWLINE_OVERHEAD
             } else {
                 0
             }
-            + "User:\n\n".len();
+            + USER_LABEL_OVERHEAD;
         let allowed_chars = char_budget.saturating_sub(fixed_overhead);
         instructions = instructions.chars().take(allowed_chars).collect();
-        assembled_chars = system.chars().count()
-            + context_block.chars().count()
-            + instructions.chars().count()
-            + if !system.is_empty() {
-                "System:\n\n\n".len()
-            } else {
-                0
-            }
-            + if !context_block.is_empty() {
-                "\n".len()
-            } else {
-                0
-            }
-            + if !instructions.is_empty() {
-                "User:\n\n".len()
-            } else {
-                0
-            };
+        assembled_chars = calculate_assembled_chars(&system, &context_block, &instructions);
     }
 
     // If still too large, truncate context_block
     if assembled_chars > char_budget && !context_block.is_empty() {
         let fixed_overhead = system.chars().count()
             + if !system.is_empty() {
-                "System:\n\n\n".len()
+                SYSTEM_LABEL_OVERHEAD
             } else {
                 0
             }
             + if !instructions.is_empty() {
-                instructions.chars().count() + "User:\n\n".len()
+                instructions.chars().count() + USER_LABEL_OVERHEAD
             } else {
                 0
             }
-            + "\n".len(); // newline after context
+            + CONTEXT_NEWLINE_OVERHEAD;
         let allowed_chars = char_budget.saturating_sub(fixed_overhead);
         // Truncate context keeping the "Context:\n- " prefix
         let prefix = "Context:\n- ";
@@ -129,38 +137,21 @@ pub fn promptbundle_to_messages_and_text(
         } else {
             context_block.clear();
         }
-        assembled_chars = system.chars().count()
-            + context_block.chars().count()
-            + instructions.chars().count()
-            + if !system.is_empty() {
-                "System:\n\n\n".len()
-            } else {
-                0
-            }
-            + if !context_block.is_empty() {
-                "\n".len()
-            } else {
-                0
-            }
-            + if !instructions.is_empty() {
-                "User:\n\n".len()
-            } else {
-                0
-            };
+        assembled_chars = calculate_assembled_chars(&system, &context_block, &instructions);
     }
 
     // If still too large, truncate system (last resort)
     if assembled_chars > char_budget && !system.is_empty() {
         let fixed_overhead = context_block.chars().count()
             + instructions.chars().count()
-            + "System:\n\n\n".len()
+            + SYSTEM_LABEL_OVERHEAD
             + if !context_block.is_empty() {
-                "\n".len()
+                CONTEXT_NEWLINE_OVERHEAD
             } else {
                 0
             }
             + if !instructions.is_empty() {
-                "User:\n\n".len()
+                USER_LABEL_OVERHEAD
             } else {
                 0
             };
