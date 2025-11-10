@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tonic::{Request, Response, Status};
 use tracing::info;
@@ -36,6 +36,12 @@ pub struct BridgeState {
     pub streams: Arc<DashMap<String, mpsc::Sender<ServerEvent>>>,
     // action_call_id -> ActionResult received from agent (server-push correlation)
     pub action_results: Arc<DashMap<String, ActionResult>>,
+    // agent_id -> event bus subscription ids for cleanup
+    pub subscription_ids: Arc<DashMap<String, Vec<String>>>,
+    // agent_id -> task handles for forwarding loops (abort on disconnect)
+    pub forwarding_tasks: Arc<DashMap<String, Vec<JoinHandle<()>>>>,
+    // agent_id -> list of action_result ids for cleanup
+    pub action_result_index: Arc<DashMap<String, Vec<String>>>,
 }
 
 impl BridgeState {
@@ -47,6 +53,9 @@ impl BridgeState {
             capabilities: Arc::new(DashMap::new()),
             streams: Arc::new(DashMap::new()),
             action_results: Arc::new(DashMap::new()),
+            subscription_ids: Arc::new(DashMap::new()),
+            forwarding_tasks: Arc::new(DashMap::new()),
+            action_result_index: Arc::new(DashMap::new()),
         }
     }
 }
@@ -140,21 +149,25 @@ impl Bridge for BridgeService {
         self.state.streams.insert(agent_id.clone(), tx.clone());
         let agent_id_for_inbound = agent_id.clone();
 
-        // For each subscribed topic, spawn forwarding task
+        // For each subscribed topic, subscribe and spawn a forwarding task, tracking ids and handles
         if let Some(topics) = self.state.subscriptions.get(&agent_id).map(|v| v.clone()) {
+            let mut sub_ids: Vec<String> = Vec::new();
+            let mut handles: Vec<JoinHandle<()>> = Vec::new();
             for topic in topics.iter() {
                 let topic_clone = topic.clone();
-                let event_bus = Arc::clone(&self.state.event_bus);
-                let tx_clone = tx.clone();
-                tokio::spawn(async move {
-                    if let Ok((_sub_id, mut rx_bus)) = event_bus
-                        .subscribe(
-                            topic_clone.clone(),
-                            vec![],
-                            loom_proto::QoSLevel::QosBatched,
-                        )
-                        .await
-                    {
+                let event_bus_local = Arc::clone(&self.state.event_bus);
+                // subscribe first to capture subscription id and receiver
+                if let Ok((sub_id, mut rx_bus)) = event_bus_local
+                    .subscribe(
+                        topic_clone.clone(),
+                        vec![],
+                        loom_proto::QoSLevel::QosBatched,
+                    )
+                    .await
+                {
+                    sub_ids.push(sub_id.clone());
+                    let tx_clone = tx.clone();
+                    let handle: JoinHandle<()> = tokio::spawn(async move {
                         while let Some(ev) = rx_bus.recv().await {
                             if tx_clone
                                 .send(ServerEvent {
@@ -169,9 +182,19 @@ impl Bridge for BridgeService {
                                 break; // stream dropped
                             }
                         }
-                    }
-                });
+                        // Ensure unsubscribe to release EventBus resources on normal end
+                        let _ = event_bus_local.unsubscribe(&sub_id).await;
+                    });
+                    handles.push(handle);
+                }
             }
+            // record for cleanup
+            self.state
+                .subscription_ids
+                .insert(agent_id.clone(), sub_ids);
+            self.state
+                .forwarding_tasks
+                .insert(agent_id.clone(), handles);
         }
 
         // Spawn task handling inbound messages
@@ -179,6 +202,9 @@ impl Bridge for BridgeService {
         let tx_in = tx.clone();
         let streams_map = self.state.streams.clone();
         let action_results = self.state.action_results.clone();
+        let subscription_ids = self.state.subscription_ids.clone();
+        let forwarding_tasks = self.state.forwarding_tasks.clone();
+        let action_result_index = self.state.action_result_index.clone();
         tokio::spawn(async move {
             while let Some(Ok(msg)) = inbound.message().await.transpose() {
                 match msg.msg {
@@ -199,7 +225,12 @@ impl Bridge for BridgeService {
                     }
                     Some(client_event::Msg::ActionResult(ar)) => {
                         info!(action_id=%ar.id, "Received action result from agent");
-                        action_results.insert(ar.id.clone(), ar);
+                        action_results.insert(ar.id.clone(), ar.clone());
+                        // index this result under agent for cleanup
+                        action_result_index
+                            .entry(agent_id_for_inbound.clone())
+                            .or_insert_with(Vec::new)
+                            .push(ar.id);
                     }
                     Some(client_event::Msg::Ack(_)) => { /* ignore */ }
                     None => {}
@@ -208,6 +239,24 @@ impl Bridge for BridgeService {
             info!(agent_id=%agent_id_for_inbound, "EventStream inbound ended");
             // Cleanup stream sender on disconnect
             streams_map.remove(&agent_id_for_inbound);
+            // Unsubscribe all topic subscriptions for this agent
+            if let Some(ids) = subscription_ids.remove(&agent_id_for_inbound) {
+                for sid in ids.1.iter() {
+                    let _ = event_bus.unsubscribe(sid).await;
+                }
+            }
+            // Abort forwarding tasks to stop background loops promptly
+            if let Some(handles) = forwarding_tasks.remove(&agent_id_for_inbound) {
+                for h in handles.1.into_iter() {
+                    h.abort();
+                }
+            }
+            // Drop any stored action results indexed for this agent to avoid leaks
+            if let Some(res_ids) = action_result_index.remove(&agent_id_for_inbound) {
+                for rid in res_ids.1.into_iter() {
+                    action_results.remove(&rid);
+                }
+            }
         });
 
         let id_for_log = agent_id;
