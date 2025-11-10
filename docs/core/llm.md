@@ -3,7 +3,7 @@
 Responsibility
 
 - Adapt external LLM providers to the internal request/response model.
-- Provide timeouts, retries, and multiple response-mode support (batch / streaming/SSE where supported).
+- Provide timeouts, retries, and multiple response-mode support (batch API requests, streaming/SSE where supported).
 
 Key files
 
