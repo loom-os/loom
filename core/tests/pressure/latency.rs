@@ -26,16 +26,23 @@ pub async fn latency_distribution() -> Result<()> {
     let latencies_clone = latencies.clone();
 
     // Consumer that measures latency
+    // It will exit after collecting `event_count` samples or when the channel closes,
+    // avoiding potential infinite waits when messages stop arriving.
     let consumer = tokio::spawn(async move {
-        while let Some(evt) = rx.recv().await {
-            let recv_time = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis();
-            let send_time = evt.timestamp_ms as u128;
-            if send_time > 0 {
-                let latency = recv_time.saturating_sub(send_time);
-                latencies_clone.lock().await.push(latency as u64);
+        while latencies_clone.lock().await.len() < event_count as usize {
+            match rx.recv().await {
+                Some(evt) => {
+                    let recv_time = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis();
+                    let send_time = evt.timestamp_ms as u128;
+                    if send_time > 0 {
+                        let latency = recv_time.saturating_sub(send_time);
+                        latencies_clone.lock().await.push(latency as u64);
+                    }
+                }
+                None => break,
             }
         }
     });

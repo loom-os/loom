@@ -28,7 +28,10 @@ pub async fn single_publisher_single_consumer() -> Result<()> {
     let received = Arc::new(AtomicU64::new(0));
     let received_clone = received.clone();
     let consumer = tokio::spawn(async move {
-        while let Some(_evt) = rx.recv().await {
+        while received_clone.load(Ordering::Relaxed) < event_count as u64 {
+            if rx.recv().await.is_none() {
+                break;
+            }
             received_clone.fetch_add(1, Ordering::Relaxed);
         }
     });
@@ -85,7 +88,10 @@ pub async fn concurrent_publishers() -> Result<()> {
     let received = Arc::new(AtomicU64::new(0));
     let received_clone = received.clone();
     let consumer = tokio::spawn(async move {
-        while let Some(_evt) = rx.recv().await {
+        while received_clone.load(Ordering::Relaxed) < total_events as u64 {
+            if rx.recv().await.is_none() {
+                break;
+            }
             received_clone.fetch_add(1, Ordering::Relaxed);
         }
     });
@@ -147,8 +153,9 @@ pub async fn sustained_load() -> Result<()> {
 
     let received = Arc::new(AtomicU64::new(0));
     let received_clone = received.clone();
-
+    // the `published` variable is inside the publisher task
     let consumer = tokio::spawn(async move {
+      // we can't know the published count in advance here; we must rely on the main flow dropping the bus to close the channels
         while let Some(_evt) = rx.recv().await {
             received_clone.fetch_add(1, Ordering::Relaxed);
         }
@@ -212,7 +219,10 @@ pub async fn multiple_subscribers_delivery() -> Result<()> {
 
         let consumer = tokio::spawn(async move {
             let mut rx = rx;
-            while let Some(_evt) = rx.recv().await {
+            while counter.load(Ordering::Relaxed) < event_count as u64 {
+                if rx.recv().await.is_none() {
+                    break;
+                }
                 counter.fetch_add(1, Ordering::Relaxed);
             }
         });
