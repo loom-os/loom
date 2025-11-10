@@ -28,3 +28,14 @@ Tuning
 Example (mock capability)
 
 - A test mock provider should implement the capability interface and publish an `ActionResult` event consumed by the EventBus to validate round-trip behavior.
+
+---
+
+## Tool Use metadata
+
+When integrating with the LLM Tool Orchestrator, capabilities can advertise a function-calling schema via `CapabilityDescriptor.metadata`:
+
+- `desc` (string): short description presented to the model.
+- `schema` (string): JSON Schema for the parameters object.
+
+The orchestrator converts this into the `tools` array sent to the model (Responses/Chat). If omitted, a permissive empty schema is used.
