@@ -22,9 +22,13 @@ Scope:
    - ✅ Implemented (gRPC): AgentRegister (topics, capabilities), bidirectional EventStream (publish/delivery), client-initiated ForwardAction, server-initiated ActionCall (internal push API + result correlation map), heartbeat, stateless reconnection.
    - Pending: external admin RPC for server push, metrics/backpressure export, auth/namespaces.
 2. Python SDK MVP (loom‑py)
-   - Core Agent/Context API: emit/request/reply/tool/memory (in‑process)/join_thread.
-   - @capability decorator: register Python functions as capabilities (JSON Schema).
-   - Unified envelope: thread_id/correlation_id/sender/reply_to/ttl_ms.
+   - Core Agent/Context API: emit/reply/tool implemented; request (with correlation_id)/basic in‑process memory/join_thread topic convention scaffolded for MVP.
+   - @capability decorator: implemented (auto Pydantic input schema + optional output schema) in `loom-py/src/loom/capability.py`.
+   - Unified envelope: implemented (`Envelope` dataclass stores thread_id/correlation_id/sender/reply_to/ttl_ms via metadata prefix `loom.`).
+   - gRPC bridge client: `BridgeClient` with RegisterAgent/EventStream/ForwardAction/Heartbeat handshake (Ack first) in `client.py`.
+   - Agent orchestration: `Agent` class manages stream loop, capability invocation, action_result correlation.
+   - Packaging: `loom-py/pyproject.toml` (name `loom`) ready for PyPI alpha publish (`0.1.0a1`). Generation script `python -m loom.proto.generate`.
+   - Next: add example trio (Planner/Researcher/Writer) + tests (registration, emit roundtrip, capability invocation); expand request/barrier primitives.
 3. JS SDK MVP (loom‑js)
    - defineAgent(handler), ctx.emit/request/reply/tool.
 4. Collaboration primitives (first batch)

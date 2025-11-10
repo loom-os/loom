@@ -1,0 +1,17 @@
+# Generated Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# Generated gRPC stubs (generated under package path)
+src/loom/proto/*_pb2.py
+src/loom/proto/*_pb2_grpc.py
+
+# Virtual environments
+.venv/
+.env/
+
+# Build outputs
+build/
+dist/
+*.egg-info/

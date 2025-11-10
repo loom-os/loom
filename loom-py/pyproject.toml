@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling>=1.18.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "loom"
+version = "0.1.0a1"
+description = "Loom Python SDK: build event-driven multi-agent systems and connect to Loom Core via gRPC"
+readme = "README.md"
+authors = [
+  { name = "Loom OS", email = "maintainers@loom-os.dev" },
+]
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+keywords = ["agents", "grpc", "event-bus", "multi-agent", "loom"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+  "grpcio>=1.62.0",
+  "protobuf>=4.25.0",
+  "pydantic>=2.6.0",
+  "jsonschema>=4.21.0",
+  "platformdirs>=4.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/loom-os/loom"
+Documentation = "https://github.com/loom-os/loom/tree/main/docs"
+Issues = "https://github.com/loom-os/loom/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/loom"]
+
+[tool.hatch.build]
+include = [
+  "src/loom/**",
+  "README.md",
+  "LICENSE",
+]
+
+[tool.hatch.envs.default]
+dependency-groups = ["dev"]
+
+[tool.hatch.envs.default.scripts]
+proto = "python -m loom.proto.generate"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4",
+  "mypy>=1.8",
+  "grpcio-tools>=1.62.0",
+]
+
+[project.scripts]
+loom = "loom.cli:main"
