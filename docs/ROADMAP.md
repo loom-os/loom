@@ -1,114 +1,102 @@
-# Roadmap (prioritized by issues)
+# Roadmap (Loom OS 1.0)
 
-This roadmap is re-centered on the voice_agent E2E demo as our first complete, event-driven loop: Mic → VAD → STT → Wake → Agent → LLM → TTS. Highest priorities are tasks required to make this demo robust and easy to run; lower priorities cover broader OS and ecosystem evolution.
+Goal: Enable developers to build a long-running, observable, and extensible event‑driven Multi‑Agent System in Python/JS within 10 minutes. The system can act on the outside world via MCP/function‑call tools, while the Rust Core provides performance and reliability.
 
-## P0 — Voice Agent E2E (highest priority)
+Layered architecture (bottom‑up):
 
-Goal: ship a reliable demo that runs locally end-to-end with minimal setup and clear docs.
-
-Done
-
-- Mic capture EventSource (cpal) — audio_chunk events with metadata
-- VAD gating (webrtc-vad) — speech_start/end, audio_voiced branch
-- Utterance segmentation + STT (CLI whisper.cpp) — transcript.final events
-- Wake word on transcripts — fuzzy match “hey loom/loom”
-- LLM HTTP client — prefers /v1/responses, fallback to /v1/chat/completions
-- PromptBundle → messages/input adapter with simple budget trim
-
-Remaining
-
-- Local TTS capability provider
-  - Detect piper first, fallback to espeak-ng; headers: voice/rate/volume
-  - Degrade gracefully if missing; print guidance
-- E2E app: `demo/voice_agent` (binary)
-  - Wire Mic → VAD → STT → Wake → Agent invoking `llm.generate` → TTS
-  - Clear logs, robust error handling at each step
-- Core test suite (loom-core)
-  - Unit tests: EventBus (subscribe/unsubscribe, QoS, backpressure), AgentRuntime (lifecycle/state), ModelRouter (policy rules), LlmClient (responses/chat compat, timeouts), ActionBroker (registration/permissions)
-  - Integration: minimal end-to-end loop (mock capability) publishing `action_done` and observing `routing_decision`
-  - Stress/bench: single-node throughput baseline and P50/P99 latency under different QoS/backpressure strategies; markdown report
-- Docs: Voice E2E guide (docs/voice_agent)
-  - Install whisper.cpp and models OR choose alternative STT
-  - Start a local vLLM (or point to cloud); env config matrix
-  - Run the example; troubleshooting (devices, sampling rate, permissions)
-- Tool Use path (LLM → ActionBroker)
-  - Parse tool calls from LLM output; dispatch to capability providers; feed results back to LLM or present directly
-  - New providers: `web.search` (query/top_k → title/url/summary[]) and `weather.get` (location/units → temp/summary)
-  - Integrate into Voice Agent; add examples for "simple search / weather query"
-  - Core/docs coverage
-    - Core overview and per-component pages: EventBus, AgentRuntime, Router, ActionBroker, LLM, Plugin System, Storage, Telemetry
-  - Complete audio docs: mic / TTS / wake (STT and VAD already exist)
-- Observability (minimal)
-  - Publish assistant.message and action_result events; summarize latency per stage
-  - Enable basic tracing in demo path
-
-Acceptance for P0
-
-- Demo runs on Linux/macOS with CPU-only setup in ≤15 minutes
-- End-to-end latency per utterance documented; robust failure messages and fallbacks
-- Single command to run the example; environment variables documented
-- Core unit/integration tests green in CI; baseline throughput and latency documented
-
-## P1 — Quality and developer ergonomics
-
-Improve latency, stability, and app authoring experience while staying within the voice_agent scope.
-
-- Streaming LLM → TTS
-  - SSE from Responses or Chat Completions; incremental `assistant.token` events
-  - Early TTS playback for perceived latency
-- Session management
-  - Scoped session_id with turn boundaries (wake → query → response)
-  - Time-based expiry; state propagation in events
-- PromptBuilder enhancements
-  - Retrieval via MemoryReader; episodic summaries via MemoryWriter
-  - Role-aware history; tokenizer-based budgeting (optional feature)
-- Extended Tool Use (beyond P0)
-  - Multi-tool orchestration, better argument schema/validation, retries/backoff
-- Router improvements
-  - Quick (local) + refine (cloud) policy for the demo, configurable per agent
-  - Basic price/latency estimates surfaced in routing_decision
-- Observability
-  - Counters and simple dashboards (latency per stage, error rates)
-  - Structured logs and sampling in examples
-- Audio codebase refactor (maintainability)
-  - Split large files into cohesive modules (mic/vad/stt/tts/wake): unify config.rs, provider traits, and error types
-  - TTS provider abstraction and cleanup of Piper/espeak implementations; unify return types and fallback paths
-  - Encapsulate STT subprocess invocation (timeouts/cancellation/temp file management) and improve testability
-  - Increase unit and integration test coverage
-- Docs & engineering hygiene
-  - Documentation index and navigation: create cross-links between README, ARCHITECTURE, QUICKSTART, EXAMPLES, and voice_agent
-  - CI: test matrix (unit/integration), optional scheduled benchmarks; produce benchmark reports
-
-## P2 — Broader OS and ecosystem (medium priority)
-
-Focus on extensibility, integration, and mobile/runtime breadth beyond the voice_agent.
-
-- Capability providers
-  - WASM provider (desktop): Wasmtime; AOT ready for mobile later
-  - Out-of-process plugin adapter (gRPC/MCP); templates for Python/Node
-- Integrations
-  - n8n node (minimal) for orchestration
-  - Model/router signals exported for external policy engines
-- Local ML backends
-  - Replace LocalModel stub with TFLite/ONNX RT variants (vision/audio examples)
-  - Event schemas for detections; policy hooks for privacy-preserving on-device inference
-- Event bus hardening
-  - Beyond P0 baselines: heavier load and long-run stability, QoS tuning, bounded memory
-    - Benchmark harness and artifacts — persist results and compare different strategies/parameters
-- Docs/site
-  - Quickstart upgrades; example catalog; troubleshooting matrix
-  - Configuration/secrets guidance
-
-## P3 — Mobile and performance (lower priority)
-
-- iOS/Android packaging POC (xcframework/AAR) and minimal wrappers
-- AOT-friendly WASM path (WAMR) and on-device model execution tuning
-- Footprint/latency optimizations with measurements and targets
+- Core (Rust): EventBus (QoS/backpressure/stats), ActionBroker (capability registry/invocation/timeouts), ToolOrchestrator (unified tool parsing/refine/stats), Router (policies for privacy/latency/cost/quality).
+- Bridge (protocol): gRPC or WebSocket for Agent registration, event streaming, capability invocation, heartbeat and backpressure signals.
+- SDK (Python/JS): Agent abstraction (on_event), Context (emit/request/reply/tool/memory/join_thread), @capability declaration, collaboration primitives (fanout/fanin/barrier/contract‑net).
+- Ecosystem: MCP client (ingest tools → capability directory → invoke), optional MCP server (expose Loom capabilities externally).
+- UX: CLI (loom new/dev/bench/list), Dashboard (topology, swimlanes, latency, backpressure, routing, tool calls).
 
 ---
 
-Notes
+## P0 — Minimal viable multi‑language multi‑agent (highest priority)
 
-- The LLM layer now supports both /responses and /chat/completions, making it compatible with vLLM and Transformers-based backends as well as OpenAI-style clouds.
-- We intentionally use capabilities (`llm.generate`, `tts.*`) so apps and agents remain backend-agnostic; routing and headers select the actual engine.
-- The voice_agent demo is our proving ground; we’ll feed its learnings back into core APIs, event schemas, and docs.
+Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researcher/Writer) in Python/JS, collaborate via events to perform search and summarization, invoke web.search/weather.get; Dashboard shows basic event flow; single‑command run via CLI.
+
+Scope:
+
+1. Bridge MVP (gRPC/WS, choose one first)
+   - AgentRegister (subscribed topics, capability list), bidirectional EventStream, ActionCall/ActionResult forwarding.
+   - Reconnect with exponential backoff; heartbeat/healthcheck (optional for MVP).
+2. Python SDK MVP (loom‑py)
+   - Core Agent/Context API: emit/request/reply/tool/memory (in‑process)/join_thread.
+   - @capability decorator: register Python functions as capabilities (JSON Schema).
+   - Unified envelope: thread_id/correlation_id/sender/reply_to/ttl_ms.
+3. JS SDK MVP (loom‑js)
+   - defineAgent(handler), ctx.emit/request/reply/tool.
+4. Collaboration primitives (first batch)
+   - request/reply, barrier (wait for N replies or timeout), thread broadcast topic: `thread.{thread_id}.events`.
+5. MCP client (basic tool ingest)
+   - Connect to MCP servers on startup → fetch tool JSON Schema → register as CapabilityDescriptor.
+   - Invoke MCP tools via ActionBroker; unify error codes (INVALID_PARAMS/TIMEOUT/...).
+6. Dashboard MVP
+   - Nodes and edges (Agents, Topics, Tool invocations); swimlane of last N events (by thread_id).
+   - Metric cards: published/delivered/dropped, tool_calls_total, simple latency stats.
+7. CLI basics
+   - `loom new multi‑agent` (template with 3 agents), `loom dev` (hot‑boot external agents), `loom list`.
+
+Acceptance:
+
+- After `loom new multi-agent && loom dev`, opening the Dashboard shows the Planner→Researcher→Writer flow; running the sample question produces a summarized answer.
+- Python/JS agents can call web.search/weather.get; at least one MCP tool is ingested and callable.
+- Publish P50/P99 round‑trip event latency; auto‑reconnect works after network interruptions.
+
+---
+
+## P1 — Observable, iterative collaboration system
+
+1. Collaboration primitives expansion
+   - contract‑net (call for proposals/bids/award/execute), fanout/fanin strategies (any/first‑k/majority).
+2. Streaming and parallelism
+   - SSE partial answers (LLM token stream), parallel tool invocation with limits (semaphore/circuit breaker).
+3. Dashboard enhancements
+   - Latency histograms (P50/P90/P99), backpressure gauges, error heatmaps, per‑topic QoS insights.
+4. Error taxonomy and unified error_event
+   - MODEL_FALLBACK / TOOL_PARSE_ERROR / INVALID_PARAMS / CAPABILITY_ERROR / TIMEOUT / PROVIDER_UNAVAILABLE; Prometheus labels.
+5. CLI and templates
+   - New templates: voice assistant, home automation, vision camera agent, system helper.
+6. SDK ergonomics
+   - Memory plugins (pluggable KV backends), better type hints and pydantic validation.
+
+---
+
+## P2 — Ecosystem and policy advancement
+
+1. MCP server mode
+   - Expose Loom’s internal capabilities to external systems; cross‑ecosystem interop.
+2. Router as a policy engine
+   - Learning‑based routing with historical success/latency/cost (bandit/RL); tunable via Dashboard.
+3. Security and multi‑tenancy
+   - Namespaces/ACLs, token auth; MCP endpoint allowlist; audit logs.
+4. Event persistence and replay
+   - WAL/snapshots; long‑run stability metrics and tools.
+5. WASI/external tool isolation
+   - Sandboxed execution, resource limits, AOT readiness (mobile).
+
+---
+
+## P3 — Performance and mobile
+
+1. Mobile/edge packaging
+   - iOS/Android POC (xcframework/AAR), lightweight wrappers.
+2. Deep performance work
+   - EventBus throughput/latency optimization; tool execution parallelism and scheduling; footprint and power observations.
+
+---
+
+## Metrics and quality gates
+
+- TTFM: ≤ 10 minutes (Python/JS).
+- Stability: reconnect on drop; 24h longevity without memory blow‑ups.
+- Performance: P99 event latency target < 200ms under mixed QoS (realtime path); tool invocation error rate < 2%.
+- Observability: Prometheus/OTel metrics present; Dashboard first paint < 2s.
+
+---
+
+## Notes
+
+- The Core already provides EventBus/ActionBroker/Router/ToolOrchestrator with pressure tests; on top of this, prioritize the minimal viable path for Bridge + SDK + Dashboard + MCP.
+- The Voice Agent remains one of the showcase templates (available in the P1 template library).
