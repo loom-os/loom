@@ -52,6 +52,25 @@ Client outline (tonic):
 - Unit tests live under `bridge/tests/unit`: register_agent, heartbeat, forward_action success/error.
 - For stream tests, always send the Ack before awaiting `event_stream` to avoid handshake deadlocks.
 
+## Next
+
+Short-term tasks we can add when business needs require them:
+
+- Expose server-initiated ActionCall externally
+  - Add a gRPC admin endpoint (e.g., `PushAction(agent_id, ActionCall)`), or wire to CLI/HTTP control plane.
+  - Correlate results by either:
+    - Adding `GetActionResult(call_id)` RPC, and/or
+    - Publishing an `action.result.{call_id}` event to the EventBus for subscribers (Dashboard/SDKs) to consume.
+- Metrics and backpressure
+  - Prometheus counters/histograms for event deliveries, drops, action latency; expose via Dashboard.
+  - Surface backpressure signals (queue depth, drop counts) on the Bridge surface.
+- AuthN/Z and namespaces
+  - Token-based auth on RegisterAgent/EventStream; per-namespace topics and capability access control.
+- SDK ergonomics
+  - Reference Python/JS helpers to standardize handshake (pre-enqueue Ack), reconnection with exponential backoff, and stream error handling.
+- Transport parity
+  - Optional WebSocket implementation mirroring the gRPC surface for environments where HTTP/2 is constrained.
+
 ## Future improvements
 
 - Server-initiated action push + correlation of action_result
