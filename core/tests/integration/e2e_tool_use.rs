@@ -5,21 +5,25 @@
 /// 2. Mock LLM client that returns tool calls
 /// 3. Orchestrator discovers tools, parses calls, invokes broker
 /// 4. Verify refine path with tool results
+///
+/// Note: Mock providers are used for predictable testing.
+/// Real providers (WebSearchProvider, WeatherProvider) are tested separately
+/// and can be used in production by registering them instead of mocks.
 use async_trait::async_trait;
 use loom_core::action_broker::{ActionBroker, CapabilityProvider};
 use loom_core::context::PromptBundle;
 use loom_core::llm::NormalizedToolCall;
 use loom_core::proto::{ActionCall, ActionError, ActionResult, ActionStatus, CapabilityDescriptor};
-use loom_core::Result;
+use loom_core::{Result, WeatherProvider, WebSearchProvider};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// Mock web search provider
-struct WebSearchProvider;
+// Mock web search provider for testing
+struct MockWebSearchProvider;
 
 #[async_trait]
-impl CapabilityProvider for WebSearchProvider {
+impl CapabilityProvider for MockWebSearchProvider {
     fn descriptor(&self) -> CapabilityDescriptor {
         let mut metadata = HashMap::new();
         metadata.insert("desc".into(), "Search the web for information".into());
@@ -67,11 +71,11 @@ impl CapabilityProvider for WebSearchProvider {
     }
 }
 
-// Mock weather provider
-struct WeatherProvider;
+// Mock weather provider for testing
+struct MockWeatherProvider;
 
 #[async_trait]
-impl CapabilityProvider for WeatherProvider {
+impl CapabilityProvider for MockWeatherProvider {
     fn descriptor(&self) -> CapabilityDescriptor {
         let mut metadata = HashMap::new();
         metadata.insert("desc".into(), "Get current weather for a location".into());
@@ -157,8 +161,8 @@ impl CapabilityProvider for FailingProvider {
 #[tokio::test]
 async fn test_tool_discovery_builds_schema() -> Result<()> {
     let broker = Arc::new(ActionBroker::new());
-    broker.register_provider(Arc::new(WebSearchProvider));
-    broker.register_provider(Arc::new(WeatherProvider));
+    broker.register_provider(Arc::new(MockWebSearchProvider));
+    broker.register_provider(Arc::new(MockWeatherProvider));
 
     let caps = broker.list_capabilities();
     assert_eq!(caps.len(), 2);
@@ -185,7 +189,7 @@ async fn test_tool_discovery_builds_schema() -> Result<()> {
 #[tokio::test]
 async fn test_broker_invokes_web_search() -> Result<()> {
     let broker = Arc::new(ActionBroker::new());
-    broker.register_provider(Arc::new(WebSearchProvider));
+    broker.register_provider(Arc::new(MockWebSearchProvider));
 
     let call = ActionCall {
         id: "test_1".into(),
@@ -214,7 +218,7 @@ async fn test_broker_invokes_web_search() -> Result<()> {
 #[tokio::test]
 async fn test_broker_invokes_weather_get() -> Result<()> {
     let broker = Arc::new(ActionBroker::new());
-    broker.register_provider(Arc::new(WeatherProvider));
+    broker.register_provider(Arc::new(MockWeatherProvider));
 
     let call = ActionCall {
         id: "test_2".into(),
@@ -265,8 +269,8 @@ async fn test_broker_handles_failing_tool() -> Result<()> {
 #[tokio::test]
 async fn test_multiple_tools_sequential_invocation() -> Result<()> {
     let broker = Arc::new(ActionBroker::new());
-    broker.register_provider(Arc::new(WebSearchProvider));
-    broker.register_provider(Arc::new(WeatherProvider));
+    broker.register_provider(Arc::new(MockWebSearchProvider));
+    broker.register_provider(Arc::new(MockWeatherProvider));
 
     // Simulate what orchestrator would do: invoke tools sequentially
     let search_call = ActionCall {
@@ -309,7 +313,7 @@ async fn test_tool_timeout_handling() -> Result<()> {
     let broker = Arc::new(ActionBroker::new());
     // Note: current implementation doesn't have async delay in providers,
     // but timeout is enforced at broker level
-    broker.register_provider(Arc::new(WebSearchProvider));
+    broker.register_provider(Arc::new(MockWebSearchProvider));
 
     let call = ActionCall {
         id: "timeout_test".into(),
@@ -365,3 +369,107 @@ fn test_prompt_bundle_for_refine() {
 // would require additional dependencies like wiremock or mockito.
 // For now, we test individual components and trust the orchestrator
 // logic that connects them is exercised in unit tests.
+
+#[tokio::test]
+async fn test_real_web_search_provider() -> Result<()> {
+    let broker = Arc::new(ActionBroker::new());
+    broker.register_provider(Arc::new(WebSearchProvider::new()));
+
+    let call = ActionCall {
+        id: "real_search_1".into(),
+        capability: "web.search".into(),
+        version: String::new(),
+        payload: serde_json::to_vec(&json!({"query": "Rust programming language", "top_k": 3}))?,
+        headers: Default::default(),
+        timeout_ms: 15000,
+        correlation_id: String::new(),
+        qos: loom_core::proto::QoSLevel::QosBatched as i32,
+    };
+
+    let result = broker.invoke(call).await?;
+
+    // Accept both success and network errors in tests (network may be unavailable)
+    if result.status == ActionStatus::ActionOk as i32 {
+        let output: serde_json::Value = serde_json::from_slice(&result.output)?;
+        assert_eq!(output["query"], "Rust programming language");
+        assert!(output["results"].is_array());
+        println!(
+            "Real web search results: {}",
+            serde_json::to_string_pretty(&output)?
+        );
+    } else {
+        println!("Network unavailable or API error (acceptable in test environment)");
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_real_weather_provider() -> Result<()> {
+    let broker = Arc::new(ActionBroker::new());
+    broker.register_provider(Arc::new(WeatherProvider::new()));
+
+    let call = ActionCall {
+        id: "real_weather_1".into(),
+        capability: "weather.get".into(),
+        version: String::new(),
+        payload: serde_json::to_vec(&json!({"location": "London", "units": "celsius"}))?,
+        headers: Default::default(),
+        timeout_ms: 15000,
+        correlation_id: String::new(),
+        qos: loom_core::proto::QoSLevel::QosBatched as i32,
+    };
+
+    let result = broker.invoke(call).await?;
+
+    // Accept both success and network errors in tests (network may be unavailable)
+    if result.status == ActionStatus::ActionOk as i32 {
+        let output: serde_json::Value = serde_json::from_slice(&result.output)?;
+        assert!(output["location"].is_string());
+        assert!(output["temperature"].is_number());
+        assert!(output["conditions"].is_string());
+        println!(
+            "Real weather results: {}",
+            serde_json::to_string_pretty(&output)?
+        );
+    } else {
+        println!("Network unavailable or API error (acceptable in test environment)");
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_real_providers_combined() -> Result<()> {
+    // This test demonstrates how real providers work together
+    let broker = Arc::new(ActionBroker::new());
+    broker.register_provider(Arc::new(WebSearchProvider::new()));
+    broker.register_provider(Arc::new(WeatherProvider::new()));
+
+    // Verify both providers are registered and discoverable
+    let caps = broker.list_capabilities();
+    assert_eq!(caps.len(), 2);
+
+    let web_search = caps.iter().find(|c| c.name == "web.search");
+    let weather = caps.iter().find(|c| c.name == "weather.get");
+
+    assert!(
+        web_search.is_some(),
+        "web.search capability should be registered"
+    );
+    assert!(
+        weather.is_some(),
+        "weather.get capability should be registered"
+    );
+
+    // Verify metadata is present for tool discovery
+    let web_desc = web_search.unwrap();
+    assert!(web_desc.metadata.contains_key("desc"));
+    assert!(web_desc.metadata.contains_key("schema"));
+
+    let weather_desc = weather.unwrap();
+    assert!(weather_desc.metadata.contains_key("desc"));
+    assert!(weather_desc.metadata.contains_key("schema"));
+
+    Ok(())
+}

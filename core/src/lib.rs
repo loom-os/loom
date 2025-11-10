@@ -8,6 +8,7 @@ pub mod event;
 pub mod llm;
 pub mod local_model;
 pub mod plugin;
+pub mod providers;
 pub mod router;
 pub mod storage;
 pub mod telemetry;
@@ -21,6 +22,7 @@ pub use event::{Event, EventBus, EventHandler, QoSLevel};
 pub use llm::{LlmClient, LlmClientConfig, LlmResponse};
 pub use local_model::{DummyLocalModel, LocalInference, LocalModel};
 pub use plugin::{Plugin, PluginManager};
+pub use providers::{WeatherProvider, WebSearchProvider};
 pub use router::{ModelRouter, Route, RoutingDecision};
 
 // Generated proto code

@@ -21,3 +21,7 @@ loom-audio = { path = "../../loom-audio", features = ["mic", "vad", "stt", "wake
 [[bin]]
 name = "voice_agent"
 path = "src/main.rs"
+
+[[example]]
+name = "tool_use_example"
+path = "examples/tool_use_example.rs"
