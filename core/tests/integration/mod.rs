@@ -28,6 +28,7 @@ mod e2e_basic;
 mod e2e_error_handling;
 mod e2e_multi_agent;
 mod e2e_routing;
+mod e2e_tool_use;
 
 // =============================================================================
 // Shared Mock Components
