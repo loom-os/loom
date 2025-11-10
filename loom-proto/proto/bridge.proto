@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package loom.v1;
+
+import "event.proto";
+import "action.proto";
+
+// Bridge service for external agents (SDKs) to connect to Loom Core.
+// Provides registration, bidirectional event streaming, action forwarding, and heartbeat.
+service Bridge {
+  // Register an agent with its subscriptions and capabilities.
+  rpc RegisterAgent(AgentRegisterRequest) returns (AgentRegisterResponse);
+
+  // Bidirectional event stream: client can publish events; server delivers subscribed events.
+  rpc EventStream(stream ClientEvent) returns (stream ServerEvent);
+
+  // Forward an action call to the ActionBroker and return result.
+  rpc ForwardAction(ActionCall) returns (ActionResult);
+
+  // Optional heartbeat for health checking.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+message AgentRegisterRequest {
+  string agent_id = 1;
+  repeated string subscribed_topics = 2;
+  // Capabilities the agent provides; e.g., for tool calls routed to the agent.
+  repeated CapabilityDescriptor capabilities = 3;
+  map<string, string> metadata = 4;
+}
+
+message AgentRegisterResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// Client-to-server messages on the bidirectional stream
+message ClientEvent {
+  // Publish an event to a topic
+  oneof msg {
+    Publish publish = 1;
+    Ack ack = 2;           // Acknowledge receipt (optional)
+    HeartbeatRequest ping = 3; // Optional inline heartbeat
+    ActionResult action_result = 4; // Agent's result for a forwarded action
+  }
+}
+
+message Publish {
+  string topic = 1;
+  Event event = 2;
+}
+
+message Ack {
+  string message_id = 1;
+}
+
+// Server-to-client messages on the bidirectional stream
+message ServerEvent {
+  oneof msg {
+    Delivery delivery = 1;
+    HeartbeatResponse pong = 2;
+    Error err = 3;
+    ActionCall action_call = 4; // Action forwarded from Loom to the agent
+  }
+}
+
+message Delivery {
+  string topic = 1;
+  Event event = 2;
+}
+
+message Error {
+  string code = 1;
+  string message = 2;
+}
+
+message HeartbeatRequest {
+  int64 timestamp_ms = 1;
+}
+
+message HeartbeatResponse {
+  int64 timestamp_ms = 1;
+  string status = 2; // "ok"
+}

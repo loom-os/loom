@@ -1,0 +1,33 @@
+[package]
+name = "loom-bridge"
+version = "0.1.0"
+edition = "2021"
+authors = ["Loom Team"]
+description = "Loom Bridge gRPC server for external SDK agents"
+
+[dependencies]
+loom-proto = { path = "../loom-proto" }
+loom-core = { path = "../core" }
+tracing = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tonic = { version = "0.10", features = ["transport"] }
+prost = "0.12"
+async-stream = "0.3"
+thiserror = "1"
+dashmap = "5"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+futures-core = "0.3"
+tokio-stream = { version = "0.1", features = ["sync", "net"] }
+
+[dev-dependencies]
+serde_json = "1"
+async-trait = "0.1"
+
+[lib]
+name = "loom_bridge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "loom-bridge-server"
+path = "src/bin/server.rs"

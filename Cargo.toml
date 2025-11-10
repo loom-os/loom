@@ -12,6 +12,7 @@ members = [
     "loom-proto",
     "loom-audio",
     "demo/voice_agent",
+    "bridge",
 ]
 resolver = "2"
 
