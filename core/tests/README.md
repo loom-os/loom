@@ -15,6 +15,7 @@ Each test file follows the naming convention `<module>_test.rs` and corresponds 
 | `router_test.rs`            | `src/router.rs`                | Model routing decisions, privacy levels, confidence thresholds              |
 | `llm_test.rs`               | `src/llm/`                     | LLM client config, adapter logic, token budget enforcement                  |
 | `tool_orchestrator_test.rs` | `src/llm/tool_orchestrator.rs` | Tool call parsing (Responses/Chat), ActionBroker integration, refine bundle |
+| `providers_test.rs`         | `src/providers/`               | Web search & weather providers, parameter validation, error handling        |
 | `integration_test.rs`       | Core Pipeline                  | End-to-end event → agent → action → result flow                             |
 
 ### Pressure Test Structure (Modularized)
@@ -140,8 +141,9 @@ See `PRESSURE_TEST_REPORT_TEMPLATE.md` for detailed report format.
 - **ModelRouter**: 14 tests - privacy routing, confidence thresholds, policy decisions
 - **LlmClient**: 8 tests - config, adapter, token budgets, tools schema
 - **ToolOrchestrator**: 13 tests - Responses/Chat parsing, ActionBroker integration, refine bundles
+- **Providers**: 10 tests - web.search & weather.get providers, parameter validation, API calls
 
-**Total Unit Tests**: 73
+**Total Unit Tests**: 83
 
 ### Integration Tests
 
@@ -174,7 +176,50 @@ See `PRESSURE_TEST_REPORT_TEMPLATE.md` for detailed report format.
 - Multiple subscribers (2, 5, 10)
 - Event filtering overhead
 
-**Grand Total**: 88 tests + 6 benchmark suites
+**Grand Total**: 98 tests + 6 benchmark suites
+
+---
+
+## Providers Testing Details
+
+### Unit Tests: `providers_test.rs`
+
+**Web Search Provider (4):**
+
+- Descriptor validation (name, version, schema)
+- Missing query parameter handling
+- Empty query validation
+- Valid query with DuckDuckGo API (network available)
+
+**Weather Provider (6):**
+
+- Descriptor validation (name, version, schema)
+- Weather code descriptions (WMO codes to human-readable)
+- Missing location parameter handling
+- Empty location validation
+- Valid location with Open-Meteo API (network available)
+- Fahrenheit units support
+
+### Running Provider Tests
+
+```bash
+# All provider tests
+cargo test --test providers_test
+
+# Specific provider
+cargo test --test providers_test web_search
+cargo test --test providers_test weather
+
+# Specific test
+cargo test --test providers_test test_invoke_valid_query
+```
+
+### Provider Test Philosophy
+
+- **Unit tests** validate parameter checking, schema generation, and basic invocation
+- **Integration tests** (`e2e_tool_use.rs`) validate the full tool orchestrator flow
+- Network tests gracefully handle failures (CI environments may lack internet access)
+- Mock providers in integration tests ensure predictable behavior
 
 ---
 

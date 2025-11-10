@@ -36,6 +36,7 @@ graph LR
 - Agent Runtime — `docs/core/agent_runtime.md`
 - Router — `docs/core/router.md`
 - ActionBroker — `docs/core/action_broker.md`
+- Providers — `docs/core/providers.md`
 - LLM Client — `docs/core/llm.md`
 - Plugin System — `docs/core/plugin_system.md`
 - Storage — `docs/core/storage.md`
@@ -56,7 +57,8 @@ When no route matches, a no-match decision is produced and may be published as a
 
 - `core/src/` — top-level modules: `event.rs`, `router.rs`, `action_broker.rs`, `storage.rs`, `telemetry.rs`, `plugin.rs`, `local_model.rs`.
 - `core/src/agent/` — `runtime.rs`, `instance.rs`, `behavior.rs`.
-- `core/src/llm/` — `adapter.rs`, `client.rs`, `provider.rs`.
+- `core/src/llm/` — `adapter.rs`, `client.rs`, `provider.rs`, `tool_orchestrator.rs`.
+- `core/src/providers/` — `web_search.rs`, `weather.rs` (capability providers).
 - `core/benches/` — benchmarks and pressure tests (EventBus throughput/latency).
 
 End of overview.
