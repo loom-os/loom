@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 /// End-to-end tool use integration test
 ///
 /// Tests the full flow:
@@ -6,6 +5,7 @@ use async_trait::async_trait;
 /// 2. Mock LLM client that returns tool calls
 /// 3. Orchestrator discovers tools, parses calls, invokes broker
 /// 4. Verify refine path with tool results
+use async_trait::async_trait;
 use loom_core::action_broker::{ActionBroker, CapabilityProvider};
 use loom_core::context::PromptBundle;
 use loom_core::llm::NormalizedToolCall;

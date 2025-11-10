@@ -177,7 +177,7 @@ impl ToolOrchestrator {
             let elapsed = started.elapsed().as_millis() as f64;
             // Update counters
             self.stats.total_tool_calls += 1;
-            if (res.status as i32) != (ActionStatus::ActionOk as i32) {
+            if (res.status) != (ActionStatus::ActionOk as i32) {
                 self.stats.total_tool_errors += 1;
             }
             // Welford-like avg update
@@ -352,13 +352,13 @@ pub fn build_action_call(
         payload: serde_json::to_vec(&call.arguments).unwrap_or_default(),
         headers: {
             let mut m: std::collections::HashMap<String, String> = Default::default();
-            if let Some(cid) = correlation_id {
-                m.insert("correlation_id".into(), cid);
+            if let Some(ref cid) = correlation_id {
+                m.insert("correlation_id".into(), cid.clone());
             }
             m
         },
         timeout_ms: timeout_ms as i64,
-        correlation_id: String::new(),
+        correlation_id: correlation_id.unwrap_or_default(),
         qos: QoSLevel::QosBatched as i32,
     }
 }
@@ -388,7 +388,7 @@ pub fn make_refine_bundle(
             let code = r.error.as_ref().map(|e| e.code.as_str()).unwrap_or("ERROR");
             context_block.push_str(&format!("- {}: {}\n", c.name, code));
         }
-        if i > 8 {
+        if i >= 8 {
             break;
         }
     }
@@ -433,7 +433,12 @@ fn safe_snippet(bytes: &[u8]) -> String {
         Ok(s) => {
             let s = s.trim();
             if s.len() > 280 {
-                format!("{}…", &s[..280])
+                // Find safe UTF-8 boundary at or before 280 bytes
+                let mut end = 280;
+                while end > 0 && !s.is_char_boundary(end) {
+                    end -= 1;
+                }
+                format!("{}…", &s[..end])
             } else {
                 s.to_string()
             }
