@@ -82,6 +82,20 @@ Tune Local/Cloud/Hybrid behavior via `AgentConfig.parameters`:
 
 Hybrid processing runs a quick local pass and, if needed, a cloud refine pass. Behaviors receive metadata: `routing_target`, `phase` (quick/refine), and `refine=true` on the second pass.
 
+## Core component references
+
+For detailed runtime internals consult:
+
+- `docs/core/overview.md`
+- `docs/core/event_bus.md`
+- `docs/core/agent_runtime.md`
+- `docs/core/router.md`
+- `docs/core/action_broker.md`
+- `docs/core/llm.md`
+- `docs/core/plugin_system.md`
+- `docs/core/storage.md`
+- `docs/core/telemetry.md`
+
 ## Troubleshooting
 
 - "protoc not found": not needed — `loom-proto` vendors `protoc` during build.

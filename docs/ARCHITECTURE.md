@@ -337,3 +337,19 @@ Mic → AudioChunk Event
 ---
 
 For detailed API documentation, see the source code.
+
+## Core documentation
+
+Detailed component-level documentation is available under `docs/core/`:
+
+- `docs/core/overview.md` — high-level overview and dataflow
+- `docs/core/event_bus.md` — Event Bus responsibilities and tuning
+- `docs/core/agent_runtime.md` — Agent lifecycle and mailboxing
+- `docs/core/router.md` — Routing policies and decision logging
+- `docs/core/action_broker.md` — Capability registration and invocation
+- `docs/core/llm.md` — LLM adapters, streaming, retries
+- `docs/core/plugin_system.md` — Plugin lifecycle and interfaces
+- `docs/core/storage.md` — Storage modes and configuration
+- `docs/core/telemetry.md` — Recommended metrics and spans
+
+These pages provide implementation pointers, common error modes, and test guidance for each core component.

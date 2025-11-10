@@ -34,6 +34,20 @@ Event Sources (Camera, Audio, Sensors, UI, Network)
 
 See details and component contracts in `docs/ARCHITECTURE.md`.
 
+### Core documentation
+
+Component pages in `docs/core/`:
+
+- `docs/core/overview.md` — overview and dataflow
+- `docs/core/event_bus.md` — Event Bus
+- `docs/core/agent_runtime.md` — Agent Runtime
+- `docs/core/router.md` — Router
+- `docs/core/action_broker.md` — ActionBroker
+- `docs/core/llm.md` — LLM Client
+- `docs/core/plugin_system.md` — Plugin System
+- `docs/core/storage.md` — Storage
+- `docs/core/telemetry.md` — Telemetry
+
 ## 🚀 Quick Start
 
 The fastest way to see Loom in action is to run the Voice Agent demo.
@@ -104,7 +118,7 @@ The audio pipeline (mic/VAD/STT/wake/TTS) lives in `loom-audio` and is intention
 - Shared plugin protocol defined in `loom-proto/proto/plugin.proto`
 - Integrations: vLLM/OpenAI-compatible LLMs, workflow tools (e.g., n8n), and more — see `docs/INTEGRATIONS.md`
 
-## � More docs
+## 📚 More docs
 
 - `docs/ARCHITECTURE.md` — system design and component contracts
 - `docs/EXAMPLES.md` — demos and example locations
