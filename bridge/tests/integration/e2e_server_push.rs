@@ -41,9 +41,8 @@ async fn test_server_push_action_and_client_reply() {
     let tx_clone = tx_client.clone();
     let reader = tokio::spawn(async move {
         use tokio::time::{timeout, Duration};
-        let mut got_call = false;
         // Wait up to 2s for the action call then reply
-        if let Ok(_) = timeout(Duration::from_secs(2), async {
+        let _ = timeout(Duration::from_secs(2), async {
             while let Some(Ok(msg)) = inbound.message().await.transpose() {
                 if let Some(server_event::Msg::ActionCall(call)) = msg.msg {
                     // Send back ActionResult
@@ -57,20 +56,11 @@ async fn test_server_push_action_and_client_reply() {
                             })),
                         })
                         .await;
-                    got_call = true;
                     break;
                 }
             }
-            if got_call {
-                Ok(())
-            } else {
-                Err(())
-            }
         })
-        .await
-        {
-            let _ = _; // ignore
-        }
+        .await;
     });
 
     // Server pushes action to agent

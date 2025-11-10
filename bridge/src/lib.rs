@@ -96,7 +96,7 @@ impl Bridge for BridgeService {
         if agent_id.is_empty() {
             return Ok(Response::new(AgentRegisterResponse {
                 success: false,
-                error_message: "agent_id empty".into(),
+                error_message: "agent_id cannot be empty".into(),
             }));
         }
         self.state

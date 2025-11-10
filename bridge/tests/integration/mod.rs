@@ -59,3 +59,4 @@ pub async fn new_client(addr: SocketAddr) -> BridgeClient<tonic::transport::Chan
 
 mod e2e_basic;
 mod e2e_forward_action;
+mod e2e_server_push;
