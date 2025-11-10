@@ -287,7 +287,12 @@ mod urlencoding {
             .map(|c| match c {
                 'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
                 ' ' => "+".to_string(),
-                _ => format!("%{:02X}", c as u8),
+                _ => {
+                    // Correctly percent-encode UTF-8 bytes for non-ASCII characters
+                    let mut buf = [0u8; 4];
+                    let bytes = c.encode_utf8(&mut buf).as_bytes();
+                    bytes.iter().map(|b| format!("%{:02X}", b)).collect()
+                }
             })
             .collect()
     }
