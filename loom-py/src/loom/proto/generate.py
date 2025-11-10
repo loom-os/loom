@@ -22,7 +22,8 @@ def _find_repo_root(start: Path) -> Path:
 
 REPO_ROOT = _find_repo_root(Path(__file__).resolve())
 PROTO_SRC = REPO_ROOT / "loom-proto" / "proto"
-OUT_DIR = Path(__file__).resolve().parent
+OUT_DIR = Path(__file__).resolve().parent / "generated"
+OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 FILES = [
     "bridge.proto",
