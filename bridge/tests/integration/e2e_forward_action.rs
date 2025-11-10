@@ -35,7 +35,7 @@ async fn test_forward_action_echo() {
     // Register test provider
     action_broker.register_provider(Arc::new(TestEchoProvider));
 
-    let (addr, _handle) = start_test_server(event_bus.clone(), action_broker.clone()).await;
+    let (addr, _handle, _svc) = start_test_server(event_bus.clone(), action_broker.clone()).await;
     let mut client = new_client(addr).await;
 
     // ForwardAction

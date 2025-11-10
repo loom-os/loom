@@ -8,7 +8,7 @@ async fn test_register_and_event_roundtrip() {
     let action_broker = Arc::new(ActionBroker::new());
     event_bus.start().await.unwrap();
 
-    let (addr, _handle) = start_test_server(event_bus.clone(), action_broker.clone()).await;
+    let (addr, _handle, _svc) = start_test_server(event_bus.clone(), action_broker.clone()).await;
     let mut client = new_client(addr).await;
 
     // Register agent

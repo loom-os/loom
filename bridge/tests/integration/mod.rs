@@ -20,11 +20,16 @@ pub use loom_proto::{
 pub async fn start_test_server(
     event_bus: Arc<EventBus>,
     action_broker: Arc<ActionBroker>,
-) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+) -> (
+    SocketAddr,
+    tokio::task::JoinHandle<()>,
+    loom_bridge::BridgeService,
+) {
     let svc = loom_bridge::BridgeService::new(loom_bridge::BridgeState::new(
         Arc::clone(&event_bus),
         Arc::clone(&action_broker),
     ));
+    let svc_for_return = svc.clone();
 
     // Bind to 127.0.0.1:0 for an ephemeral port
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
@@ -41,7 +46,7 @@ pub async fn start_test_server(
             .expect("server exited cleanly");
     });
 
-    (addr, handle)
+    (addr, handle, svc_for_return)
 }
 
 /// Create a new Bridge client connected to the given address

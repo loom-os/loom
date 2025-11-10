@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 use tokio::sync::mpsc;
@@ -34,6 +34,8 @@ pub struct BridgeState {
     pub capabilities: Arc<DashMap<String, Vec<CapabilityDescriptor>>>,
     // agent_id -> sender to push ServerEvent into gRPC stream task
     pub streams: Arc<DashMap<String, mpsc::Sender<ServerEvent>>>,
+    // action_call_id -> ActionResult received from agent (server-push correlation)
+    pub action_results: Arc<DashMap<String, ActionResult>>,
 }
 
 impl BridgeState {
@@ -44,6 +46,7 @@ impl BridgeState {
             subscriptions: Arc::new(DashMap::new()),
             capabilities: Arc::new(DashMap::new()),
             streams: Arc::new(DashMap::new()),
+            action_results: Arc::new(DashMap::new()),
         }
     }
 }
@@ -56,6 +59,29 @@ pub struct BridgeService {
 impl BridgeService {
     pub fn new(state: BridgeState) -> Self {
         Self { state }
+    }
+
+    /// Push an ActionCall to an agent's active stream; returns Ok(true) if delivered.
+    pub async fn push_action_call(&self, agent_id: &str, call: ActionCall) -> Result<bool> {
+        if let Some(sender) = self.state.streams.get(agent_id) {
+            let server_event = ServerEvent {
+                msg: Some(server_event::Msg::ActionCall(call)),
+            };
+            match sender.send(server_event).await {
+                Ok(_) => Ok(true),
+                Err(e) => Err(BridgeError::Internal(format!(
+                    "failed to send action_call: {}",
+                    e
+                ))),
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Retrieve stored ActionResult by call id (set when client sends ActionResult on stream)
+    pub fn get_action_result(&self, call_id: &str) -> Option<ActionResult> {
+        self.state.action_results.get(call_id).map(|e| e.clone())
     }
 }
 
@@ -152,6 +178,7 @@ impl Bridge for BridgeService {
         let event_bus = Arc::clone(&self.state.event_bus);
         let tx_in = tx.clone();
         let streams_map = self.state.streams.clone();
+        let action_results = self.state.action_results.clone();
         tokio::spawn(async move {
             while let Some(Ok(msg)) = inbound.message().await.transpose() {
                 match msg.msg {
@@ -171,8 +198,8 @@ impl Bridge for BridgeService {
                             .await;
                     }
                     Some(client_event::Msg::ActionResult(ar)) => {
-                        // For now just log; real flow would correlate and maybe push somewhere
                         info!(action_id=%ar.id, "Received action result from agent");
+                        action_results.insert(ar.id.clone(), ar);
                     }
                     Some(client_event::Msg::Ack(_)) => { /* ignore */ }
                     None => {}
