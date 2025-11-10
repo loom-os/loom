@@ -26,6 +26,7 @@ graph LR
 ```
 
 Notes
+
 - `loom-proto` defines shared protobuf types used by `core` and other crates.
 - `loom-audio` provides audio capabilities (VAD/STT/TTS) and integrates with runtime primitives from `core`.
 
