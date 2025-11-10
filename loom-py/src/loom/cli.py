@@ -1,6 +1,5 @@
 from __future__ import annotations
 import argparse
-import asyncio
 import os
 import shutil
 import signal
@@ -19,13 +18,13 @@ def _pick_free_port() -> int:
 
 
 def cmd_proto(args):
-    # Generate proto stubs from repo protos
+    """Generate gRPC stubs into proto/generated/ (dev workflow)."""
     from .proto import generate  # type: ignore
     generate.main()
 
 
 def cmd_dev(args):
-    # Start the bridge server locally via cargo (best effort) and export LOOM_BRIDGE_ADDR
+    """Start the bridge server locally via cargo and export LOOM_BRIDGE_ADDR."""
     cargo = shutil.which("cargo")
     port = args.port or _pick_free_port()
     addr = f"127.0.0.1:{port}"
@@ -51,32 +50,39 @@ def cmd_dev(args):
             proc.kill()
 
 
-def cmd_new(args):
-    # Scaffold a minimal agent project
-    target = Path(args.path).resolve()
-    target.mkdir(parents=True, exist_ok=True)
-    (target / "agent.py").write_text(
-        """
-from loom import Agent, capability
+TEMPLATE_AGENT = '''from loom import Agent, capability
+import asyncio
 
 @capability("hello.echo", version="1.0")
 def echo(text: str):
     return {"echo": text}
 
 async def on_event(ctx, topic, event):
-    await ctx.emit("topic.hello", type="hello", payload=event.payload)
+    if event.type == "user.message":
+        await ctx.emit("topic.hello", type="hello", payload=event.payload)
 
 agent = Agent("py-agent", topics=["topic.hello"], capabilities=[echo], on_event=on_event)
 
 if __name__ == "__main__":
     agent.run()
-""".strip()
-    )
-    print(f"[loom] Project created at {target}")
+'''.strip()
+
+TEMPLATE_CONFIG = '''# loom project config
+topics = ["topic.hello"]
+# future options: managed_endpoint = "bridge.loomcloud.dev:443"
+'''.strip()
+
+
+def cmd_init(args):
+    target = Path(args.path).resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "agent.py").write_text(TEMPLATE_AGENT)
+    (target / "loom.toml").write_text(TEMPLATE_CONFIG)
+    print(f"[loom] Initialized project at {target}")
 
 
 def cmd_run(args):
-    # Run a user script with the current environment
+    """Run a user script with the current environment."""
     script = args.script
     if not Path(script).exists():
         print(f"[loom] Script not found: {script}")
@@ -88,16 +94,24 @@ def main():
     p = argparse.ArgumentParser(prog="loom", description="Loom Python SDK CLI")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sp = sub.add_parser("proto", help="Generate Python gRPC stubs from repo protos")
+    sp = sub.add_parser("proto", help="Generate Python gRPC stubs into proto/generated/")
     sp.set_defaults(func=cmd_proto)
 
     sd = sub.add_parser("dev", help="Start local Loom bridge server (requires cargo)")
     sd.add_argument("--port", type=int, default=None)
     sd.set_defaults(func=cmd_dev)
 
-    sn = sub.add_parser("new", help="Scaffold a minimal agent project")
+    si = sub.add_parser("init", help="Create a new Loom agent project in PATH (default .)")
+    si.add_argument("path", nargs="?", default=".")
+    si.set_defaults(func=cmd_init)
+
+    sn = sub.add_parser("new", help="Alias for 'init'")
     sn.add_argument("path", nargs="?", default=".")
-    sn.set_defaults(func=cmd_new)
+    sn.set_defaults(func=cmd_init)
+
+    sc = sub.add_parser("create", help="Alias for 'init'")
+    sc.add_argument("path", nargs="?", default=".")
+    sc.set_defaults(func=cmd_init)
 
     sr = sub.add_parser("run", help="Run a Python script in the current environment")
     sr.add_argument("script")
@@ -105,6 +119,7 @@ def main():
 
     args = p.parse_args()
     args.func(args)
+
 
 if __name__ == "__main__":
     main()
