@@ -19,8 +19,8 @@ Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researc
 Scope:
 
 1. Bridge MVP (gRPC/WS, choose one first)
-   - AgentRegister (subscribed topics, capability list), bidirectional EventStream, ActionCall/ActionResult forwarding.
-   - Reconnect with exponential backoff; heartbeat/healthcheck (optional for MVP).
+   - ✅ Implemented (gRPC): AgentRegister (topics, capabilities), bidirectional EventStream (publish/delivery), client-initiated ForwardAction, server-initiated ActionCall (internal push API + result correlation map), heartbeat, stateless reconnection.
+   - Pending: external admin RPC for server push, metrics/backpressure export, auth/namespaces.
 2. Python SDK MVP (loom‑py)
    - Core Agent/Context API: emit/request/reply/tool/memory (in‑process)/join_thread.
    - @capability decorator: register Python functions as capabilities (JSON Schema).
