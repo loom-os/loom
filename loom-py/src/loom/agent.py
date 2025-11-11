@@ -84,8 +84,18 @@ class Agent:
                     try:
                         data = json.loads(payload.decode('utf-8')) if payload else {}
                         args = cap.input_model(**data).model_dump()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # Failed to deserialize or validate input; send an error result and abort
+                        err_res = pb_action.ActionResult(
+                            id=call.id,
+                            status=pb_action.ActionStatus.ACTION_ERROR,
+                            error=pb_action.ActionError(
+                                code="INVALID_INPUT",
+                                message=f"Failed to parse input for capability '{cap.name}': {e}"
+                            ),
+                        )
+                        await self._outbound_queue.put(pb_bridge.ClientEvent(action_result=err_res))
+                        return
                 try:
                     result = cap.func(**args)
                     if asyncio.iscoroutine(result):
