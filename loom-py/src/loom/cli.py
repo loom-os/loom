@@ -36,7 +36,7 @@ def cmd_dev(args):
         print("      cargo run -p loom-bridge --bin loom-bridge-server")
         sys.exit(2)
     proc = subprocess.Popen(
-        ["cargo", "run", "-p", "loom-bridge", "--bin", "loom-bridge-server"],
+        [cargo, "run", "-p", "loom-bridge", "--bin", "loom-bridge-server"],
         env=env,
     )
     print("[loom] Press Ctrl+C to stop.")
@@ -91,32 +91,68 @@ def cmd_run(args):
 
 
 def _load_project_config(start: Path) -> dict:
-    import tomli as toml if sys.version_info < (3,11) else None  # type: ignore
+    """Load loom.toml using tomllib (py>=3.11) or tomli; return {} if missing/invalid."""
     cfg_path = start / "loom.toml"
     if not cfg_path.exists():
         return {}
-    data = cfg_path.read_text()
-    if sys.version_info >= (3,11):
+    if sys.version_info >= (3, 11):
         import tomllib as toml  # type: ignore
-    return toml.loads(data)
+    else:
+        try:
+            import tomli as toml  # type: ignore
+        except Exception:
+            return {}
+    try:
+        return toml.loads(cfg_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _toml_format_value(v):
+    """Minimal TOML value formatter for strings, numbers, bools, and simple lists."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, str):
+        esc = v.replace("\\", "\\\\").replace("\"", "\\\"")
+        return f'"{esc}"'
+    if isinstance(v, (list, tuple)):
+        return "[" + ", ".join(_toml_format_value(x) for x in v) + "]"
+    return f'"{str(v)}"'
+
+
+def _toml_dumps_minimal(cfg: dict) -> str:
+    """Dump a minimal TOML supporting top-level keys and one-level tables."""
+    lines: list[str] = []
+    # top-level keys
+    for k in sorted(cfg.keys()):
+        v = cfg[k]
+        if not isinstance(v, dict):
+            lines.append(f"{k} = {_toml_format_value(v)}")
+    if lines:
+        lines.append("")
+    # tables
+    for k in sorted(cfg.keys()):
+        v = cfg[k]
+        if isinstance(v, dict):
+            lines.append(f"[{k}]")
+            for sk in sorted(v.keys()):
+                sv = v[sk]
+                lines.append(f"{sk} = {_toml_format_value(sv)}")
+            lines.append("")
+    while lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines) + "\n"
 
 
 def _write_project_bridge(start: Path, address: str, mode: str, version: str):
-    # Simple append/merge writer (MVP): overwrite [bridge] section.
+    """Merge bridge config while preserving existing keys."""
     existing = _load_project_config(start)
-    existing.setdefault("project", {})
-    existing["bridge"] = {"address": address, "mode": mode, "version": version}
-    # Serialize back (manual toml for simplicity)
-    lines = []
-    if "project" in existing:
-        lines.append("[project]")
-        for k, v in existing["project"].items():
-            lines.append(f"{k} = \"{v}\"")
-        lines.append("")
-    lines.append("[bridge]")
-    for k, v in existing["bridge"].items():
-        lines.append(f"{k} = \"{v}\"")
-    (start / "loom.toml").write_text("\n".join(lines) + "\n")
+    bridge = existing.get("bridge") or {}
+    bridge.update({"address": address, "mode": mode, "version": version})
+    existing["bridge"] = bridge
+    (start / "loom.toml").write_text(_toml_dumps_minimal(existing), encoding="utf-8")
 
 
 def cmd_up(args):

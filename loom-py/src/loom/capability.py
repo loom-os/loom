@@ -27,14 +27,18 @@ def _model_from_signature(func: Callable[..., Any]) -> tuple[Optional[type[BaseM
     for name, param in sig.parameters.items():
         if name == "self":
             continue
-        ann = param.annotation if param.annotation is not inspect._empty else (str if param.default is inspect._empty else type(param.default))
-        default = ... if param.default is inspect._empty else param.default
+        ann = (
+            param.annotation
+            if param.annotation is not inspect.Parameter.empty
+            else (str if param.default is inspect.Parameter.empty else type(param.default))
+        )
+        default = ... if param.default is inspect.Parameter.empty else param.default
         fields[name] = (ann, default)
     input_model = create_model(f"{func.__name__.capitalize()}Input", **fields) if fields else None
     # Output model: from return annotation if it's a BaseModel subtype, else generic
     return_ann = sig.return_annotation
     output_model = None
-    if return_ann is not inspect._empty:
+    if return_ann is not inspect.Signature.empty:
         try:
             if issubclass(return_ann, BaseModel):
                 output_model = return_ann
