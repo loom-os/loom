@@ -123,13 +123,13 @@ Agent {
 
 **Memory System**:
 
-### Collaboration & Directories
-
-On top of the Envelope, Loom provides collaboration primitives (request/reply, fanout/fanin, contract-net) for multi-agent workflows, and directories to discover agents and capabilities. See `docs/core/collaboration.md` and `docs/core/directory.md`.
-
 - **Episodic**: Event sequences
 - **Semantic**: Knowledge graph
 - **Working**: Active context
+
+### Collaboration & Directories
+
+On top of the Envelope, Loom provides collaboration primitives (request/reply, fanout/fanin, contract-net) for multi-agent workflows, and directories to discover agents and capabilities. See `docs/core/collaboration.md` and `docs/core/directory.md`.
 
 ### Model Router
 
