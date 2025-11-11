@@ -9,24 +9,37 @@ We standardize a small set of metadata keys carried in `Event.metadata` and `Act
 - thread_id: Correlates messages within a collaboration thread
 - correlation_id: Links a reply/proposal/award to its originating request/CFP
 - sender: Logical identity of the publisher (e.g., agent.foo)
-- reply_to: Canonical reply topic for this thread
+- reply_to: Canonical reply topic for this thread (thread-scoped or agent-specific)
 - ttl: Remaining hops budget (integer), decremented per hop
 - hop: Hop counter, incremented per hop
 - ts: Millisecond timestamp at emission
 
 Topic naming:
 
+**Thread-scoped (collaboration)**:
+
 - Thread broadcast: `thread.{thread_id}.broadcast`
 - Thread reply: `thread.{thread_id}.reply`
 
+**Agent-specific (point-to-point)**:
+
+- Agent private mailbox: `agent.{agent_id}.replies`
+- Every agent is automatically subscribed to its private reply topic
+
 Helpers available via `Envelope`:
 
-- new(thread_id, sender)
-- from_event(&Event)
-- attach_to_event(&mut Event)
-- apply_to_action_call(&mut ActionCall)
-- next_hop() -> bool
-- broadcast_topic()/reply_topic()
+- `new(thread_id, sender)` - Creates envelope with thread reply topic
+- `with_agent_reply(thread_id, sender, agent_id)` - Creates envelope with agent reply topic
+- `from_event(&Event)`
+- `attach_to_event(&mut Event)`
+- `apply_to_action_call(&mut ActionCall)`
+- `next_hop()` -> bool
+- `broadcast_topic()` / `reply_topic()` - Thread-scoped topics
+- `agent_reply_topic()` - Extract agent private topic from sender
+
+Standalone helper:
+
+- `agent_reply_topic(agent_id)` - Build agent private topic
 
 ## Control Event Types
 
@@ -84,6 +97,64 @@ The `Collaborator` wraps these conventions to implement common patterns:
 - For proposals, include a numeric `score` in metadata to enable generic ranking.
 - Keep payload formats minimal and agreed by participants; metadata carries coordination.
 
+## Reply Semantics: Thread vs Agent
+
+### Thread Reply (Multi-Agent Collaboration)
+
+Use thread reply topics when coordination involves multiple participants:
+
+```rust
+// Request-reply in a thread
+let env = Envelope::new("task-123", "agent.coordinator");
+// env.reply_to = "thread.task-123.reply"
+
+// All participants subscribed to thread.task-123.reply will receive responses
+```
+
+**Use cases:**
+
+- Contract-net protocol (multiple proposals)
+- Fanout-fanin (collecting from multiple workers)
+- Broadcast questions to group
+
+### Agent Reply (Point-to-Point)
+
+Use agent private topics for direct agent-to-agent communication:
+
+```rust
+// Direct request to specific agent
+let env = Envelope::with_agent_reply("req-456", "agent.requester", "expert");
+// env.reply_to = "agent.expert.replies"
+
+// Only the requester receives the response (automatically subscribed)
+```
+
+**Use cases:**
+
+- Expert consultation (one-on-one)
+- Task delegation (supervisor → worker)
+- Private handshake or negotiation
+
+### Auto-subscription
+
+Every agent is automatically subscribed to `agent.{agent_id}.replies` at creation.
+No explicit subscription needed for receiving direct messages.
+
+### Example: Hybrid Pattern
+
+```rust
+// Phase 1: Broadcast to find experts
+let cfp_env = Envelope::new("project-1", "agent.coordinator");
+bus.publish("thread.project-1.broadcast", cfp_event).await?;
+
+// Phase 2: Direct communication with selected expert
+let direct_env = Envelope::with_agent_reply("project-1", "agent.coordinator", "expert-3");
+bus.publish("agent.expert-3.replies", task_event).await?;
+```
+
 ## Examples
 
-See `core/tests/collab_test.rs` for E2E examples of request/reply, fanout/fanin, and contract-net.
+See integration tests:
+
+- `core/tests/collab_test.rs` - Thread-scoped collaboration (request/reply, fanout/fanin, contract-net)
+- `core/tests/integration/e2e_agent_reply.rs` - Point-to-point agent communication

@@ -39,6 +39,29 @@ pub enum ThreadTopicKind {
     Reply,
 }
 
+/// Builds the canonical private reply topic for an agent.
+///
+/// Each agent has a private mailbox topic for point-to-point communication.
+/// Format: `agent.{agent_id}.replies`
+///
+/// This is distinct from thread reply topics which are scoped to collaboration sessions.
+///
+/// # Arguments
+///
+/// * `agent_id` - The unique identifier of the agent
+///
+/// # Examples
+///
+/// ```
+/// use loom_core::envelope::agent_reply_topic;
+///
+/// let topic = agent_reply_topic("worker-1");
+/// assert_eq!(topic, "agent.worker-1.replies");
+/// ```
+pub fn agent_reply_topic(agent_id: &str) -> String {
+    format!("agent.{}.replies", agent_id)
+}
+
 impl ThreadTopicKind {
     /// Builds the canonical topic name for a thread.
     ///
@@ -461,5 +484,69 @@ impl Envelope {
     /// ```
     pub fn reply_topic(&self) -> String {
         ThreadTopicKind::Reply.topic(&self.thread_id)
+    }
+
+    /// Returns the private agent reply topic extracted from sender.
+    ///
+    /// Extracts agent ID from sender field (format: "agent.{id}") and builds
+    /// the private reply topic: `agent.{id}.replies`
+    ///
+    /// This enables point-to-point agent communication separate from thread replies.
+    /// Falls back to empty string if sender format is invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use loom_core::Envelope;
+    ///
+    /// let mut env = Envelope::new("req-1", "agent.worker-1");
+    /// assert_eq!(env.agent_reply_topic(), "agent.worker-1.replies");
+    /// ```
+    pub fn agent_reply_topic(&self) -> String {
+        // Extract agent ID from sender (format: "agent.{id}")
+        if let Some(agent_id) = self.sender.strip_prefix("agent.") {
+            super::envelope::agent_reply_topic(agent_id)
+        } else {
+            String::new()
+        }
+    }
+
+    /// Creates a new envelope with reply_to set to a specific agent's private topic.
+    ///
+    /// Use this when you want replies to go directly to a specific agent
+    /// rather than to the thread reply topic.
+    ///
+    /// # Arguments
+    ///
+    /// * `thread_id` - Thread identifier for correlation
+    /// * `sender` - Sender identifier
+    /// * `reply_to_agent` - Agent ID that should receive replies
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use loom_core::Envelope;
+    ///
+    /// let env = Envelope::with_agent_reply("task-1", "agent.coordinator", "agent.coordinator");
+    /// assert_eq!(env.reply_to, "agent.agent.coordinator.replies");
+    /// ```
+    pub fn with_agent_reply(
+        thread_id: impl Into<String>,
+        sender: impl Into<String>,
+        reply_to_agent: impl Into<String>,
+    ) -> Self {
+        let thread_id = thread_id.into();
+        let sender = sender.into();
+        let reply_to_agent = reply_to_agent.into();
+
+        Self {
+            reply_to: super::envelope::agent_reply_topic(&reply_to_agent),
+            thread_id: thread_id.clone(),
+            correlation_id: thread_id,
+            sender,
+            ttl: 16,
+            hop: 0,
+            timestamp_ms: chrono::Utc::now().timestamp_millis(),
+        }
     }
 }
