@@ -16,6 +16,9 @@ Each test file follows the naming convention `<module>_test.rs` and corresponds 
 | `llm_test.rs`               | `src/llm/`                     | LLM client config, adapter logic, token budget enforcement                  |
 | `tool_orchestrator_test.rs` | `src/llm/tool_orchestrator.rs` | Tool call parsing (Responses/Chat), ActionBroker integration, refine bundle |
 | `providers_test.rs`         | `src/providers/`               | Web search & weather providers, parameter validation, error handling        |
+| `envelope_test.rs`          | `src/envelope.rs`              | Envelope construction, metadata roundtrip, TTL/hop logic, topic helpers     |
+| `collab_test.rs`            | `src/collab.rs`                | Collaboration primitives: request/reply, fanout first-k, contract-net       |
+| `directory_test.rs`         | `src/directory.rs`             | AgentDirectory & CapabilityDirectory indexing and snapshots                 |
 | `integration_test.rs`       | Core Pipeline                  | End-to-end event → agent → action → result flow                             |
 
 ### Pressure Test Structure (Modularized)
@@ -36,15 +39,18 @@ Pressure tests are organized into submodules under `pressure/`:
 
 Integration tests are organized into submodules under `integration/`:
 
-| Module                            | File                                | Coverage                                                     |
-| --------------------------------- | ----------------------------------- | ------------------------------------------------------------ |
-| `integration::mod`                | `integration/mod.rs`                | Shared mock components (providers, behaviors)                |
-| `integration::e2e_basic`          | `integration/e2e_basic.rs`          | Basic pipeline, event filtering                              |
-| `integration::e2e_multi_agent`    | `integration/e2e_multi_agent.rs`    | Multi-agent topic routing                                    |
-| `integration::e2e_error_handling` | `integration/e2e_error_handling.rs` | Error propagation                                            |
-| `integration::e2e_routing`        | `integration/e2e_routing.rs`        | Routing decisions, privacy policies                          |
-| `integration::e2e_action_broker`  | `integration/e2e_action_broker.rs`  | Timeout handling, idempotency                                |
-| `integration::e2e_tool_use`       | `integration/e2e_tool_use.rs`       | Tool discovery, web.search/weather.get mocks, error handling |
+| Module                            | File                                | Coverage                                                                    |
+| --------------------------------- | ----------------------------------- | --------------------------------------------------------------------------- |
+| `integration::mod`                | `integration/mod.rs`                | Shared mock components (providers, behaviors)                               |
+| `integration::e2e_basic`          | `integration/e2e_basic.rs`          | Basic pipeline, event filtering                                             |
+| `integration::e2e_multi_agent`    | `integration/e2e_multi_agent.rs`    | Multi-agent topic routing                                                   |
+| `integration::e2e_error_handling` | `integration/e2e_error_handling.rs` | Error propagation                                                           |
+| `integration::e2e_routing`        | `integration/e2e_routing.rs`        | Routing decisions, privacy policies                                         |
+| `integration::e2e_action_broker`  | `integration/e2e_action_broker.rs`  | Timeout handling, idempotency                                               |
+| `integration::e2e_tool_use`       | `integration/e2e_tool_use.rs`       | Tool discovery, web.search/weather.get mocks, error handling                |
+| `integration::e2e_envelope`       | `integration/e2e_envelope.rs`       | Envelope TTL/hop propagation, drop-on-expiry, headers in ActionBroker       |
+| `integration::e2e_collab`         | `integration/e2e_collab.rs`         | Multi-agent collaboration: request/reply, contract-net (proposals/awards)   |
+| `integration::e2e_directory`      | `integration/e2e_directory.rs`      | AgentDirectory indexing (topics/capabilities), CapabilityDirectory snapshot |
 
 ## Running Tests
 
@@ -139,11 +145,14 @@ See `PRESSURE_TEST_REPORT_TEMPLATE.md` for detailed report format.
 - **ActionBroker**: 9 tests - registration, invocation, timeout, errors, idempotency
 - **AgentRuntime**: 8 tests - lifecycle, mailbox, subscriptions, multi-agent
 - **ModelRouter**: 14 tests - privacy routing, confidence thresholds, policy decisions
-- **LlmClient**: 8 tests - config, adapter, token budgets, tools schema
+- **LlmClient**: 12 tests - config, adapter, token budgets, tools schema, streaming
 - **ToolOrchestrator**: 13 tests - Responses/Chat parsing, ActionBroker integration, refine bundles
 - **Providers**: 10 tests - web.search & weather.get providers, parameter validation, API calls
+- **Envelope**: 6 tests - construction, metadata roundtrip, TTL/hop behavior, topic helpers
+- **Collaboration**: 3 tests - request/reply, fanout first-k, contract-net selection
+- **Directory**: 2 tests - AgentDirectory indexing, CapabilityDirectory snapshot
 
-**Total Unit Tests**: 83
+**Total Unit Tests**: 98
 
 ### Integration Tests
 
@@ -155,7 +164,7 @@ See `PRESSURE_TEST_REPORT_TEMPLATE.md` for detailed report format.
   5. `test_action_timeout_handling` - Action timeout handling
   6. `test_idempotent_action_invocation` - Idempotent action invocation caching
   7. `test_e2e_event_type_filtering` - Event type filtering in subscriptions
-- **Tool Use (LLM)**: 8 tests - tool discovery, invocation, error handling
+- **Tool Use (LLM)**: 9 tests - tool discovery, invocation, error handling
   1. `test_tool_discovery_builds_schema` - Capability metadata to function schema
   2. `test_broker_invokes_web_search` - Mock web.search provider invocation
   3. `test_broker_invokes_weather_get` - Mock weather.get provider invocation
@@ -164,8 +173,31 @@ See `PRESSURE_TEST_REPORT_TEMPLATE.md` for detailed report format.
   6. `test_tool_timeout_handling` - Timeout enforcement
   7. `test_normalized_tool_call_structure` - Data structure validation
   8. `test_prompt_bundle_for_refine` - Refine bundle construction
+  9. `test_tool_call_with_nested_parameters` - Complex nested tool parameters
 
-**Total Integration Tests**: 15
+**Subtotal**: 16 tests
+
+### Multi-Agent Integration Tests
+
+- **Envelope TTL/Hop**: 3 tests - lifecycle and propagation
+  1. `ttl_1_drops_before_behavior` - Events with TTL=1 dropped before reaching behavior
+  2. `ttl_2_reaches_behavior_with_hop_1` - TTL/hop decrement validation
+  3. `action_broker_receives_envelope_headers` - Header propagation to ActionBroker
+- **Collaboration**: 2 tests - multi-agent coordination
+  1. `collab_request_reply_through_agents` - Request/reply round-trip
+  2. `collab_contract_net_selects_top_score` - Contract-net proposal ranking and awards
+- **Directory**: 2 tests - agent & capability discovery
+  1. `agent_directory_indexes_and_updates` - Topic/capability indexing
+  2. `capability_directory_snapshots_broker` - Broker snapshot and lookup
+- **Basic E2E**: 2 tests - simple pipeline validation
+- **Multi-Agent Routing**: 1 test - topic-based routing
+- **Error Handling**: 1 test - error propagation
+- **Routing Decisions**: 1 test - privacy policy enforcement
+- **Action Broker E2E**: 2 tests - timeout and idempotency
+
+**Subtotal**: 14 tests
+
+**Total Integration Tests**: 30
 
 ### Benchmarks
 
@@ -176,7 +208,7 @@ See `PRESSURE_TEST_REPORT_TEMPLATE.md` for detailed report format.
 - Multiple subscribers (2, 5, 10)
 - Event filtering overhead
 
-**Grand Total**: 98 tests + 6 benchmark suites
+**Grand Total**: 128 tests + 6 benchmark suites
 
 ---
 
@@ -321,3 +353,30 @@ See `docs/core/llm.md` for full Tool Use documentation.
 - Pressure tests use `serial_test` to avoid resource conflicts
 - Benchmarks use Criterion.rs for statistical analysis
 - Token budget truncation logic in `llm/adapter.rs` was fixed during test development
+
+---
+
+## Future Enhancements
+
+Planned directions to deepen multi-agent & observability coverage:
+
+1. Fanout/Fanin first_k integration test
+   - Drive `Collaborator::fanout_fanin` across N responder agents; assert collected count and `collab.summary.received` equality.
+2. Collaboration timeout path
+   - Trigger `request_reply` with no responders; assert a `collab.timeout` event on the reply topic with reason metadata.
+3. Directory‑driven dynamic fanout
+   - Look up agents via `AgentDirectory.by_capability` and build target list dynamically prior to fanout.
+4. Bridge + Python agent interoperability
+   - Include a loom‑py agent via Bridge in `e2e_collab`; verify cross‑language envelope integrity.
+5. High‑concurrency TTL exhaustion
+   - Stress test many events with low TTL across multiple agents; assert zero behavior executions for ttl=1 paths.
+6. Auto‑registration lifecycle
+   - Integration test ensuring AgentRuntime automatically registers/unregisters agents in AgentDirectory.
+7. Observability assertions
+   - Parse emitted `collab.summary`, `collab.timeout`, and `routing_decision` events; validate key metadata (received, winners, route, reason).
+8. Contract‑net multi‑award scenario
+   - Use `max_awards > 1` and verify distinct winners and award events count.
+9. Backpressure under collaboration bursts
+   - Simulate bursts of collab.request; confirm EventBus backpressure metrics remain within thresholds.
+
+Contributions adding any of these tests are welcome—please include rationale and metrics captured.
