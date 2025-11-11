@@ -10,11 +10,12 @@ from .proto import bridge_pb2_grpc as pb_bridge_grpc
 from .proto import action_pb2 as pb_action
 from .proto import event_pb2 as pb_event
 
-DEFAULT_ADDR = os.environ.get("LOOM_BRIDGE_ADDR", "127.0.0.1:50051")
+DEFAULT_ADDR = "127.0.0.1:50051"  # resolved at construction time
 
 class BridgeClient:
-    def __init__(self, address: str = DEFAULT_ADDR):
-        self.address = address
+    def __init__(self, address: Optional[str] = None):
+        # Resolve default lazily to avoid import-time env read
+        self.address = address or os.environ.get("LOOM_BRIDGE_ADDR", DEFAULT_ADDR)
         self._channel: Optional[grpc.aio.Channel] = None
         self._stub: Optional[pb_bridge_grpc.BridgeStub] = None
 

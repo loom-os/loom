@@ -3,6 +3,7 @@ import asyncio
 import json
 import signal
 from typing import Any, Awaitable, Callable, Iterable, Optional
+import logging
 
 from .client import BridgeClient, pb_bridge, pb_action
 from .context import Context
@@ -35,6 +36,8 @@ class Agent:
         self._ctx._bind(self._outbound_queue)
         self._stream_task: Optional[asyncio.Task] = None
         self._stopped = asyncio.Event()
+        self._heartbeat_task = None
+        self._reconnect_lock = asyncio.Lock()
 
     async def start(self):
         await self.client.connect()
@@ -47,32 +50,93 @@ class Agent:
                 provider=pb_action.ProviderKind.PROVIDER_GRPC,
                 metadata=c.metadata,
             ))
-        await self.client.register_agent(self.agent_id, self.topics, caps)
+        # Ensure reply topic is always subscribed
+        topics = list(self.topics)
+        reply_topic = f"agent.{self.agent_id}.replies"
+        if reply_topic not in topics:
+            topics.append(reply_topic)
+        await self.client.register_agent(self.agent_id, topics, caps)
 
-        # Start stream
+        # Start stream (do not await: returns async iterator)
         async def outbound_iter():
             while True:
                 msg = await self._outbound_queue.get()
                 yield msg
-        self._stream = await self.client.event_stream(self.agent_id, outbound_iter())
+        self._stream = self.client.event_stream(self.agent_id, outbound_iter())
         self._stream_task = asyncio.create_task(self._run_stream())
+        # Start heartbeat monitor
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
     async def _run_stream(self):
-        async for server_msg in self._stream:
-            which = server_msg.WhichOneof('msg')
-            if which == 'delivery':
-                delivery = server_msg.delivery
-                self._ctx._on_delivery(delivery)
-                if self._on_event and delivery.event is not None:
-                    await self._on_event(self._ctx, delivery.topic, delivery.event)
-            elif which == 'action_call':
-                await self._handle_action_call(server_msg.action_call)
-            elif which == 'pong':
-                # ignore
-                pass
-            elif which == 'err':
-                # log or raise
-                pass
+        try:
+            async for server_msg in self._stream:
+                which = server_msg.WhichOneof('msg')
+                if which == 'delivery':
+                    delivery = server_msg.delivery
+                    self._ctx._on_delivery(delivery)
+                    if self._on_event and delivery.event is not None:
+                        await self._on_event(self._ctx, delivery.topic, delivery.event)
+                elif which == 'action_call':
+                    await self._handle_action_call(server_msg.action_call)
+                elif which == 'pong':
+                    # ignore
+                    pass
+                elif which == 'err':
+                    # log server-side error surfaced on the stream
+                    err = server_msg.err
+                    logging.error("[loom] Server error on stream: %s - %s", getattr(err, 'code', 'UNKNOWN'), getattr(err, 'message', ''))
+        except Exception as e:
+            logging.warning("[loom] Stream error: %s", e)
+            await self._reconnect()
+
+    async def _reconnect(self):
+        if self._stopped.is_set():
+            return
+        async with self._reconnect_lock:
+            backoff = 0.5
+            while not self._stopped.is_set():
+                try:
+                    await self.client.close()
+                    await self.client.connect()
+                    # Re-register (ensure reply topic stays present)
+                    caps: list[pb_action.CapabilityDescriptor] = []
+                    for c in self._cap_decls:
+                        caps.append(pb_action.CapabilityDescriptor(
+                            name=c.name,
+                            version=c.version,
+                            provider=pb_action.ProviderKind.PROVIDER_GRPC,
+                            metadata=c.metadata,
+                        ))
+                    topics = list(self.topics)
+                    reply_topic = f"agent.{self.agent_id}.replies"
+                    if reply_topic not in topics:
+                        topics.append(reply_topic)
+                    await self.client.register_agent(self.agent_id, topics, caps)
+                    # Restart stream
+                    async def outbound_iter():
+                        while True:
+                            msg = await self._outbound_queue.get()
+                            yield msg
+                    self._stream = self.client.event_stream(self.agent_id, outbound_iter())
+                    self._stream_task = asyncio.create_task(self._run_stream())
+                    logging.info("[loom] Reconnected agent %s", self.agent_id)
+                    return
+                except Exception as e:
+                    logging.warning("[loom] Reconnect failed: %s; retrying in %.1fs", e, backoff)
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 10.0)
+
+    async def _heartbeat_loop(self):
+        try:
+            while not self._stopped.is_set():
+                await asyncio.sleep(15)
+                try:
+                    await asyncio.wait_for(self.client.heartbeat(), timeout=5)
+                except Exception as e:
+                    logging.warning("[loom] Heartbeat failed: %s", e)
+                    await self._reconnect()
+        except asyncio.CancelledError:
+            return
 
     async def _handle_action_call(self, call: pb_action.ActionCall):
         # Route to matching capability by name
@@ -133,6 +197,12 @@ class Agent:
             self._stream_task.cancel()
             try:
                 await self._stream_task
+            except asyncio.CancelledError:
+                pass
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
             except asyncio.CancelledError:
                 pass
         await self.client.close()

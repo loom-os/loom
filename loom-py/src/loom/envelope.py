@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 import time
+import uuid
 
 META_PREFIX = "loom"
 
@@ -36,8 +37,8 @@ class Envelope:
         metadata: Optional[Dict[str, str]] = None,
     ) -> "Envelope":
         now = int(time.time() * 1000)
-        # Lightweight unique id
-        eid = f"ev-{now}-{id(payload)}"
+        # Use random UUID for envelope id to avoid collisions across processes
+        eid = str(uuid.uuid4())
         meta = metadata.copy() if metadata else {}
         def set_opt(key: str, value: Optional[str | int]):
             if value is not None:

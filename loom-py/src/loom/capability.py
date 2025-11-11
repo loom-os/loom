@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Any, Callable, Optional
 from pydantic import BaseModel, create_model
+import json
 import inspect
 
 class Capability:
@@ -15,9 +16,10 @@ class Capability:
     def metadata(self) -> dict:
         meta: dict[str, str] = {}
         if self.input_model:
-            meta["input_schema"] = self.input_model.model_json_schema_json(indent=None)
+            # Use model_json_schema() to get dict, then dump for portability
+            meta["input_schema"] = json.dumps(self.input_model.model_json_schema(), separators=(",", ":"))
         if self.output_model:
-            meta["output_schema"] = self.output_model.model_json_schema_json(indent=None)
+            meta["output_schema"] = json.dumps(self.output_model.model_json_schema(), separators=(",", ":"))
         return meta
 
 

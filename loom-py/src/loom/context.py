@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import uuid
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional
 
 from .client import BridgeClient, pb_bridge, pb_action, pb_event
@@ -51,14 +52,19 @@ class Context:
         data = payload
         if payload is not None and not isinstance(payload, (bytes, bytearray)):
             data = json.dumps(payload).encode("utf-8")
+        call_id = str(uuid.uuid4())
+        correlation_id = call_id
         call = pb_action.ActionCall(
-            id=f"act-{self.agent_id}",
+            id=call_id,
             capability=name,
             version=version,
             payload=data or b"",
-            headers={},
+            headers={
+                "x-correlation-id": correlation_id,
+                "x-agent-id": self.agent_id,
+            },
             timeout_ms=timeout_ms,
-            correlation_id="",
+            correlation_id=correlation_id,
             qos=0,
         )
         res = await self.client.forward_action(call)
