@@ -44,7 +44,9 @@ if __name__ == "__main__":
 
 ## Local developer workflow
 
-- Start a local bridge: `loom dev` (auto-picks a free port and sets `LOOM_BRIDGE_ADDR`)
+- Start a local bridge:
+  - `loom up` (embedded mode: download/cache or reuse a local build into ~/.cache/loom/bin)
+  - or `loom dev` (from source via cargo)
 - Scaffold a new agent: `loom new my-agent && cd my-agent && python agent.py`
 
 In production or CI, you can point the SDK at a managed bridge via `LOOM_BRIDGE_ADDR` or a config file; SDK defaults to `127.0.0.1:50051` if unset.

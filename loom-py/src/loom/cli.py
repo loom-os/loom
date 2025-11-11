@@ -90,6 +90,50 @@ def cmd_run(args):
     os.execv(sys.executable, [sys.executable, script])
 
 
+def _load_project_config(start: Path) -> dict:
+    import tomli as toml if sys.version_info < (3,11) else None  # type: ignore
+    cfg_path = start / "loom.toml"
+    if not cfg_path.exists():
+        return {}
+    data = cfg_path.read_text()
+    if sys.version_info >= (3,11):
+        import tomllib as toml  # type: ignore
+    return toml.loads(data)
+
+
+def _write_project_bridge(start: Path, address: str, mode: str, version: str):
+    # Simple append/merge writer (MVP): overwrite [bridge] section.
+    existing = _load_project_config(start)
+    existing.setdefault("project", {})
+    existing["bridge"] = {"address": address, "mode": mode, "version": version}
+    # Serialize back (manual toml for simplicity)
+    lines = []
+    if "project" in existing:
+        lines.append("[project]")
+        for k, v in existing["project"].items():
+            lines.append(f"{k} = \"{v}\"")
+        lines.append("")
+    lines.append("[bridge]")
+    for k, v in existing["bridge"].items():
+        lines.append(f"{k} = \"{v}\"")
+    (start / "loom.toml").write_text("\n".join(lines) + "\n")
+
+
+def cmd_up(args):
+    """Start (or reuse) embedded core binary and export LOOM_BRIDGE_ADDR.
+
+    Tries to start cached binary; if missing, attempts local dev build copy.
+    """
+    from . import embedded
+    version = args.version
+    port = _pick_free_port()
+    address = f"127.0.0.1:{port}"
+    proc = embedded.start_core(address, version=version)
+    os.environ["LOOM_BRIDGE_ADDR"] = address
+    _write_project_bridge(Path("."), address, "embedded", version)
+    print(f"[loom] Embedded core started PID={proc.pid} at {address} (version {version})")
+
+
 def main():
     p = argparse.ArgumentParser(prog="loom", description="Loom Python SDK CLI")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -116,6 +160,10 @@ def main():
     sr = sub.add_parser("run", help="Run a Python script in the current environment")
     sr.add_argument("script")
     sr.set_defaults(func=cmd_run)
+
+    su = sub.add_parser("up", help="Start or connect to embedded core, set LOOM_BRIDGE_ADDR")
+    su.add_argument("--version", default="latest")
+    su.set_defaults(func=cmd_up)
 
     args = p.parse_args()
     args.func(args)
