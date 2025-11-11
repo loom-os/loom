@@ -54,13 +54,8 @@ impl ActionBroker {
         let version = call.version.clone();
         let call_id = call.id.clone();
 
-        // Ensure envelope metadata present in headers; build default using capability as thread if absent
-        let env0 = Envelope::from_metadata(&call.headers, &call_id);
-        let env = if env0.thread_id.is_empty() {
-            Envelope::new(&call_id, format!("broker:{}", cap_name))
-        } else {
-            env0
-        };
+        // Ensure envelope metadata present in headers
+        let env = Envelope::from_metadata(&call.headers, &call_id);
         env.apply_to_action_call(&mut call);
 
         // Idempotency shortcut

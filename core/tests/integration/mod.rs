@@ -25,6 +25,9 @@ pub use loom_core::{ActionBroker, AgentRuntime, EventBus, ModelRouter};
 // Submodules
 mod e2e_action_broker;
 mod e2e_basic;
+mod e2e_collab;
+mod e2e_directory;
+mod e2e_envelope;
 mod e2e_error_handling;
 mod e2e_multi_agent;
 mod e2e_routing;

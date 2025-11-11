@@ -314,12 +314,13 @@ impl Agent {
 
         // Build ActionCall
         let now = chrono::Utc::now();
+        let call_id = format!(
+            "act_{}",
+            now.timestamp_nanos_opt()
+                .unwrap_or_else(|| now.timestamp_millis() * 1_000_000)
+        );
         let mut call = ActionCall {
-            id: format!(
-                "act_{}",
-                now.timestamp_nanos_opt()
-                    .unwrap_or_else(|| now.timestamp_millis() * 1_000_000)
-            ),
+            id: call_id.clone(),
             capability: action.action_type.clone(),
             version: "".to_string(), // resolve first provider by name if version unspecified
             payload: action.payload.clone(),
@@ -330,13 +331,10 @@ impl Agent {
         };
 
         // Attach envelope into call headers
-        let env = Envelope::new(call.id.clone(), format!("agent.{}", self.config.agent_id));
-        let mut call_env = env;
-        call_env.correlation_id = call.id.clone();
-        call_env.apply_to_action_call(&mut call);
+        let mut env = Envelope::new(call_id.clone(), format!("agent.{}", self.config.agent_id));
+        env.correlation_id = call_id.clone();
+        env.apply_to_action_call(&mut call);
 
-        // Preserve id before moving call into broker
-        let action_call_id = call.id.clone();
         let res = self.action_broker.invoke(call).await?;
 
         // Optionally publish result event for observability
@@ -367,12 +365,7 @@ impl Agent {
             tags: vec!["action".into()],
             priority: action.priority,
         };
-        // Build envelope for result event referencing the action id as correlation
-        let mut env = Envelope::new(
-            action_call_id.clone(),
-            format!("agent.{}", self.config.agent_id),
-        );
-        env.correlation_id = action_call_id;
+        // Reuse envelope from action call to maintain thread/correlation consistency
         env.attach_to_event(&mut evt);
         // Best-effort publish; ignore delivery count
         let _ = self

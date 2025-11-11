@@ -32,12 +32,21 @@ impl Collaborator {
 
     /// Send a request and wait for the first reply on the thread reply topic.
     /// Returns None on timeout.
+    ///
+    /// # Arguments
+    /// * `timeout_ms` - Timeout in milliseconds. Must be > 0; returns error if 0.
     pub async fn request_reply(
         &self,
         topic: &str,
         payload: Vec<u8>,
         timeout_ms: u64,
     ) -> Result<Option<Event>> {
+        if timeout_ms == 0 {
+            return Err(crate::LoomError::EventBusError(
+                "timeout_ms must be greater than 0".into(),
+            ));
+        }
+
         // Prepare envelope and subscribe to reply topic first to avoid races
         let thread_id = format!(
             "req_{}",
@@ -74,7 +83,7 @@ impl Collaborator {
         let _ = self.event_bus.publish(topic, evt).await?;
 
         // Await first reply that matches correlation
-        let deadline = Duration::from_millis(timeout_ms.max(1));
+        let deadline = Duration::from_millis(timeout_ms);
         let corr_id = env.correlation_id.clone();
         let res = timeout(deadline, async move {
             while let Some(ev) = rx.recv().await {
@@ -112,6 +121,11 @@ impl Collaborator {
     }
 
     /// Fanout to multiple topics, collect up to first_k replies or until timeout.
+    ///
+    /// # Arguments
+    /// * `topics` - List of topics to broadcast to. Returns empty vec if empty.
+    /// * `first_k` - Maximum number of replies to collect. Must be > 0; returns error if 0.
+    /// * `timeout_ms` - Timeout in milliseconds. Must be > 0; returns error if 0.
     pub async fn fanout_fanin(
         &self,
         topics: &[String],
@@ -119,8 +133,18 @@ impl Collaborator {
         first_k: usize,
         timeout_ms: u64,
     ) -> Result<Vec<Event>> {
-        if topics.is_empty() || first_k == 0 {
+        if topics.is_empty() {
             return Ok(Vec::new());
+        }
+        if first_k == 0 {
+            return Err(crate::LoomError::EventBusError(
+                "first_k must be greater than 0".into(),
+            ));
+        }
+        if timeout_ms == 0 {
+            return Err(crate::LoomError::EventBusError(
+                "timeout_ms must be greater than 0".into(),
+            ));
         }
 
         let thread_id = format!(
@@ -161,7 +185,7 @@ impl Collaborator {
 
         // Gather first_k
         let mut out = Vec::with_capacity(first_k);
-        let deadline = Instant::now() + Duration::from_millis(timeout_ms.max(1));
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
         let corr_id = env.correlation_id.clone();
         while out.len() < first_k && Instant::now() < deadline {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -196,6 +220,11 @@ impl Collaborator {
 
     /// Contract Net Protocol: send CFP to a broadcast thread topic, collect proposals for window_ms,
     /// pick top `max_awards` by numeric `score` metadata, publish awards to the thread broadcast topic, return selected proposals.
+    ///
+    /// # Arguments
+    /// * `broadcast_thread_id` - Thread ID for the collaboration session
+    /// * `window_ms` - Proposal collection window in milliseconds. Must be > 0; returns error if 0.
+    /// * `max_awards` - Maximum number of proposals to award. Must be > 0; returns error if 0.
     pub async fn contract_net(
         &self,
         broadcast_thread_id: &str,
@@ -203,6 +232,17 @@ impl Collaborator {
         window_ms: u64,
         max_awards: usize,
     ) -> Result<Vec<Event>> {
+        if window_ms == 0 {
+            return Err(crate::LoomError::EventBusError(
+                "window_ms must be greater than 0".into(),
+            ));
+        }
+        if max_awards == 0 {
+            return Err(crate::LoomError::EventBusError(
+                "max_awards must be greater than 0".into(),
+            ));
+        }
+
         let thread_id = broadcast_thread_id.to_string();
         let env = Envelope::new(thread_id.clone(), self.sender_id.clone());
         // Subscribe to proposals on reply topic (agents reply on thread reply by convention)
@@ -235,7 +275,7 @@ impl Collaborator {
         let _ = self.event_bus.publish(&broadcast_topic, cfp_evt).await?;
 
         // Collect proposals during window
-        let end = Instant::now() + Duration::from_millis(window_ms.max(1));
+        let end = Instant::now() + Duration::from_millis(window_ms);
         let mut proposals: Vec<Event> = Vec::new();
         while Instant::now() < end {
             let remaining = end.saturating_duration_since(Instant::now());
@@ -263,10 +303,7 @@ impl Collaborator {
                 .unwrap_or(0.0);
             sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
         });
-        let winners = proposals
-            .into_iter()
-            .take(max_awards.max(1))
-            .collect::<Vec<_>>();
+        let winners = proposals.into_iter().take(max_awards).collect::<Vec<_>>();
 
         // Publish awards to broadcast topic
         for w in &winners {
