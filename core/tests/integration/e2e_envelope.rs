@@ -81,7 +81,7 @@ async fn ttl_1_drops_before_behavior() -> Result<()> {
     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
 
     let seen = capture.lock().await;
-    assert!(seen.is_none(), "behavior should not run when TTL=1");
+    assert!(seen.is_none(), "behavior should not run because TTL=1 is exhausted by next_hop()");
     Ok(())
 }
 

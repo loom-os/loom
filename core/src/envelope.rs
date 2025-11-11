@@ -382,9 +382,6 @@ impl Envelope {
     /// ```
     pub fn apply_to_action_call(&self, call: &mut ActionCall) {
         // Ensure headers map carries all envelope fields
-        if call.headers.is_empty() {
-            call.headers = HashMap::new();
-        }
         self.apply_to_metadata(&mut call.headers);
         call.correlation_id = self.correlation_id.clone();
         // Default QoS can be inferred elsewhere; not set here

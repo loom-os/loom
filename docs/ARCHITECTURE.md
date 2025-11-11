@@ -43,7 +43,7 @@ Loom is an event-driven AI operating system that models intelligent agents as **
 
 ```
 ┌─────────────────────────────────────┐
-│     Application Layer               │  examples/, demo/
+│     Application Layer            │  examples/, demo/
 │  Demo Apps, Custom Agents           │
 ├─────────────────────────────────────┤
 │     Plugin Layer                    │  plugins/
