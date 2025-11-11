@@ -3,7 +3,10 @@
 
 pub mod action_broker;
 pub mod agent;
+pub mod collab; // Collaboration primitives built on EventBus + Envelope
 pub mod context;
+pub mod directory; // Agent & Capability directories
+pub mod envelope; // Unified metadata envelope for events/actions threads
 pub mod event;
 pub mod llm;
 pub mod local_model;
@@ -12,12 +15,14 @@ pub mod providers;
 pub mod router;
 pub mod storage;
 pub mod telemetry;
-// tts now lives under audio::tts and is feature-gated
 
 // Export core types
 pub use action_broker::{ActionBroker, CapabilityProvider};
 pub use agent::{Agent, AgentRuntime, AgentState};
+pub use collab::{types as collab_types, Collaborator};
 pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
+pub use directory::{AgentDirectory, AgentInfo, CapabilityDirectory};
+pub use envelope::{Envelope, ThreadTopicKind};
 pub use event::{Event, EventBus, EventHandler, QoSLevel};
 pub use llm::{LlmClient, LlmClientConfig, LlmResponse};
 pub use local_model::{DummyLocalModel, LocalInference, LocalModel};
