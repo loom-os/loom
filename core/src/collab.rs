@@ -4,25 +4,89 @@ use tokio::time::{timeout, Duration, Instant};
 
 use crate::{envelope::keys, envelope::ThreadTopicKind, Envelope, Event, EventBus, Result};
 
-/// Control event type names used on Event.r#type
+/// Control event type names used on Event.r#type for collaboration protocols
 pub mod types {
+    /// Request event in request-reply or fanout-fanin patterns
     pub const REQ: &str = "collab.request";
+    /// Reply event in request-reply or fanout-fanin patterns
     pub const REPLY: &str = "collab.reply";
-    pub const CFP: &str = "collab.cfp"; // contract-net: call for proposals
+    /// Call for proposals in contract-net protocol
+    pub const CFP: &str = "collab.cfp";
+    /// Proposal response in contract-net protocol
     pub const PROPOSAL: &str = "collab.proposal";
+    /// Award announcement in contract-net protocol
     pub const AWARD: &str = "collab.award";
-    pub const BARRIER_TICK: &str = "collab.barrier"; // optional heartbeat
+    /// Optional heartbeat for barrier synchronization
+    pub const BARRIER_TICK: &str = "collab.barrier";
+    /// Timeout notification when collaboration fails to complete
     pub const TIMEOUT: &str = "collab.timeout";
+    /// Summary event with collaboration results and statistics
     pub const SUMMARY: &str = "collab.summary";
 }
 
-/// Lightweight collaboration coordinator built on EventBus + Envelope
+/// Lightweight collaboration coordinator for multi-agent interactions.
+///
+/// `Collaborator` provides three core multi-agent collaboration patterns built on
+/// top of EventBus and Envelope:
+///
+/// 1. **Request-Reply**: Single request with timeout, waiting for first reply
+/// 2. **Fanout-Fanin**: Broadcast to multiple topics, collect first_k replies
+/// 3. **Contract Net Protocol**: CFP → collect proposals → rank by score → award
+///
+/// All methods use thread-scoped topics (via Envelope) to ensure proper correlation
+/// and avoid cross-talk between concurrent collaborations.
+///
+/// # Thread Safety
+///
+/// `Collaborator` is safe to share across tasks and can coordinate multiple
+/// concurrent collaborations. Each collaboration gets a unique thread_id.
+///
+/// # Examples
+///
+/// ```no_run
+/// use loom_core::{Collaborator, EventBus};
+/// use std::sync::Arc;
+///
+/// # async fn example() -> loom_core::Result<()> {
+/// let bus = Arc::new(EventBus::new().await?);
+/// let collab = Collaborator::new(bus, "agent-1");
+///
+/// // Request-reply with 5s timeout
+/// if let Some(reply) = collab.request_reply(
+///     "agents.helper",
+///     b"help request".to_vec(),
+///     5000
+/// ).await? {
+///     println!("Got reply: {:?}", reply);
+/// }
+/// # Ok(())
+/// # }
+/// ```
 pub struct Collaborator {
     event_bus: Arc<EventBus>,
     sender_id: String,
 }
 
 impl Collaborator {
+    /// Creates a new `Collaborator` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_bus` - Shared EventBus for pub/sub communication
+    /// * `sender_id` - Identifier for this collaborator (typically agent ID)
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use loom_core::{Collaborator, EventBus};
+    /// use std::sync::Arc;
+    ///
+    /// # async fn example() -> loom_core::Result<()> {
+    /// let bus = Arc::new(EventBus::new().await?);
+    /// let collab = Collaborator::new(bus, "agent-coordinator");
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn new(event_bus: Arc<EventBus>, sender_id: impl Into<String>) -> Self {
         Self {
             event_bus,
@@ -30,11 +94,53 @@ impl Collaborator {
         }
     }
 
-    /// Send a request and wait for the first reply on the thread reply topic.
-    /// Returns None on timeout.
+    /// Performs a request-reply interaction with timeout.
+    ///
+    /// Publishes a request event to the specified topic, then waits for the first
+    /// reply on a dedicated thread-scoped reply topic. Uses Envelope correlation
+    /// to match the reply to this specific request.
     ///
     /// # Arguments
-    /// * `timeout_ms` - Timeout in milliseconds. Must be > 0; returns error if 0.
+    ///
+    /// * `topic` - Topic to publish the request (e.g., "agents.helper")
+    /// * `payload` - Request payload bytes
+    /// * `timeout_ms` - Maximum wait time in milliseconds. Must be > 0.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(Event))` - Received a matching reply within timeout
+    /// * `Ok(None)` - Timeout expired with no reply
+    /// * `Err(_)` - EventBus error or invalid parameters (timeout_ms == 0)
+    ///
+    /// # Timeout Behavior
+    ///
+    /// On timeout, publishes a `collab.timeout` event to the reply topic for
+    /// observability before returning `Ok(None)`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use loom_core::{Collaborator, EventBus};
+    /// use std::sync::Arc;
+    ///
+    /// # async fn example() -> loom_core::Result<()> {
+    /// let bus = Arc::new(EventBus::new().await?);
+    /// let collab = Collaborator::new(bus, "agent-1");
+    ///
+    /// match collab.request_reply(
+    ///     "agents.calculator",
+    ///     b"compute 2+2".to_vec(),
+    ///     3000
+    /// ).await? {
+    ///     Some(reply) => {
+    ///         let result = String::from_utf8_lossy(&reply.payload);
+    ///         println!("Result: {}", result);
+    ///     }
+    ///     None => println!("No reply within 3s"),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn request_reply(
         &self,
         topic: &str,
@@ -120,12 +226,61 @@ impl Collaborator {
         Ok(res)
     }
 
-    /// Fanout to multiple topics, collect up to first_k replies or until timeout.
+    /// Performs a fanout-fanin interaction: broadcast to multiple topics and
+    /// collect up to `first_k` replies within timeout.
+    ///
+    /// Publishes the same request to all specified topics concurrently, then
+    /// collects replies on a dedicated thread-scoped reply topic until either
+    /// `first_k` replies are received or timeout expires.
     ///
     /// # Arguments
+    ///
     /// * `topics` - List of topics to broadcast to. Returns empty vec if empty.
-    /// * `first_k` - Maximum number of replies to collect. Must be > 0; returns error if 0.
-    /// * `timeout_ms` - Timeout in milliseconds. Must be > 0; returns error if 0.
+    /// * `payload` - Request payload bytes (cloned for each topic)
+    /// * `first_k` - Maximum number of replies to collect. Must be > 0.
+    /// * `timeout_ms` - Maximum wait time in milliseconds. Must be > 0.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<Event>)` - Collected replies (may be fewer than `first_k` if timeout)
+    /// * `Err(_)` - EventBus error or invalid parameters (first_k == 0, timeout_ms == 0)
+    ///
+    /// # Completion Behavior
+    ///
+    /// Always publishes a `collab.summary` event with `received` and `target_first_k`
+    /// metadata for observability, regardless of whether `first_k` was reached.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use loom_core::{Collaborator, EventBus};
+    /// use std::sync::Arc;
+    ///
+    /// # async fn example() -> loom_core::Result<()> {
+    /// let bus = Arc::new(EventBus::new().await?);
+    /// let collab = Collaborator::new(bus, "agent-orchestrator");
+    ///
+    /// let topics = vec![
+    ///     "agents.worker-1".to_string(),
+    ///     "agents.worker-2".to_string(),
+    ///     "agents.worker-3".to_string(),
+    /// ];
+    ///
+    /// // Get first 2 replies within 5s
+    /// let replies = collab.fanout_fanin(
+    ///     &topics,
+    ///     b"task: analyze".to_vec(),
+    ///     2,
+    ///     5000
+    /// ).await?;
+    ///
+    /// println!("Received {} replies", replies.len());
+    /// for reply in replies {
+    ///     println!("From: {}", reply.source);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn fanout_fanin(
         &self,
         topics: &[String],
@@ -218,13 +373,65 @@ impl Collaborator {
         Ok(out)
     }
 
-    /// Contract Net Protocol: send CFP to a broadcast thread topic, collect proposals for window_ms,
-    /// pick top `max_awards` by numeric `score` metadata, publish awards to the thread broadcast topic, return selected proposals.
+    /// Performs Contract Net Protocol: announce CFP, collect proposals, rank by
+    /// score, award to top bidders, and return winning proposals.
+    ///
+    /// This implements a task allocation protocol where:
+    /// 1. Coordinator publishes CFP (call for proposals) to broadcast topic
+    /// 2. Agents publish proposals to reply topic with `score` metadata
+    /// 3. Coordinator ranks proposals by score (descending)
+    /// 4. Coordinator publishes awards to broadcast topic for top `max_awards`
+    /// 5. Coordinator returns winning proposals for task assignment
     ///
     /// # Arguments
+    ///
     /// * `broadcast_thread_id` - Thread ID for the collaboration session
-    /// * `window_ms` - Proposal collection window in milliseconds. Must be > 0; returns error if 0.
-    /// * `max_awards` - Maximum number of proposals to award. Must be > 0; returns error if 0.
+    /// * `cfp_payload` - Call for proposals payload (task description)
+    /// * `window_ms` - Proposal collection window in milliseconds. Must be > 0.
+    /// * `max_awards` - Maximum number of proposals to award. Must be > 0.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<Event>)` - Top `max_awards` proposals sorted by score (descending)
+    /// * `Err(_)` - EventBus error or invalid parameters (window_ms == 0, max_awards == 0)
+    ///
+    /// # Proposal Ranking
+    ///
+    /// Proposals are sorted by the `score` field in their metadata. Missing or
+    /// invalid scores are treated as 0.0. Higher scores rank first.
+    ///
+    /// # Completion Behavior
+    ///
+    /// Always publishes:
+    /// - `collab.award` events to broadcast topic (one per winner)
+    /// - `collab.summary` event with `winners` and `max_awards` metadata
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use loom_core::{Collaborator, EventBus};
+    /// use std::sync::Arc;
+    ///
+    /// # async fn example() -> loom_core::Result<()> {
+    /// let bus = Arc::new(EventBus::new().await?);
+    /// let collab = Collaborator::new(bus, "task-coordinator");
+    ///
+    /// // Announce task and collect proposals for 3s
+    /// let winners = collab.contract_net(
+    ///     "task-123",
+    ///     b"Translate document from EN to FR".to_vec(),
+    ///     3000,
+    ///     2  // Award to top 2 bidders
+    /// ).await?;
+    ///
+    /// println!("Awarded to {} agents:", winners.len());
+    /// for (i, proposal) in winners.iter().enumerate() {
+    ///     let score = proposal.metadata.get("score").unwrap_or(&"N/A".to_string());
+    ///     println!("  {}. {} (score: {})", i+1, proposal.source, score);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn contract_net(
         &self,
         broadcast_thread_id: &str,
