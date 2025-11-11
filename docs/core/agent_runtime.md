@@ -17,10 +17,10 @@ Key interfaces
 - **Lifecycle Management**
   - `create_agent()` — Create and start an agent with initial subscriptions
   - `delete_agent()` — Stop agent and cleanup all subscriptions
-- **Auto-subscription (v0.2.0)**
+- **Auto-subscription**
   - Every agent is automatically subscribed to `agent.{agent_id}.replies` at creation
   - Enables point-to-point agent communication without explicit setup
-- **Dynamic Subscription API** (v0.2.0)
+- **Dynamic Subscription API**
   - `subscribe_agent(agent_id, topic)` — Add subscription at runtime
   - `unsubscribe_agent(agent_id, topic)` — Remove subscription at runtime
   - `get_agent_subscriptions(agent_id)` — List current subscriptions

@@ -20,9 +20,12 @@ fn test_with_thread_helper() {
     };
 
     let event = event.with_thread("thread-123".to_string());
-    
+
     assert_eq!(event.thread_id(), Some("thread-123"));
-    assert_eq!(event.metadata.get("thread_id"), Some(&"thread-123".to_string()));
+    assert_eq!(
+        event.metadata.get("thread_id"),
+        Some(&"thread-123".to_string())
+    );
 }
 
 #[test]
@@ -40,9 +43,12 @@ fn test_with_correlation_helper() {
     };
 
     let event = event.with_correlation("corr-456".to_string());
-    
+
     assert_eq!(event.correlation_id(), Some("corr-456"));
-    assert_eq!(event.metadata.get("correlation_id"), Some(&"corr-456".to_string()));
+    assert_eq!(
+        event.metadata.get("correlation_id"),
+        Some(&"corr-456".to_string())
+    );
 }
 
 #[test]
@@ -60,9 +66,12 @@ fn test_with_reply_to_helper() {
     };
 
     let event = event.with_reply_to("thread.task-1.reply".to_string());
-    
+
     assert_eq!(event.reply_to(), Some("thread.task-1.reply"));
-    assert_eq!(event.metadata.get("reply_to"), Some(&"thread.task-1.reply".to_string()));
+    assert_eq!(
+        event.metadata.get("reply_to"),
+        Some(&"thread.task-1.reply".to_string())
+    );
 }
 
 #[test]
@@ -80,9 +89,12 @@ fn test_with_sender_helper() {
     };
 
     let event = event.with_sender("agent.coordinator".to_string());
-    
+
     assert_eq!(event.sender(), Some("agent.coordinator"));
-    assert_eq!(event.metadata.get("sender"), Some(&"agent.coordinator".to_string()));
+    assert_eq!(
+        event.metadata.get("sender"),
+        Some(&"agent.coordinator".to_string())
+    );
 }
 
 #[test]
@@ -108,7 +120,7 @@ fn test_fluent_chaining() {
     assert_eq!(event.correlation_id(), Some("task-99"));
     assert_eq!(event.sender(), Some("agent.coordinator"));
     assert_eq!(event.reply_to(), Some("thread.task-99.reply"));
-    
+
     // Verify original fields preserved
     assert_eq!(event.id, "evt-chain");
     assert_eq!(event.r#type, "request");
@@ -154,7 +166,10 @@ fn test_read_helpers_with_existing_metadata() {
     };
 
     assert_eq!(event.thread_id(), Some("existing-thread"));
-    assert_eq!(event.metadata.get("custom_field"), Some(&"custom_value".to_string()));
+    assert_eq!(
+        event.metadata.get("custom_field"),
+        Some(&"custom_value".to_string())
+    );
 }
 
 #[test]
@@ -175,9 +190,12 @@ fn test_with_helpers_override_existing() {
     };
 
     let event = event.with_thread("new-thread".to_string());
-    
+
     assert_eq!(event.thread_id(), Some("new-thread"));
-    assert_eq!(event.metadata.get("thread_id"), Some(&"new-thread".to_string()));
+    assert_eq!(
+        event.metadata.get("thread_id"),
+        Some(&"new-thread".to_string())
+    );
 }
 
 #[test]
@@ -219,7 +237,10 @@ fn test_helpers_vs_envelope() {
     // Both should have the same envelope fields
     assert_eq!(event_helpers.thread_id(), event_envelope.thread_id());
     assert_eq!(event_helpers.sender(), event_envelope.sender());
-    assert_eq!(event_helpers.correlation_id(), event_envelope.correlation_id());
+    assert_eq!(
+        event_helpers.correlation_id(),
+        event_envelope.correlation_id()
+    );
     // Note: Envelope sets additional fields like ttl, hop, ts
 }
 
@@ -246,6 +267,6 @@ fn test_real_world_usage_pattern() {
     assert!(request.thread_id().is_some());
     assert!(request.sender().is_some());
     assert!(request.reply_to().is_some());
-    
+
     println!("✓ Real-world usage pattern test passed");
 }

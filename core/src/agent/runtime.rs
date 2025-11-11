@@ -220,13 +220,13 @@ impl AgentRuntime {
     /// # use loom_core::{AgentRuntime, EventBus, ActionBroker, ModelRouter};
     /// # use std::sync::Arc;
     /// # async fn example() -> loom_core::Result<()> {
-    /// # let event_bus = Arc::new(EventBus::new().await?);
-    /// # let action_broker = Arc::new(ActionBroker::new());
-    /// # let model_router = ModelRouter::new().await?;
+    /// let event_bus = Arc::new(EventBus::new().await?);
+    /// let action_broker = Arc::new(ActionBroker::new());
+    /// let model_router = ModelRouter::new().await?;
     /// let runtime = AgentRuntime::new(event_bus, action_broker, model_router).await?;
     ///
     /// // Agent joins a thread mid-conversation
-    /// runtime.subscribe_agent("agent-1", "thread.task-123.broadcast").await?;
+    /// runtime.subscribe_agent("agent-1", "thread.task-123.broadcast".to_string()).await?;
     /// # Ok(())
     /// # }
     /// ```
