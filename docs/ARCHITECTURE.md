@@ -7,13 +7,17 @@ This document reflects the current repository shape, centered on the first end�
 ```
 loom-proto   ──▶   core (loom-core)
   └────────────▶ loom-audio (optional)
+  └────────────▶ bridge (optional)
 
 apps / demos (e.g., demo/voice_agent) ──▶ depend on core and optionally loom-audio
+bindings (loom-py) ──▶ wrap loom-proto and core APIs for Python
 ```
 
 - `loom-proto` contains only protobuf definitions and generated Rust. `protoc` is vendored; no system install is required.
 - `core` depends on `loom-proto` and implements the runtime (Event Bus, Agent Runtime, Router, LLM client, ActionBroker, Plugin Manager). It intentionally does not depend on `loom-audio`.
 - `loom-audio` is a capability provider set with mic/VAD/STT/wake/TTS and depends on both `loom-proto` and `core`. Applications can opt‑in to audio features.
+- `bridge` is an optional service for forwarding events and actions across process or network boundaries (e.g., to a mobile client or web worker) using the shared proto contracts.
+- `loom-py` provides Python bindings and examples for interacting with Loom from Python workflows, leveraging the same proto messages and event/action semantics.
 
 ## Overview
 
@@ -39,17 +43,17 @@ Loom is an event-driven AI operating system that models intelligent agents as **
 
 ```
 ┌─────────────────────────────────────┐
-│     Application Layer               │  examples/
+│     Application Layer               │  examples/, demo/
 │  Demo Apps, Custom Agents           │
 ├─────────────────────────────────────┤
 │     Plugin Layer                    │  plugins/
 │  Feature Extractors, Models, Tools  │
 ├─────────────────────────────────────┤
 │     Runtime Layer                   │  core/
-│  Event Bus, Agent Runtime, Router   │
+│  Event Bus, Agent Runtime, Router, Collaboration, Directories, Envelope │
 ├─────────────────────────────────────┤
-│     Infrastructure Layer            │  infra/
-│  Storage, Network, Telemetry        │
+│     Infrastructure Layer            │  infra/, bridge/
+│  Storage, Network, Telemetry, Bridge│
 └─────────────────────────────────────┘
 ```
 
@@ -91,6 +95,8 @@ Asynchronous pub/sub message system with:
   }
   ```
 
+Envelope (thread/correlation): see `docs/core/envelope.md` for the reserved metadata keys (`thread_id`, `correlation_id`, `sender`, `reply_to`, `ttl`, `hop`, `ts`) and topic conventions (`thread.{id}.broadcast/reply`). Agents automatically maintain TTL/hop and drop expired events.
+
 ### Agent Runtime
 
 Actor-based stateful agents with:
@@ -116,6 +122,10 @@ Agent {
 ```
 
 **Memory System**:
+
+### Collaboration & Directories
+
+On top of the Envelope, Loom provides collaboration primitives (request/reply, fanout/fanin, contract-net) for multi-agent workflows, and directories to discover agents and capabilities. See `docs/core/collaboration.md` and `docs/core/directory.md`.
 
 - **Episodic**: Event sequences
 - **Semantic**: Knowledge graph
@@ -272,6 +282,7 @@ Mic → AudioChunk Event
         └─ Cloud: GPT-4 → refined intent
             → Tool calls via ActionBroker (e.g., Weather API)
               → TTS provider (Piper preferred, falls back to espeak-ng)
+              → Optional cross-process forwarding via bridge
 ```
 
 ## Component Interaction
@@ -292,6 +303,7 @@ Mic → AudioChunk Event
 2. **Stateful Processing**: Agent reads/updates state from Storage on each event
 3. **Routing Optimization**: Agent queries Router for Local/Cloud/Hybrid decision
 4. **Plugin Composition**: Agent calls multiple plugins and fuses results
+5. **Cross-Process Bridging**: Optional bridge forwards events/actions to external runtimes; Python clients (loom-py) can subscribe/publish and invoke capabilities via the same proto contracts.
 
 ## Performance Targets
 
@@ -351,5 +363,8 @@ Detailed component-level documentation is available under `docs/core/`:
 - `docs/core/plugin_system.md` — Plugin lifecycle and interfaces
 - `docs/core/storage.md` — Storage modes and configuration
 - `docs/core/telemetry.md` — Recommended metrics and spans
+- `docs/core/envelope.md` — Thread/correlation semantics and helpers
+- `docs/core/collaboration.md` — Collaboration primitives
+- `docs/core/directory.md` — Agent & Capability directories
 
 These pages provide implementation pointers, common error modes, and test guidance for each core component.
