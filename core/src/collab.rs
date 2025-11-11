@@ -426,7 +426,9 @@ impl Collaborator {
     ///
     /// println!("Awarded to {} agents:", winners.len());
     /// for (i, proposal) in winners.iter().enumerate() {
-    ///     let score = proposal.metadata.get("score").unwrap_or(&"N/A".to_string());
+    ///     let score = proposal.metadata.get("score")
+    ///         .map(|s| s.as_str())
+    ///         .unwrap_or("N/A");
     ///     println!("  {}. {} (score: {})", i+1, proposal.source, score);
     /// }
     /// # Ok(())
