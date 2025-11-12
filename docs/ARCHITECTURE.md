@@ -102,6 +102,7 @@ Envelope (thread/correlation): see `docs/core/envelope.md` for the reserved meta
 Actor-based stateful agents with:
 
 - **Lifecycle Management**: Create, start, stop, delete agents
+- **Dynamic Subscription**: Subscribe/unsubscribe from topics at runtime
 - **State Persistence**: RocksDB for long-term state
 - **Event Distribution**: Mailbox pattern for event delivery
 - **Behavior Execution**: Async event handlers
@@ -119,6 +120,19 @@ Agent {
     behavior: AgentBehavior,
     mailbox: mpsc::Receiver,
 }
+```
+
+**Dynamic Subscription API** (enables multi-agent collaboration):
+
+```rust
+// Agent joins thread mid-conversation
+runtime.subscribe_agent("agent-1", "thread.task-123.broadcast").await?;
+
+// Agent leaves when done
+runtime.unsubscribe_agent("agent-1", "thread.task-123.broadcast").await?;
+
+// Check active subscriptions
+let subs = runtime.get_agent_subscriptions("agent-1")?;
 ```
 
 **Memory System**:
