@@ -1,171 +1,3 @@
-# Loom — Event‑Driven Multi‑Agent OS
-
-Weaving intelligence into the fabric of reality
-
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
-
-Loom is an event‑driven runtime for building multi‑agent systems. The Rust core gives you a high‑performance event bus, a stateful agent runtime, collaboration primitives, and a unified action system. SDKs like loom‑py let you write agents in Python in minutes and collaborate with Rust agents through a shared envelope and protocol.
-
-Why Loom now:
-
-- Native multi‑agent collaboration: request/reply, fanout/fanin (first‑k/timeout), contract‑net, all built on a consistent Envelope.
-- Event‑driven from the ground up: QoS and backpressure keep real‑time loops healthy; everything is an event, actions are outcomes.
-- Polyglot ecosystem via loom‑py (Python today; JS next) and the Bridge service to span processes and networks.
-
-Use Loom when you want agents that sense, reason, and act continuously—coordinating tools, models, and other agents with low latency and strong observability.
-
----
-
-## What you get
-
-- Event Bus — Async pub/sub with QoS levels and backpressure
-- Agent Runtime — Actor‑style stateful agents with mailboxes and lifecycle hooks
-- Collaboration — Request/reply, fanout/fanin, contract‑net powered by Envelope
-- Envelope — Thread/correlation metadata with TTL/hop and reply topics
-- Action System — ActionBroker + Tool Orchestrator; idempotency, timeouts, result correlation
-- **MCP Client** — Connect to Model Context Protocol servers; access filesystems, databases, APIs, and more
-- Model Router — Local/Cloud/Hybrid routing by privacy/latency/cost/quality policy
-- Observability — Structured logs, tracing, and metrics (designed for dashboards)
-- Bridge — Optional gRPC/WebSocket bridge for cross‑process/event streaming and remote action invocation
-- SDKs — loom‑py for Python (shipping), loom‑js for JS (in progress)
-
-See details in the docs under `docs/core/*`.
-
----
-
-## Quick start
-
-Choose your path: Python (loom‑py) for fastest iteration, or Rust for full runtime control.
-
-### A. Python (loom‑py) — 5‑minute multi‑agent
-
-1. Install and run a sample (coming from loom‑py):
-
-```python
-from loom import Agent, capability
-
-@capability("web.search")
-def web_search(query: str) -> str:
-    return f"results for {query}"
-
-planner = Agent(id="planner", topics=["topic.plan"], capabilities=[])
-researcher = Agent(id="researcher", topics=["topic.research"], capabilities=[web_search])
-
-@planner.on_event
-async def plan(ctx, evt):
-    thread = ctx.thread(evt)  # uses Envelope.thread_id
-    await ctx.request(thread, "topic.research", {"q": "best LLM papers"}, first_k=1, timeout_ms=2000)
-    await ctx.reply(thread, {"done": True})
-
-@researcher.on_event
-async def work(ctx, evt):
-    q = evt.payload.get("q")
-    results = web_search(q)
-    await ctx.reply(ctx.thread(evt), {"results": results})
-
-if __name__ == "__main__":
-    # Connect via Bridge; registers agents and starts streaming
-    Agent.run_all([planner, researcher])
-```
-
-2. Explore more examples in `loom-py/examples`.
-
-### B. Rust — minimal event flow
-
-```rust
-use loom_core::{EventBus, Event};
-use std::sync::Arc;
-
-#[tokio::main]
-async fn main() -> loom_core::Result<()> {
-    let bus = Arc::new(EventBus::new().await?);
-    bus.start().await?;
-    let mut rx = bus.subscribe("topic.hello").await?;
-    bus.publish("topic.hello", Event::new("hi")) .await?;
-    let _evt = rx.recv().await;
-    Ok(())
-}
-```
-
-### C. Run the Voice Agent demo
-
-```bash
-cargo build --workspace
-bash demo/voice_agent/scripts/setup_models.sh   # optional STT/TTS models
-cargo run -p voice_agent
-```
-
----
-
-## Design in 60 seconds
-
-Everything flows through events. Each event carries an Envelope with:
-
-- thread_id, correlation_id — conversation + per‑message correlation
-- sender, reply_to — identity and reply topic (`thread.{id}.reply`)
-- ttl, hop — propagation control across agents
-- ts — timestamp
-
-Collaboration primitives use the same topics (`thread.{id}.broadcast/reply`) and Envelope to coordinate multi‑agent work. Actions are invoked via the ActionBroker; the Tool Orchestrator parses tool calls (incl. MCP tools), runs them with timeouts/idempotency, and emits results with correlation.
-
-See:
-
-- docs/core/envelope.md — Envelope semantics and helpers
-- docs/core/collaboration.md — request/reply, fanout/fanin, contract‑net
-- docs/core/directory.md — agent/capability directories
-- docs/ARCHITECTURE.md — full component breakdown
-
----
-
-## Project structure
-
-```
-loom/
-├── core/           # Runtime: event bus, agent runtime, router, action broker, tool orchestrator
-├── loom-proto/     # Protobuf definitions and generated code (vendored protoc)
-├── loom-audio/     # Optional audio stack (mic, VAD, STT, wake, TTS)
-├── bridge/         # Optional process/network bridge (gRPC/WS) for agents & actions
-├── loom-py/        # Python SDK (agents, capabilities, client), examples
-├── demo/           # Demos (voice_agent first E2E demo)
-├── docs/           # Documentation
-└── infra/          # Docker, Prometheus, etc.
-```
-
----
-
-## Positioning & roadmap
-
-We aim to let developers spin up a long‑running, observable, extensible multi‑agent system in under 10 minutes—even if they write agents in Python or JS. The Rust core keeps it fast and robust; the Bridge + SDKs make it polyglot.
-
-Selected roadmap highlights (see `docs/ROADMAP.md`):
-
-- P0 (MVS): 3‑agent Planner/Researcher/Writer flow in Python/JS, basic dashboard, CLI quickstart
-- P1: Collaboration expansion (contract‑net, parallelism), better metrics, error taxonomy
-- P2: MCP server mode, learning‑based routing, security & namespaces
-- P3: Mobile/edge packaging and deep performance work
-
----
-
-## Contributing
-
-Contributions welcome! Start with `CONTRIBUTING.md`. We’re especially excited about:
-
-- New capability providers (native or MCP)
-- SDK ergonomics & examples (loom‑py/loom‑js)
-- Dashboard and observability
-- Collaboration strategies
-
----
-
-## License
-
-Apache License 2.0 — see [LICENSE](LICENSE)
-
----
-
-Loom — Weaving Intelligence into the Fabric of Reality
-
 # Loom — Event-Driven AI OS
 
 _Weaving intelligence into the fabric of reality_
@@ -173,57 +5,90 @@ _Weaving intelligence into the fabric of reality_
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 
-Loom is a runtime that enables AI agents to continuously sense, reason, and act in the real world. It’s built around events instead of requests: events in, actions out, state in the middle. QoS and backpressure keep things real-time; the router chooses local vs cloud intelligently.
+Loom is a runtime that enables AI agents to continuously sense, reason, and act in the real world. It's built around events instead of requests: events in, actions out, state in the middle. QoS and backpressure keep things real-time; the router chooses local vs cloud intelligently.
 
-## What’s in this repo
+**Why Loom:**
 
-- `loom-proto` — Shared protobuf definitions. We vendor `protoc` via `protoc-bin-vendored` in build.rs, so you don’t need a system install.
-- `core` (loom-core) — Runtime: Event Bus, Agent Runtime, Router, LLM client, ActionBroker, Plugin manager. Depends only on `loom-proto`.
-- `loom-audio` — Optional audio stack: mic, VAD, STT (whisper.cpp), wake, TTS (Piper/espeak-ng). Depends on `loom-proto` and `core`.
-- `demo/voice_agent` — The first complete end-to-end demo app wiring the audio stack through the core runtime.
-- `bridge` — Optional process/network bridge for forwarding events & actions to external runtimes (e.g. mobile, web workers) using shared proto contracts.
-- `loom-py` — Python bindings & examples for interacting with Loom (publish/subscribe events, invoke actions) from Python workflows.
+- **Native multi-agent collaboration**: request/reply, fanout/fanin, contract-net, barrier — powered by Envelope (thread/correlation semantics)
+- **Event-driven from the ground up**: QoS levels, backpressure handling, topic routing with wildcard support
+- **Polyglot ecosystem**: Write agents in Python (loom-py), JavaScript (loom-js, coming), or Rust; Bridge service spans processes and networks
+- **MCP integration**: Connect to Model Context Protocol servers; access filesystems, databases, APIs as native capabilities
+- **Production-ready**: Comprehensive error handling, timeout management, observability hooks, integration tests
+
+## What's in this repo
+
+- **loom-proto** — Shared protobuf definitions. We vendor `protoc` via `protoc-bin-vendored` in build.rs, so you don't need a system install.
+- **core** (loom-core) — Runtime: Event Bus, Agent Runtime, Router, ActionBroker, Tool Orchestrator, MCP Client, Collaboration primitives, Directories. Depends only on `loom-proto`.
+- **loom-audio** — Optional audio stack: mic, VAD, STT (whisper.cpp), wake detection, TTS (Piper/espeak-ng). Depends on `loom-proto` and `core`.
+- **bridge** — gRPC service for cross-process event/action streaming. Supports RegisterAgent, bidirectional EventStream, ForwardAction, Heartbeat. Enables Python/JS agents to participate in the Loom ecosystem.
+- **loom-py** — Python SDK with Agent/Context API, @capability decorator, Envelope support. Includes trio example (Planner/Researcher/Writer). PyPI-ready (`0.1.0a1`).
+- **demo/voice_agent** — First complete E2E demo app wiring audio stack through the core runtime.
 
 Dependency directions: `loom-proto` → `core` → (optionally) app; `loom-audio` depends on both `loom-proto` and `core`. `core` does not depend on `loom-audio` to keep the runtime slim and portable.
 
 ## 🏗️ Architecture (high level)
 
 ```
-Event Sources (Camera, Audio, Sensors, UI, Network)
+Event Sources (Camera, Audio, Sensors, UI, Network, Python/JS Agents)
             ↓
-      Event Bus (Pub/Sub with QoS & Backpressure)
+   Event Bus (Pub/Sub with QoS & Backpressure)
             ↓
-    Agents (Stateful, Actor-based)
-            ↓
-      Model Router (Local / Cloud / Hybrid)
-            ↓
-    Plugins & Actions (TTS, UI, Tools/APIs)
-            ↓
- Collaboration & Directories (multi-agent workflows & discovery)
+ Agents (Stateful, Actor-based with Mailboxes)
+      ↓           ↓
+  Router      ActionBroker (Capability Registry)
+      ↓           ↓
+ Local/Cloud   Tools/APIs (Native, MCP, Plugins)
+      ↓
+  Actions & Results (with correlation)
 ```
 
-See details and component contracts in `docs/ARCHITECTURE.md`.
-
-### Core documentation
-
-Component pages in `docs/core/`:
-
-- `docs/core/overview.md` — overview and dataflow
-- `docs/core/event_bus.md` — Event Bus
-- `docs/core/agent_runtime.md` — Agent Runtime
-- `docs/core/router.md` — Router
-- `docs/core/action_broker.md` — ActionBroker
-- `docs/core/llm.md` — LLM Client
-- `docs/core/plugin_system.md` — Plugin System
-- `docs/core/storage.md` — Storage
-- `docs/core/telemetry.md` — Telemetry
-- `docs/core/envelope.md` — Thread/correlation envelope semantics
-- `docs/core/collaboration.md` — Request/reply, fanout/fanin, contract-net primitives
-- `docs/core/directory.md` — Agent & Capability directories
+See full component breakdown and contracts in `docs/ARCHITECTURE.md`.
 
 ## 🚀 Quick Start
 
-The fastest way to see Loom in action is to run the Voice Agent demo.
+### Option A: Python Multi-Agent Example (5-minute quickstart)
+
+1. Start the Bridge server
+
+```bash
+cargo run -p loom-bridge --bin loom-bridge-server
+```
+
+2. Write your agents (see `loom-py/examples/trio.py`):
+
+```python
+from loom import Agent, capability
+
+@capability("research.search", version="1.0")
+def search(query: str) -> dict:
+    return {"results": ["https://example.com/doc1"]}
+
+async def planner_handler(ctx, topic, event):
+    if event.type == "user.question":
+        # Use Envelope thread_id for correlation
+        thread = ctx.thread(event)
+        results = await ctx.request(thread, "topic.research",
+                                   payload=event.payload,
+                                   first_k=1, timeout_ms=2000)
+        await ctx.reply(thread, {"done": True})
+
+async def researcher_handler(ctx, topic, event):
+    if event.type == "research.request":
+        results = search(query=event.payload.decode())
+        await ctx.reply(ctx.thread(event), {"results": results})
+
+# Create and run agents
+planner = Agent("planner", topics=["topic.plan"], on_event=planner_handler)
+researcher = Agent("researcher", topics=["topic.research"],
+                  capabilities=[search], on_event=researcher_handler)
+
+await planner.start()
+await researcher.start()
+```
+
+3. Explore more examples in `loom-py/examples/`.
+
+### Option B: Voice Agent Demo (fastest way to see Loom in action)
 
 1. Build the workspace
 
@@ -245,67 +110,203 @@ cargo run -p voice_agent
 
 For advanced setup (local vLLM, Piper voices, environment-only config), see `demo/voice_agent/README.md`.
 
-Alternatively, if you want a minimal code sample using just `loom-core`, see `docs/QUICKSTART.md` for a tiny pub/sub example.
+### Option C: Minimal Rust Example
 
-### Configure routing policy (per agent)
+```rust
+use loom_core::{EventBus, Event};
+use std::sync::Arc;
 
-Set policy via `AgentConfig.parameters` (string map):
+#[tokio::main]
+async fn main() -> loom_core::Result<()> {
+    let bus = Arc::new(EventBus::new().await?);
+    bus.start().await?;
 
+    // Subscribe and publish
+    let mut rx = bus.subscribe("topic.hello").await?;
+    bus.publish("topic.hello", Event::new("greeting")).await?;
+
+    let evt = rx.recv().await.unwrap();
+    println!("Received event: {}", evt.event_type);
+
+    Ok(())
+}
 ```
-"routing.privacy" = "sensitive"
-"routing.latency_budget_ms" = "300"
-"routing.cost_cap" = "0.02"
-"routing.quality_threshold" = "0.9"
-```
 
-These influence Local/Cloud/Hybrid selection; Hybrid runs a local quick pass and an optional cloud refine pass.
+See `docs/QUICKSTART.md` for more Rust examples.
 
 ## 📦 Project Structure
 
 ```
 loom/
 ├── Cargo.toml
-├── core/              # Runtime: event bus, agents, router, plugins, LLM client
-├── loom-audio/        # Optional audio stack (mic, VAD, STT, wake, TTS)
+├── core/              # Runtime: EventBus, AgentRuntime, Router, ActionBroker, MCP
 ├── loom-proto/        # Protobuf definitions and generated code (vendored protoc)
+├── loom-audio/        # Optional audio stack (mic, VAD, STT, wake, TTS)
+├── bridge/            # gRPC bridge for cross-process agents and actions
+├── loom-py/           # Python SDK (Agent, Context, @capability)
+│   ├── src/loom/      # Core Python API
+│   └── examples/      # trio.py and more
 ├── demo/
 │   └── voice_agent/   # First E2E demo app
-├── infra/             # Docker, Prometheus, etc.
-└── docs/              # Documentation
+├── docs/              # Architecture, guides, component docs
+└── infra/             # Docker, Prometheus, etc.
 ```
 
 ## 🔑 Core Components
 
-- Event Bus — Async pub/sub with QoS, backpressure, and topic routing
-- Agent Runtime — Stateful actors with persistent state and ephemeral context
-- Model Router — Local/Cloud/Hybrid selection driven by policy (privacy/latency/cost/quality)
-- Plugin System — Extensible architecture with isolation options (WASM/out-of-process)
-- Storage — RocksDB for state; Vector DB for long-term memory (optional)
-- Telemetry — Metrics, tracing, and structured logs
-- Envelope — Shared thread/correlation metadata across events & actions (TTL/hop, reply topics)
-- Collaboration — High-level multi-agent patterns (request/reply, fanout/fanin, contract-net)
-- Directories — Discovery for agents (topics/capabilities) & capabilities (provider snapshot)
+### Event Bus
+
+Asynchronous pub/sub with QoS levels (`Realtime`, `Batched`, `Background`), backpressure handling (sampling, dropping, aggregation), and topic routing. Supports thread-based broadcast (`thread.{id}.broadcast`) and reply topics (`thread.{id}.reply`).
+
+### Agent Runtime
+
+Actor-based stateful agents with lifecycle management (create/start/stop/delete), dynamic topic subscriptions, persistent state (RocksDB), ephemeral context (in-memory), and mailbox-based event distribution.
+
+### Envelope
+
+Unified metadata envelope for events and actions with reserved keys: `thread_id`, `correlation_id`, `sender`, `reply_to`, `ttl`, `hop`, `ts`. Enables multi-agent collaboration with automatic TTL/hop management.
+
+### Collaboration Primitives
+
+Built on top of Envelope:
+
+- **request/reply**: Correlated request-response with timeout
+- **fanout/fanin**: Broadcast with strategies (any, first_k, majority, timeout)
+- **barrier**: Wait for N agents to check in
+- **contract-net**: Call for proposals, bid collection, award, execution
+
+### ActionBroker & Tool Orchestrator
+
+Unified capability registry and invocation layer. Supports native Rust providers, MCP tools, WASM plugins, and remote capabilities (via Bridge). Standardized error codes: `ACTION_OK`, `ACTION_ERROR`, `ACTION_TIMEOUT`, `INVALID_PARAMS`, `CAPABILITY_ERROR`, `PROVIDER_UNAVAILABLE`.
+
+### MCP Client (✅ Complete)
+
+Connect to Model Context Protocol servers and use their tools as native capabilities:
+
+- JSON-RPC 2.0 over stdio transport
+- Auto-discovery and registration of tools
+- Qualified naming (server:tool) to avoid conflicts
+- Configurable protocol version with validation
+- Comprehensive error handling and timeout management
+
+Future enhancements (P1): SSE transport, Resources/Prompts/Sampling APIs, Notifications.
+
+### Model Router
+
+Policy-based routing (Local/Cloud/Hybrid) driven by:
+
+- Privacy policy (`public`, `sensitive`, `private`, `local-only`)
+- Latency budget (ms)
+- Cost cap (per-call limit)
+- Quality threshold (confidence score)
+
+Logs every routing decision with reason, confidence, estimated latency/cost.
+
+### Bridge (gRPC)
+
+Cross-process event and action forwarding:
+
+- **RegisterAgent**: External agents (Python/JS) register with topics and capabilities
+- **EventStream**: Bidirectional streaming (publish/receive events)
+- **ForwardAction**: Client-initiated capability invocation
+- **ActionCall**: Server-initiated action push (internal correlation map)
+- **Heartbeat**: Connection health monitoring
+
+Enables polyglot multi-agent systems with Python/JS agents collaborating with Rust agents.
+
+### Directories
+
+- **AgentDirectory**: Discover agents by id/topics/capabilities; auto-registers on creation
+- **CapabilityDirectory**: Snapshot of registered providers from ActionBroker; query by name or type
+
+### Storage & Telemetry
+
+- **Storage**: RocksDB for agent state; optional Vector DB for long-term memory
+- **Telemetry**: Structured logs, OpenTelemetry tracing, Prometheus metrics (events/sec, latency P50/P99, routing decisions, tool calls)
 
 The audio pipeline (mic/VAD/STT/wake/TTS) lives in `loom-audio` and is intentionally optional.
 
 ## 🧩 Plugins & Integrations
 
-- Native Rust, WASM sandbox, or out‑of‑process (gRPC) providers
-- Shared plugin protocol defined in `loom-proto/proto/plugin.proto`
-- Integrations: vLLM/OpenAI-compatible LLMs, workflow tools (e.g., n8n), and more — see `docs/INTEGRATIONS.md`
+- **Native Rust** providers: Built-in capabilities (WeatherProvider, WebSearchProvider, LlmGenerateProvider)
+- **MCP tools**: Connect to any MCP server (filesystems, databases, APIs)
+- **WASM sandbox** or **out-of-process (gRPC)** plugins for custom capabilities
+- **Integrations**: vLLM/OpenAI-compatible LLMs, workflow tools (n8n), and more
 
-## 📚 More docs
+See `docs/INTEGRATIONS.md` and `docs/MCP.md` for details.
 
-- `docs/ARCHITECTURE.md` — system design and component contracts
-- `docs/EXAMPLES.md` — demos and example locations
-- `docs/ROADMAP.md` — near‑term milestones (centered on Voice Agent E2E)
-- `docs/BACKPRESSURE.md` — EventBus QoS and policies
+## 🗺️ Roadmap
+
+**P0 (MVS — Minimal Viable System)**: ✅ Mostly complete
+
+- ✅ Bridge (gRPC) with full lifecycle
+- ✅ Python SDK (loom-py) with trio example
+- ✅ Collaboration primitives (request/reply, fanout/fanin, contract-net, barrier)
+- ✅ MCP Client (stdio transport, auto-discovery, qualified naming)
+- ✅ Directories (Agent & Capability)
+- 🚧 Dashboard MVP (topology, metrics, swimlanes) — in progress
+- 🚧 CLI basics (new/dev/list/bench) — in progress
+- 🚧 JS SDK (loom-js) — in progress
+
+**P1 (Observable Iteration)**:
+
+- Dashboard enhancements (histograms, error heatmaps, backpressure gauges)
+- CLI templates (voice-assistant, home-automation, etc.)
+- Streaming APIs and parallelism (SSE, semaphore, circuit breaker)
+- Error taxonomy and unified error_event
+- SDK ergonomics (memory plugins, type hints)
+- MCP enhancements (SSE transport, Resources/Prompts APIs)
+
+**P2 (Ecosystem & Policy)**:
+
+- MCP server mode (expose Loom capabilities externally)
+- Learning-based routing (bandit/RL algorithms)
+- Security & multi-tenancy (namespaces, ACLs, audit logs)
+- Event persistence & replay (WAL, snapshots, time-travel debugging)
+- WASI tool isolation
+
+**P3 (Performance & Mobile)**:
+
+- Mobile/edge packaging (iOS/Android xcframework/AAR)
+- Deep performance optimization (lock-free, zero-copy, GPU/NPU)
+- Production hardening (graceful degradation, circuit breakers)
+
+See `docs/ROADMAP.md` for detailed milestones and acceptance criteria.
+
+### Core documentation
+
+Component-level documentation in `docs/core/`:
+
+- `docs/core/overview.md` — dataflow and system overview
+- `docs/core/event_bus.md` — Event Bus (QoS, backpressure, topic routing)
+- `docs/core/agent_runtime.md` — Agent Runtime (lifecycle, mailboxes, subscriptions)
+- `docs/core/router.md` — Router (policy-based Local/Cloud/Hybrid selection)
+- `docs/core/action_broker.md` — ActionBroker (capability registry and invocation)
+- `docs/core/llm.md` — LLM Client (streaming, retries, provider adapters)
+- `docs/core/plugin_system.md` — Plugin System (WASM, out-of-process)
+- `docs/core/storage.md` — Storage (RocksDB, Vector DB)
+- `docs/core/telemetry.md` — Telemetry (metrics, tracing, structured logs)
+- `docs/core/envelope.md` — Envelope (thread/correlation metadata)
+- `docs/core/collaboration.md` — Collaboration primitives (request/reply, fanout/fanin, contract-net)
+- `docs/core/directory.md` — Directories (agent & capability discovery)
+
+Additional documentation:
+
+- `docs/MCP.md` — MCP Client guide and configuration
+- `docs/BRIDGE.md` — Bridge protocol and usage
+- `docs/ROADMAP.md` — development roadmap and milestones
+- `docs/BACKPRESSURE.md` — EventBus QoS policies
 - `docs/EXTENSIBILITY.md`, `docs/INTEGRATIONS.md`, `docs/MOBILE.md`
-- `docs/core/envelope.md`, `docs/core/collaboration.md`, `docs/core/directory.md`
 
 ## 🤝 Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md). We're especially excited about:
+
+- New capability providers (native or MCP integrations)
+- SDK ergonomics & examples (loom-py/loom-js)
+- Dashboard and observability tools
+- Collaboration strategies and patterns
+- Documentation improvements
 
 ## 📄 License
 
@@ -313,4 +314,4 @@ Apache License 2.0 — see [LICENSE](LICENSE)
 
 ---
 
-Loom — Weaving Intelligence into the Fabric of Reality
+_Loom — Weaving Intelligence into the Fabric of Reality_
