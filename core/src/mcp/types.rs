@@ -7,7 +7,7 @@ use std::collections::HashMap;
 /// JSON-RPC 2.0 Request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRpcRequest {
-    pub jsonrpc: String, // always "2.0"
+    pub jsonrpc: String,       // always "2.0"
     pub id: serde_json::Value, // string or number
     pub method: String,
     #[serde(skip_serializing_if = "Option::is_none")]

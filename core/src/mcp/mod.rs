@@ -10,7 +10,6 @@
 /// - `adapter`: Adapts MCP tools to CapabilityProvider trait
 /// - `manager`: Manages multiple MCP server connections
 /// - `types`: MCP protocol types (JSON-RPC 2.0 based)
-
 pub mod adapter;
 pub mod client;
 pub mod manager;

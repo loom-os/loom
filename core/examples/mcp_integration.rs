@@ -13,7 +13,6 @@
 /// ```bash
 /// cargo run --example mcp_integration
 /// ```
-
 use loom_core::{mcp::types::McpServerConfig, Loom, QoSLevel};
 use serde_json::json;
 use std::collections::HashMap;
@@ -75,10 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Successfully connected to MCP server: {}", config.name);
             }
             Err(e) => {
-                warn!(
-                    "Failed to connect to MCP server {}: {}",
-                    config.name, e
-                );
+                warn!("Failed to connect to MCP server {}: {}", config.name, e);
                 warn!("Make sure the MCP server is available. Skipping...");
             }
         }

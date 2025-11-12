@@ -6,40 +6,40 @@ This module provides complete MCP client support for Loom, enabling agents to ac
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Loom Core                               │
-│                                                               │
-│  ┌────────────────┐                                          │
-│  │ ActionBroker   │                                          │
-│  └────────┬───────┘                                          │
-│           │                                                   │
-│           │ registers tools                                  │
-│           │                                                   │
-│  ┌────────▼───────────────────────────────────────────────┐ │
-│  │              McpManager                                 │ │
-│  │  - Manages multiple MCP server connections             │ │
-│  │  - Auto-discovers and registers tools                  │ │
-│  │  - Handles reconnection                                │ │
-│  └────────┬───────────────────────────────────────────────┘ │
-│           │                                                   │
-│           │ uses                                             │
-│           │                                                   │
-│  ┌────────▼──────────────────────────────────┐             │
-│  │         McpClient (per server)            │             │
-│  │  - JSON-RPC 2.0 over stdio               │             │
-│  │  - Tools discovery (tools/list)          │             │
-│  │  - Tool invocation (tools/call)          │             │
-│  └────────┬──────────────────────────────────┘             │
-│           │                                                   │
-│           │ wraps as                                         │
-│           │                                                   │
-│  ┌────────▼──────────────────────────────────┐             │
-│  │      McpToolAdapter (per tool)            │             │
-│  │  - Implements CapabilityProvider          │             │
-│  │  - Converts ActionCall → MCP format       │             │
-│  │  - Handles errors and timeouts            │             │
-│  └───────────────────────────────────────────┘             │
-│                                                               │
-└─────────────────┬─────────────────────────────────────────────┘
+│                      Loom Core                              │
+│                                                             │
+│  ┌────────────────┐                                         │
+│  │ ActionBroker   │                                         │
+│  └────────┬───────┘                                         │
+│           │                                                 │
+│           │ registers tools                                 │
+│           │                                                 │
+│  ┌────────▼───────────────────────────────────┐             │
+│  │              McpManager                    │             │
+│  │  - Manages multiple MCP server connections │             │
+│  │  - Auto-discovers and registers tools      │             │
+│  │  - Handles reconnection                    │             │
+│  └────────┬───────────────────────────────────┘             │
+│           │                                                 │
+│           │ uses                                            │
+│           │                                                 │
+│  ┌────────▼───────────────────────────────────┐             │
+│  │         McpClient (per server)             │             │
+│  │  - JSON-RPC 2.0 over stdio                 │             │
+│  │  - Tools discovery (tools/list)            │             │
+│  │  - Tool invocation (tools/call)            │             │
+│  └────────┬───────────────────────────────────┘             │
+│           │                                                 │
+│           │ wraps as                                        │
+│           │                                                 │
+│  ┌────────▼───────────────────────────────────┐             │
+│  │      McpToolAdapter (per tool)             │             │
+│  │  - Implements CapabilityProvider           │             │
+│  │  - Converts ActionCall → MCP format        │             │
+│  │  - Handles errors and timeouts             │             │
+│  └────────────────────────────────────────────┘             │
+│                                                             │
+└─────────────────┬───────────────────────────────────────────┘
                   │ stdio
                   │
         ┌─────────▼──────────┐
@@ -51,33 +51,41 @@ This module provides complete MCP client support for Loom, enabling agents to ac
 ## Components
 
 ### 1. `McpClient` (`client.rs`)
+
 Low-level MCP protocol client:
+
 - Spawns and manages child process (MCP server)
 - JSON-RPC 2.0 communication over stdin/stdout
 - Request/response correlation with timeouts
 - Implements MCP protocol: `initialize`, `tools/list`, `tools/call`
 
 **Key Methods:**
+
 - `connect()` - Start server and initialize connection
 - `list_tools()` - Discover available tools
 - `call_tool(name, args)` - Invoke a tool
 - `disconnect()` - Clean shutdown
 
 ### 2. `McpToolAdapter` (`adapter.rs`)
+
 Adapts MCP tools to Loom's `CapabilityProvider` interface:
+
 - Converts `ActionCall` → MCP `tools/call` request
 - Parses MCP response → `ActionResult`
 - Error mapping (TIMEOUT, TOOL_ERROR, INVALID_PARAMS, etc.)
 - Adds server prefix to tool names (`server:tool`)
 
 ### 3. `McpManager` (`manager.rs`)
+
 High-level manager for multiple MCP servers:
+
 - Connects to configured servers
 - Auto-discovers and registers all tools
 - Lifecycle management (add/remove/reconnect servers)
 - Graceful shutdown
 
 **Key Methods:**
+
 - `add_server(config)` - Connect and register server
 - `remove_server(name)` - Disconnect server
 - `reconnect_server(name)` - Reconnect after failure
@@ -85,7 +93,9 @@ High-level manager for multiple MCP servers:
 - `shutdown()` - Clean shutdown of all servers
 
 ### 4. `types.rs`
+
 MCP protocol types:
+
 - JSON-RPC 2.0 structures
 - MCP-specific types (InitializeParams, ToolSchema, etc.)
 - Server configuration
@@ -102,7 +112,7 @@ use loom_core::{Loom, mcp::types::McpServerConfig};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize Loom
     let mut loom = Loom::new().await?;
-    
+
     // Configure MCP server
     let config = McpServerConfig {
         name: "filesystem".to_string(),
@@ -115,15 +125,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         env: None,
         cwd: None,
     };
-    
+
     // Connect to MCP server (auto-discovers and registers tools)
     loom.mcp_manager.add_server(config).await?;
-    
+
     // Start Loom
     loom.start().await?;
-    
+
     // Tools are now available as "filesystem:read_file", etc.
-    
+
     Ok(())
 }
 ```
@@ -182,13 +192,14 @@ class FileAgent(Agent):
         result = await ctx.tool("filesystem:read_file", {
             "path": "/docs/README.md"
         })
-        
+
         print(f"File content: {result}")
 ```
 
 ## MCP Protocol Support
 
 Currently implemented:
+
 - ✅ Stdio transport (most common)
 - ✅ Initialize handshake
 - ✅ Tools discovery (`tools/list` with pagination)
@@ -198,6 +209,7 @@ Currently implemented:
 - ✅ Resource references
 
 Future additions:
+
 - [ ] SSE transport (HTTP-based)
 - [ ] Resources API (`resources/list`, `resources/read`)
 - [ ] Prompts API (`prompts/list`, `prompts/get`)
@@ -208,14 +220,14 @@ Future additions:
 
 MCP errors are mapped to ActionBroker error codes:
 
-| MCP Error | ActionBroker Code | Description |
-|-----------|------------------|-------------|
-| Connection failure | TRANSPORT_ERROR | Can't connect to MCP server |
-| Invalid JSON-RPC | PROTOCOL_ERROR | Malformed protocol messages |
-| Tool not found | TOOL_NOT_FOUND | Tool doesn't exist on server |
-| Invalid params | INVALID_PARAMS | Arguments don't match schema |
-| Tool execution error | TOOL_ERROR | Tool ran but returned error |
-| Timeout | TIMEOUT | Tool took too long (default 30s) |
+| MCP Error            | ActionBroker Code | Description                      |
+| -------------------- | ----------------- | -------------------------------- |
+| Connection failure   | TRANSPORT_ERROR   | Can't connect to MCP server      |
+| Invalid JSON-RPC     | PROTOCOL_ERROR    | Malformed protocol messages      |
+| Tool not found       | TOOL_NOT_FOUND    | Tool doesn't exist on server     |
+| Invalid params       | INVALID_PARAMS    | Arguments don't match schema     |
+| Tool execution error | TOOL_ERROR        | Tool ran but returned error      |
+| Timeout              | TIMEOUT           | Tool took too long (default 30s) |
 
 ## Testing
 
@@ -249,6 +261,7 @@ cargo run --example mcp_integration
 ### Server won't start
 
 Check command is in PATH:
+
 ```bash
 which npx
 npx -y @modelcontextprotocol/server-filesystem --version
@@ -257,6 +270,7 @@ npx -y @modelcontextprotocol/server-filesystem --version
 ### Tools not appearing
 
 Enable debug logging:
+
 ```rust
 tracing_subscriber::fmt()
     .with_env_filter("mcp_client=debug,mcp_manager=debug,mcp_adapter=debug")
@@ -266,6 +280,7 @@ tracing_subscriber::fmt()
 ### Timeout issues
 
 Increase timeout:
+
 ```rust
 call.timeout_ms = 60_000; // 60 seconds
 ```
@@ -273,6 +288,7 @@ call.timeout_ms = 60_000; // 60 seconds
 ### Process cleanup issues
 
 McpClient automatically kills child processes on drop, but for clean shutdown:
+
 ```rust
 loom.mcp_manager.shutdown().await;
 ```
@@ -280,6 +296,7 @@ loom.mcp_manager.shutdown().await;
 ## Examples
 
 See:
+
 - `/core/examples/mcp_integration.rs` - Complete example
 - `/mcp-config.toml.example` - Configuration examples
 - `/docs/MCP.md` - Full documentation

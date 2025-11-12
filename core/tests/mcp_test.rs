@@ -129,8 +129,8 @@ fn test_qualified_tool_names() {
 /// Test MCP tool adapter metadata
 #[test]
 fn test_tool_adapter_metadata() {
-    use loom_core::mcp::adapter::McpToolAdapter;
     use loom_core::action_broker::CapabilityProvider;
+    use loom_core::mcp::adapter::McpToolAdapter;
 
     let tool = McpTool {
         name: "test_tool".to_string(),

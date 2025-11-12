@@ -98,7 +98,8 @@ impl Loom {
         }
 
         // Initialize MCP manager
-        let mcp_manager = std::sync::Arc::new(mcp::McpManager::new(std::sync::Arc::clone(&action_broker)));
+        let mcp_manager =
+            std::sync::Arc::new(mcp::McpManager::new(std::sync::Arc::clone(&action_broker)));
 
         Ok(Self {
             agent_runtime: AgentRuntime::new(

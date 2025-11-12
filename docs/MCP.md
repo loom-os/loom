@@ -11,6 +11,7 @@ MCP is an open protocol that standardizes how applications provide context to LL
 - **Perform actions** - Execute commands, update systems, automate workflows
 
 Loom's MCP integration automatically:
+
 1. Connects to configured MCP servers
 2. Discovers available tools
 3. Registers them as capabilities
@@ -45,20 +46,20 @@ use std::sync::Arc;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize Loom
     let mut loom = Loom::new().await?;
-    
+
     // Load MCP configuration
     let config: Vec<McpServerConfig> = load_mcp_config("mcp-config.toml")?;
-    
+
     // Connect to MCP servers
     for server_config in config {
         loom.mcp_manager.add_server(server_config).await?;
     }
-    
+
     // Start the system
     loom.start().await?;
-    
+
     // Now agents can use MCP tools like "filesystem:read_file" or "brave-search:search"
-    
+
     Ok(())
 }
 
@@ -67,7 +68,7 @@ fn load_mcp_config(path: &str) -> Result<Vec<McpServerConfig>, Box<dyn std::erro
     struct Config {
         servers: Vec<McpServerConfig>,
     }
-    
+
     let content = std::fs::read_to_string(path)?;
     let config: Config = toml::from_str(&content)?;
     Ok(config.servers)
@@ -88,12 +89,12 @@ class MyAgent(Agent):
         result = await ctx.tool("filesystem:read_file", {
             "path": "/docs/README.md"
         })
-        
+
         # Use MCP search tool
         search_result = await ctx.tool("brave-search:search", {
             "query": "rust async programming"
         })
-        
+
         await ctx.emit("task.result", {
             "file_content": result,
             "search_results": search_result
@@ -165,6 +166,7 @@ MCP tools are registered with a qualified name:
 ```
 
 Example:
+
 - `filesystem:read_file`
 - `brave-search:search`
 - `postgres:query`
@@ -204,7 +206,7 @@ List available tools from the ActionBroker:
 let capabilities = loom.action_broker.list_capabilities();
 for cap in capabilities {
     if cap.provider == ProviderKind::ProviderMcp as i32 {
-        println!("MCP Tool: {} - {}", 
+        println!("MCP Tool: {} - {}",
             cap.name,
             cap.metadata.get("desc").unwrap_or(&"".to_string())
         );
@@ -243,6 +245,7 @@ Errors are automatically converted to `ActionResult` with appropriate status cod
 ### Server Won't Start
 
 Check that the command is in PATH:
+
 ```bash
 which npx
 npx -y @modelcontextprotocol/server-filesystem --version
@@ -251,6 +254,7 @@ npx -y @modelcontextprotocol/server-filesystem --version
 ### Tools Not Appearing
 
 Enable debug logging:
+
 ```rust
 tracing_subscriber::fmt()
     .with_target(true)
@@ -262,6 +266,7 @@ tracing_subscriber::fmt()
 ### Timeout Issues
 
 Increase timeout in `ActionCall`:
+
 ```rust
 call.timeout_ms = 60_000; // 60 seconds
 ```

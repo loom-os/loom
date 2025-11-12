@@ -87,13 +87,15 @@ impl McpClient {
             McpError::Transport(format!("Failed to spawn process: {}", e))
         })?;
 
-        let stdin = child.stdin.take().ok_or_else(|| {
-            McpError::Transport("Failed to capture stdin".to_string())
-        })?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| McpError::Transport("Failed to capture stdin".to_string()))?;
 
-        let stdout = child.stdout.take().ok_or_else(|| {
-            McpError::Transport("Failed to capture stdout".to_string())
-        })?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| McpError::Transport("Failed to capture stdout".to_string()))?;
 
         *self.stdin.lock().await = Some(stdin);
         *self.process.lock().await = Some(child);
@@ -151,9 +153,7 @@ impl McpClient {
             },
         };
 
-        let result = self
-            .send_request("initialize", Some(json!(params)))
-            .await?;
+        let result = self.send_request("initialize", Some(json!(params))).await?;
 
         serde_json::from_value(result)
             .map_err(|e| McpError::Protocol(format!("Invalid initialize result: {}", e)))
@@ -168,9 +168,7 @@ impl McpClient {
 
         loop {
             let params = ListToolsParams { cursor };
-            let result = self
-                .send_request("tools/list", Some(json!(params)))
-                .await?;
+            let result = self.send_request("tools/list", Some(json!(params))).await?;
 
             let list_result: ListToolsResult = serde_json::from_value(result)
                 .map_err(|e| McpError::Protocol(format!("Invalid tools/list result: {}", e)))?;
@@ -206,9 +204,7 @@ impl McpClient {
             arguments,
         };
 
-        let result = self
-            .send_request("tools/call", Some(json!(params)))
-            .await?;
+        let result = self.send_request("tools/call", Some(json!(params))).await?;
 
         let call_result: McpToolCall = serde_json::from_value(result)
             .map_err(|e| McpError::Protocol(format!("Invalid tools/call result: {}", e)))?;
