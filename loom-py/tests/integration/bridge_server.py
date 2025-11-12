@@ -2,7 +2,6 @@
 Helper module to start and manage a Bridge server for integration tests.
 """
 
-import asyncio
 import os
 import signal
 import socket
