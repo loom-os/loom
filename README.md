@@ -23,7 +23,8 @@ Use Loom when you want agents that sense, reason, and act continuously—coordin
 - Agent Runtime — Actor‑style stateful agents with mailboxes and lifecycle hooks
 - Collaboration — Request/reply, fanout/fanin, contract‑net powered by Envelope
 - Envelope — Thread/correlation metadata with TTL/hop and reply topics
-- Action System — ActionBroker + Tool Orchestrator; idempotency, timeouts, result correlation; MCP‑friendly
+- Action System — ActionBroker + Tool Orchestrator; idempotency, timeouts, result correlation
+- **MCP Client** — Connect to Model Context Protocol servers; access filesystems, databases, APIs, and more
 - Model Router — Local/Cloud/Hybrid routing by privacy/latency/cost/quality policy
 - Observability — Structured logs, tracing, and metrics (designed for dashboards)
 - Bridge — Optional gRPC/WebSocket bridge for cross‑process/event streaming and remote action invocation

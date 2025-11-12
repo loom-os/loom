@@ -10,6 +10,7 @@ pub mod envelope; // Unified metadata envelope for events/actions threads
 pub mod event;
 pub mod llm;
 pub mod local_model;
+pub mod mcp; // Model Context Protocol client and adapters
 pub mod plugin;
 pub mod providers;
 pub mod router;
@@ -26,6 +27,7 @@ pub use envelope::{agent_reply_topic, Envelope, ThreadTopicKind};
 pub use event::{Event, EventBus, EventExt, EventHandler, QoSLevel};
 pub use llm::{LlmClient, LlmClientConfig, LlmResponse};
 pub use local_model::{DummyLocalModel, LocalInference, LocalModel};
+pub use mcp::{McpClient, McpManager, McpToolAdapter};
 pub use plugin::{Plugin, PluginManager};
 pub use providers::{WeatherProvider, WebSearchProvider};
 pub use router::{ModelRouter, Route, RoutingDecision};
@@ -69,6 +71,7 @@ pub struct Loom {
     pub model_router: ModelRouter,
     pub plugin_manager: PluginManager,
     pub action_broker: std::sync::Arc<ActionBroker>,
+    pub mcp_manager: std::sync::Arc<mcp::McpManager>,
 }
 
 impl Loom {
@@ -93,6 +96,10 @@ impl Loom {
             // Note: Audio (e.g., TTS) providers have moved to the separate crate `loom-audio`.
             // Core no longer registers audio providers by default to avoid circular dependencies.
         }
+
+        // Initialize MCP manager
+        let mcp_manager = std::sync::Arc::new(mcp::McpManager::new(std::sync::Arc::clone(&action_broker)));
+
         Ok(Self {
             agent_runtime: AgentRuntime::new(
                 std::sync::Arc::clone(&event_bus),
@@ -104,6 +111,7 @@ impl Loom {
             plugin_manager: PluginManager::new().await?,
             event_bus,
             action_broker,
+            mcp_manager,
         })
     }
 
@@ -122,6 +130,7 @@ impl Loom {
     pub async fn shutdown(&mut self) -> Result<()> {
         tracing::info!("Shutting down Loom...");
 
+        self.mcp_manager.shutdown().await;
         self.plugin_manager.shutdown().await?;
         self.model_router.shutdown().await?;
         self.agent_runtime.shutdown().await?;

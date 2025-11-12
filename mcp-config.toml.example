@@ -1,0 +1,59 @@
+# MCP Configuration Example
+#
+# This file configures MCP (Model Context Protocol) servers that Loom will connect to.
+# MCP servers provide tools/capabilities that agents can invoke.
+#
+# Format: TOML
+
+# Example: Filesystem MCP server
+[[servers]]
+name = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"]
+# Optional environment variables
+# env = { "NODE_ENV" = "production" }
+# Optional working directory
+# cwd = "/home/user"
+
+# Example: Brave Search MCP server
+[[servers]]
+name = "brave-search"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-brave-search"]
+env = { "BRAVE_API_KEY" = "your-api-key-here" }
+
+# Example: PostgreSQL MCP server
+[[servers]]
+name = "postgres"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"]
+
+# Example: Puppeteer MCP server (web scraping)
+[[servers]]
+name = "puppeteer"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-puppeteer"]
+
+# Example: GitHub MCP server
+[[servers]]
+name = "github"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { "GITHUB_PERSONAL_ACCESS_TOKEN" = "your-token-here" }
+
+# Example: Custom Python MCP server
+[[servers]]
+name = "custom-tools"
+command = "python"
+args = ["-m", "my_mcp_server"]
+cwd = "/home/user/mcp-servers/custom"
+env = { "API_KEY" = "secret" }
+
+# Example: Local Ollama integration via MCP
+# [[servers]]
+# name = "ollama"
+# command = "ollama-mcp-server"
+# args = []
+
+# Note: Make sure the MCP server executables are in your PATH
+# or provide full paths to the command.

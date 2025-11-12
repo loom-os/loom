@@ -29,6 +29,7 @@ default = []
 mockall = "0.12"
 criterion = "0.5"
 serial_test = "3.0"
+toml = "0.8"
 
 [[bench]]
 name = "event_bus_benchmark"
