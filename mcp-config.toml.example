@@ -10,6 +10,8 @@
 name = "filesystem"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/documents"]
+# Optional: Specify MCP protocol version (defaults to latest supported: 2024-11-05)
+# protocol_version = "2024-11-05"
 # Optional environment variables
 # env = { "NODE_ENV" = "production" }
 # Optional working directory

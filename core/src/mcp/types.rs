@@ -4,6 +4,34 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Default MCP protocol version (as of November 2024)
+pub const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
+
+/// Supported MCP protocol versions
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2024-11-05"];
+
+impl McpServerConfig {
+    /// Get the protocol version to use (configured or default)
+    pub fn protocol_version(&self) -> &str {
+        self.protocol_version
+            .as_deref()
+            .unwrap_or(DEFAULT_PROTOCOL_VERSION)
+    }
+
+    /// Validate the protocol version is supported
+    pub fn validate_protocol_version(&self) -> Result<(), String> {
+        let version = self.protocol_version();
+        if SUPPORTED_PROTOCOL_VERSIONS.contains(&version) {
+            Ok(())
+        } else {
+            Err(format!(
+                "Unsupported protocol version: {}. Supported versions: {:?}",
+                version, SUPPORTED_PROTOCOL_VERSIONS
+            ))
+        }
+    }
+}
+
 /// JSON-RPC 2.0 Request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRpcRequest {
@@ -262,4 +290,7 @@ pub struct McpServerConfig {
     /// Working directory
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// MCP protocol version to use (defaults to latest supported)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_version: Option<String>,
 }

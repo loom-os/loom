@@ -34,6 +34,9 @@ name = "brave-search"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-brave-search"]
 env = { "BRAVE_API_KEY" = "your-api-key" }
+
+# Optional: Specify protocol version (defaults to latest: 2024-11-05)
+# protocol_version = "2024-11-05"
 ```
 
 ### 2. Load Configuration in Your Application
@@ -189,7 +192,21 @@ Add/remove servers at runtime:
 
 ```rust
 // Add a new server
-loom.mcp_manager.add_server(new_config).await?;
+let config = McpServerConfig {
+    name: "new-server".to_string(),
+    command: "npx".to_string(),
+    args: vec!["-y", "@modelcontextprotocol/server-example"],
+    env: None,
+    cwd: None,
+    protocol_version: None, // Uses default (2024-11-05)
+};
+loom.mcp_manager.add_server(config).await?;
+
+// Or specify a custom protocol version
+let config_custom = McpServerConfig {
+    protocol_version: Some("2024-11-05".to_string()),
+    ..config
+};
 
 // Remove a server
 loom.mcp_manager.remove_server("old-server").await?;

@@ -41,8 +41,20 @@ impl McpManager {
         info!(
             target: "mcp_manager",
             server = %server_name,
+            protocol_version = %config.protocol_version(),
             "Adding MCP server"
         );
+
+        // Validate protocol version
+        if let Err(e) = config.validate_protocol_version() {
+            error!(
+                target: "mcp_manager",
+                server = %server_name,
+                error = %e,
+                "Invalid protocol version"
+            );
+            return Err(McpError::Protocol(e));
+        }
 
         // Check if already connected
         {

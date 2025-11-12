@@ -141,7 +141,7 @@ impl McpClient {
     /// Send initialize request
     async fn initialize(&self) -> Result<InitializeResult, McpError> {
         let params = InitializeParams {
-            protocol_version: "2024-11-05".to_string(),
+            protocol_version: self.config.protocol_version().to_string(),
             capabilities: ClientCapabilities {
                 roots: None,
                 sampling: None,

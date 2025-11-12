@@ -22,6 +22,7 @@ fn test_mcp_server_config_serialization() {
             env
         }),
         cwd: Some("/tmp".to_string()),
+        protocol_version: None,
     };
 
     let json = serde_json::to_string(&config).unwrap();
@@ -31,6 +32,47 @@ fn test_mcp_server_config_serialization() {
     let deserialized: McpServerConfig = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.name, "test-server");
     assert_eq!(deserialized.command, "node");
+}
+
+/// Test protocol version handling
+#[test]
+fn test_protocol_version_defaults() {
+    use loom_core::mcp::{DEFAULT_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS};
+
+    // Config without explicit version should use default
+    let config = McpServerConfig {
+        name: "test".to_string(),
+        command: "node".to_string(),
+        args: vec![],
+        env: None,
+        cwd: None,
+        protocol_version: None,
+    };
+
+    assert_eq!(config.protocol_version(), DEFAULT_PROTOCOL_VERSION);
+    assert!(config.validate_protocol_version().is_ok());
+
+    // Config with explicit supported version
+    let config_with_version = McpServerConfig {
+        protocol_version: Some("2024-11-05".to_string()),
+        ..config.clone()
+    };
+
+    assert_eq!(config_with_version.protocol_version(), "2024-11-05");
+    assert!(config_with_version.validate_protocol_version().is_ok());
+
+    // Config with unsupported version should fail validation
+    let config_bad_version = McpServerConfig {
+        protocol_version: Some("1999-01-01".to_string()),
+        ..config
+    };
+
+    assert_eq!(config_bad_version.protocol_version(), "1999-01-01");
+    assert!(config_bad_version.validate_protocol_version().is_err());
+
+    // Verify constants
+    assert_eq!(DEFAULT_PROTOCOL_VERSION, "2024-11-05");
+    assert!(SUPPORTED_PROTOCOL_VERSIONS.contains(&DEFAULT_PROTOCOL_VERSION));
 }
 
 /// Test MCP tool definition
@@ -78,6 +120,7 @@ async fn test_add_invalid_server() {
         args: vec![],
         env: None,
         cwd: None,
+        protocol_version: None,
     };
 
     // This should fail because the command doesn't exist

@@ -105,7 +105,7 @@ MCP protocol types:
 
 ### Basic Setup
 
-```rust
+````rust
 use loom_core::{Loom, mcp::types::McpServerConfig};
 
 #[tokio::main]
@@ -124,6 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ],
         env: None,
         cwd: None,
+        protocol_version: None, // Uses default (2024-11-05)
     };
 
     // Connect to MCP server (auto-discovers and registers tools)
@@ -136,9 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-```
-
-### Load from Configuration File
+```### Load from Configuration File
 
 ```rust
 // Load from TOML
@@ -153,7 +152,7 @@ let config: Config = toml::from_str(&content)?;
 for server in config.servers {
     loom.mcp_manager.add_server(server).await?;
 }
-```
+````
 
 ### Invoke MCP Tools
 
@@ -207,6 +206,22 @@ Currently implemented:
 - ✅ Error handling (protocol errors, timeouts, tool errors)
 - ✅ Text and image content types
 - ✅ Resource references
+- ✅ Configurable protocol version (defaults to 2024-11-05)
+
+**Supported Protocol Versions:**
+
+- `2024-11-05` (default, latest stable)
+
+To use a specific protocol version, set it in `McpServerConfig`:
+
+```rust
+let config = McpServerConfig {
+    protocol_version: Some("2024-11-05".to_string()),
+    ..config
+};
+```
+
+If not specified, the latest supported version is used automatically.
 
 Future additions:
 
@@ -214,6 +229,8 @@ Future additions:
 - [ ] Resources API (`resources/list`, `resources/read`)
 - [ ] Prompts API (`prompts/list`, `prompts/get`)
 - [ ] Sampling support (multi-turn tool use)
+- [ ] Notifications (`notifications/tools/list_changed`)
+- [ ] Support for future protocol versions
 - [ ] Notifications (`notifications/tools/list_changed`)
 
 ## Error Handling
