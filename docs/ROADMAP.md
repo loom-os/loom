@@ -16,78 +16,229 @@ Layered architecture (bottom‑up):
 
 Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researcher/Writer) in Python/JS, collaborate via events to perform search and summarization, invoke web.search/weather.get; Dashboard shows basic event flow; single‑command run via CLI.
 
-Scope:
+### ✅ Completed in P0
 
-1. Bridge MVP (gRPC/WS, choose one first)
-   - ✅ Implemented (gRPC): AgentRegister (topics, capabilities), bidirectional EventStream (publish/delivery), client-initiated ForwardAction, server-initiated ActionCall (internal push API + result correlation map), heartbeat, stateless reconnection.
-   - Pending: external admin RPC for server push, metrics/backpressure export, auth/namespaces.
-2. Python SDK MVP (loom‑py)
-   - Core Agent/Context API: emit/reply/tool implemented; request (with correlation_id)/basic in‑process memory/join_thread topic convention scaffolded for MVP.
-   - @capability decorator: implemented (auto Pydantic input schema + optional output schema) in `loom-py/src/loom/capability.py`.
-   - Unified envelope: implemented (`Envelope` dataclass stores thread_id/correlation_id/sender/reply_to/ttl_ms via metadata prefix `loom.`).
-   - gRPC bridge client: `BridgeClient` with RegisterAgent/EventStream/ForwardAction/Heartbeat handshake (Ack first) in `client.py`.
-   - Agent orchestration: `Agent` class manages stream loop, capability invocation, action_result correlation.
-   - Packaging: `loom-py/pyproject.toml` (name `loom`) ready for PyPI alpha publish (`0.1.0a1`). Generation script `python -m loom.proto.generate`.
-   - Next: add example trio (Planner/Researcher/Writer) + tests (registration, emit roundtrip, capability invocation); expand request/barrier primitives.
-3. JS SDK MVP (loom‑js)
-   - defineAgent(handler), ctx.emit/request/reply/tool.
-4. Collaboration primitives (first batch)
-   - request/reply, barrier (wait for N replies or timeout), thread broadcast topic: `thread.{thread_id}.events`.
-5. MCP client (basic tool ingest)
-   - Connect to MCP servers on startup → fetch tool JSON Schema → register as CapabilityDescriptor.
-   - Invoke MCP tools via ActionBroker; unify error codes (INVALID_PARAMS/TIMEOUT/...).
-6. Dashboard MVP
-   - Nodes and edges (Agents, Topics, Tool invocations); swimlane of last N events (by thread_id).
-   - Metric cards: published/delivered/dropped, tool_calls_total, simple latency stats.
-7. CLI basics
-   - `loom new multi‑agent` (template with 3 agents), `loom dev` (hot‑boot external agents), `loom list`.
+1. **Bridge (gRPC)** — ✅ COMPLETE
+   - AgentRegister (topics, capabilities), bidirectional EventStream (publish/delivery)
+   - Client-initiated ForwardAction, server-initiated ActionCall (internal push API + result correlation map)
+   - Heartbeat, stateless reconnection
+   - Integration tests: registration, event roundtrip, forward action, heartbeat
+2. **Python SDK (loom‑py)** — ✅ COMPLETE
 
-Acceptance:
+   - Core Agent/Context API: emit/reply/tool/request (with correlation_id)
+   - @capability decorator with auto Pydantic input/output schema
+   - Unified Envelope (thread_id/correlation_id/sender/reply_to/ttl/hop via metadata)
+   - gRPC BridgeClient with RegisterAgent/EventStream/ForwardAction/Heartbeat
+   - Agent orchestration: stream loop, capability invocation, action_result correlation
+   - Packaging: `pyproject.toml` ready for PyPI (`0.1.0a1`)
+   - Example: trio.py (Planner/Researcher/Writer collaboration)
 
-- After `loom new multi-agent && loom dev`, opening the Dashboard shows the Planner→Researcher→Writer flow; running the sample question produces a summarized answer.
-- Python/JS agents can call web.search/weather.get; at least one MCP tool is ingested and callable.
-- Publish P50/P99 round‑trip event latency; auto‑reconnect works after network interruptions.
+3. **Collaboration primitives** — ✅ COMPLETE
+
+   - request/reply with first_k/timeout strategies
+   - fanout/fanin (any/first-k/majority)
+   - barrier (wait for N replies or timeout)
+   - contract-net (call for proposals/bids/award/execute)
+   - Thread broadcast topic: `thread.{thread_id}.broadcast`
+   - Reply topic: `thread.{thread_id}.reply`
+
+4. **MCP Client** — ✅ COMPLETE
+
+   - Connect to MCP servers via stdio → fetch tool JSON Schema → register as CapabilityDescriptor
+   - McpClient (JSON-RPC 2.0 over stdio), McpToolAdapter (implements CapabilityProvider)
+   - McpManager for multiple server lifecycle
+   - Invoke MCP tools via ActionBroker with unified error codes (INVALID_PARAMS/TIMEOUT/TOOL_ERROR/...)
+   - Configurable protocol version with validation
+   - Auto-discovery and qualified tool naming (server:tool)
+   - Comprehensive tests and documentation
+
+5. **Directories** — ✅ COMPLETE
+   - AgentDirectory: discover agents by id/topics/capabilities
+   - CapabilityDirectory: snapshot providers from ActionBroker
+   - Integration with Agent Runtime for auto-registration
+
+### 🚧 In Progress / Pending in P0
+
+6. **JS SDK MVP (loom‑js)** — 🚧 TODO
+
+   - defineAgent(handler), ctx.emit/request/reply/tool
+   - Similar API surface to loom-py for consistency
+
+7. **Dashboard MVP** — 🚧 TODO
+
+   - Nodes and edges (Agents, Topics, Tool invocations)
+   - Swimlane of last N events (by thread_id)
+   - Metric cards: published/delivered/dropped, tool_calls_total, latency stats
+   - Technology choice: Web-based (React/Vue + WebSocket) or terminal UI (Ratatui)
+
+8. **CLI basics** — 🚧 TODO
+   - `loom new <template>` (multi-agent, voice-assistant, etc.)
+   - `loom dev` (hot-boot external agents, watch for changes)
+   - `loom list` (show registered agents/capabilities)
+   - `loom bench` (performance profiling)
+
+### Acceptance Criteria (P0 Complete)
+
+- ✅ Core runtime stable: EventBus, Agent Runtime, Router, ActionBroker, ToolOrchestrator
+- ✅ Python agents can register, emit/receive events, invoke capabilities
+- ✅ Multi-agent collaboration works (trio example functional)
+- ✅ MCP tools can be ingested and invoked via ActionBroker
+- ✅ Bridge supports gRPC with full lifecycle management
+- 🚧 Dashboard shows real-time topology and metrics (pending)
+- 🚧 CLI provides quick-start templates (pending)
+- 🚧 Auto-reconnect tested with network interruptions (needs formal test)
+- 🚧 P50/P99 latency benchmarks published (needs benchmark suite)
 
 ---
 
 ## P1 — Observable, iterative collaboration system
 
-1. Collaboration primitives expansion
-   - contract‑net (call for proposals/bids/award/execute), fanout/fanin strategies (any/first‑k/majority).
-2. Streaming and parallelism
-   - SSE partial answers (LLM token stream), parallel tool invocation with limits (semaphore/circuit breaker).
-3. Dashboard enhancements
-   - Latency histograms (P50/P90/P99), backpressure gauges, error heatmaps, per‑topic QoS insights.
-4. Error taxonomy and unified error_event
-   - MODEL_FALLBACK / TOOL_PARSE_ERROR / INVALID_PARAMS / CAPABILITY_ERROR / TIMEOUT / PROVIDER_UNAVAILABLE; Prometheus labels.
-5. CLI and templates
-   - New templates: voice assistant, home automation, vision camera agent, system helper.
-6. SDK ergonomics
-   - Memory plugins (pluggable KV backends), better type hints and pydantic validation.
+### Focus: Enhanced observability, streaming, error handling, and developer ergonomics
+
+1. **Dashboard enhancements** — 🎯 PRIORITY
+
+   - Technology selection: Web (React/Vue + WebSocket) vs Terminal UI (Ratatui)
+   - Real-time topology graph with auto-layout
+   - Event swimlanes with thread_id grouping and filtering
+   - Latency histograms (P50/P90/P99) per agent/capability
+   - Backpressure gauges and QoS insights per topic
+   - Error heatmaps and per-topic failure rates
+   - Tool invocation timeline and success/failure breakdown
+
+2. **CLI and templates** — 🎯 PRIORITY
+
+   - `loom new <template>`: multi-agent, voice-assistant, home-automation, vision-camera, system-helper
+   - `loom dev`: hot-reload for external agents (watch Python/JS files)
+   - `loom list`: show registered agents, topics, capabilities with filtering
+   - `loom bench`: built-in performance profiling and latency reports
+   - `loom logs`: structured log viewer with filtering by agent/thread/correlation
+
+3. **Streaming and parallelism**
+
+   - SSE partial answers (LLM token streaming via ActionBroker)
+   - Parallel tool invocation with semaphore/circuit breaker
+   - Stream backpressure propagation to LLM providers
+   - Chunked event payloads for large data (e.g., video frames)
+
+4. **Error taxonomy and unified error_event**
+
+   - Standardize error codes: MODEL_FALLBACK / TOOL_PARSE_ERROR / INVALID_PARAMS / CAPABILITY_ERROR / TIMEOUT / PROVIDER_UNAVAILABLE
+   - Publish error_event on dedicated topic for monitoring
+   - Prometheus labels for error classification
+   - Error recovery strategies (retry with exponential backoff, fallback provider)
+
+5. **SDK ergonomics**
+
+   - Memory plugins (pluggable KV backends: Redis, PostgreSQL, in-memory)
+   - Better type hints and runtime validation (Pydantic v2 for Python)
+   - Streaming API for long-running tasks (async generators)
+   - Middleware hooks for logging, tracing, auth
+
+6. **MCP enhancements**
+   - SSE transport (HTTP-based) in addition to stdio
+   - Resources API support (read/write/list resources)
+   - Prompts API support (list/get prompts with arguments)
+   - Sampling support for multi-turn tool use
+   - Notifications support (server-initiated events)
 
 ---
 
 ## P2 — Ecosystem and policy advancement
 
-1. MCP server mode
-   - Expose Loom’s internal capabilities to external systems; cross‑ecosystem interop.
-2. Router as a policy engine
-   - Learning‑based routing with historical success/latency/cost (bandit/RL); tunable via Dashboard.
-3. Security and multi‑tenancy
-   - Namespaces/ACLs, token auth; MCP endpoint allowlist; audit logs.
-4. Event persistence and replay
-   - WAL/snapshots; long‑run stability metrics and tools.
-5. WASI/external tool isolation
-   - Sandboxed execution, resource limits, AOT readiness (mobile).
+### Focus: MCP server mode, intelligent routing, security, and persistence
+
+1. **MCP server mode**
+
+   - Expose Loom's internal capabilities as MCP tools to external systems
+   - Bidirectional MCP integration (client ✅ + server)
+   - Cross-ecosystem interop (n8n, Make, Zapier, custom MCP clients)
+
+2. **Router as a policy engine**
+
+   - Learning-based routing with historical success/latency/cost metrics
+   - Bandit/RL algorithms for adaptive model selection
+   - Tunable routing policies via Dashboard UI
+   - A/B testing support for routing strategies
+   - Cost optimization with provider pricing models
+
+3. **Security and multi-tenancy**
+
+   - Namespaces/ACLs for agent isolation
+   - Token-based authentication for Bridge connections
+   - MCP endpoint allowlist (security policies for external tools)
+   - Audit logs for all agent actions and capability invocations
+   - Rate limiting per agent/namespace
+
+4. **Event persistence and replay**
+
+   - Write-Ahead Log (WAL) for event durability
+   - Event snapshots for recovery and replay
+   - Time-travel debugging (replay from specific timestamp)
+   - Long-run stability metrics (24h+ uptime tests)
+   - Backup/restore tools for production deployments
+
+5. **WASI/external tool isolation**
+   - Sandboxed tool execution (WASM runtime for untrusted tools)
+   - Resource limits (CPU/memory/network) per tool
+   - AOT compilation for edge/mobile deployment
+   - Plugin security policies and capability allowlists
 
 ---
 
 ## P3 — Performance and mobile
 
-1. Mobile/edge packaging
-   - iOS/Android POC (xcframework/AAR), lightweight wrappers.
-2. Deep performance work
-   - EventBus throughput/latency optimization; tool execution parallelism and scheduling; footprint and power observations.
+### Focus: Edge deployment, deep optimization, and production hardening
+
+1. **Mobile/edge packaging**
+
+   - iOS/Android POC (xcframework/AAR for Rust core)
+   - Lightweight wrappers with minimal dependencies
+   - On-device model inference (CoreML, TensorFlow Lite)
+   - Background task management and power optimization
+   - Push notification integration for event delivery
+
+2. **Deep performance work**
+
+   - EventBus throughput/latency optimization (lock-free data structures)
+   - Tool execution parallelism and smart scheduling
+   - Memory footprint reduction (arena allocators, zero-copy)
+   - Power consumption profiling and optimization
+   - GPU/NPU acceleration for local models
+
+3. **Production hardening**
+   - Graceful degradation under load (adaptive QoS)
+   - Circuit breakers for external dependencies
+   - Health checks and readiness probes
+   - Blue-green deployment support
+   - Canary releases for agents and capabilities
+
+---
+
+## Current Status Summary (as of MCP completion)
+
+### ✅ Fully Implemented
+
+- **Core Runtime**: EventBus (QoS/backpressure), Agent Runtime (stateful actors), Router (policy-based), ActionBroker (capability registry), ToolOrchestrator
+- **Envelope**: Thread/correlation metadata with TTL/hop, reply topics
+- **Collaboration**: request/reply, fanout/fanin (any/first-k/majority/timeout), barrier, contract-net
+- **Directories**: AgentDirectory (discover by id/topics/capabilities), CapabilityDirectory (provider snapshot)
+- **MCP Client**: JSON-RPC 2.0 over stdio, auto-discovery, qualified naming (server:tool), configurable protocol version, comprehensive error handling
+- **Bridge**: gRPC with RegisterAgent/EventStream/ForwardAction/Heartbeat, integration tests
+- **Python SDK**: Agent/Context API, @capability decorator, Envelope support, trio example
+
+### 🚧 In Progress
+
+- **Dashboard**: Technology selection and initial implementation
+- **CLI**: Template scaffolding and dev workflow tools
+- **JS SDK**: API design and initial implementation
+
+### 📋 Next Up (P1 Focus)
+
+1. Dashboard MVP (web or terminal UI)
+2. CLI basics (new/dev/list/bench)
+3. JS SDK parity with Python
+4. Streaming APIs and error taxonomy
+5. MCP SSE transport and additional APIs
 
 ---
 

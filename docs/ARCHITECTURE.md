@@ -6,18 +6,21 @@ This document reflects the current repository shape, centered on the first end�
 
 ```
 loom-proto   ──▶   core (loom-core)
-  └────────────▶ loom-audio (optional)
-  └────────────▶ bridge (optional)
+  │                  │
+  └──────────────────┼──▶ loom-audio (optional)
+  │                  │
+  └──────────────────┴──▶ bridge (optional)
+  │
+  └──────────────────────▶ loom-py (Python SDK)
 
 apps / demos (e.g., demo/voice_agent) ──▶ depend on core and optionally loom-audio
-bindings (loom-py) ──▶ wrap loom-proto and core APIs for Python
 ```
 
 - `loom-proto` contains only protobuf definitions and generated Rust. `protoc` is vendored; no system install is required.
-- `core` depends on `loom-proto` and implements the runtime (Event Bus, Agent Runtime, Router, LLM client, ActionBroker, Plugin Manager). It intentionally does not depend on `loom-audio`.
+- `core` depends on `loom-proto` and implements the runtime (Event Bus, Agent Runtime, Router, LLM client, ActionBroker, Plugin Manager, MCP Client, Collaboration, Directories, Envelope). It intentionally does not depend on `loom-audio`.
 - `loom-audio` is a capability provider set with mic/VAD/STT/wake/TTS and depends on both `loom-proto` and `core`. Applications can opt‑in to audio features.
-- `bridge` is an optional service for forwarding events and actions across process or network boundaries (e.g., to a mobile client or web worker) using the shared proto contracts.
-- `loom-py` provides Python bindings and examples for interacting with Loom from Python workflows, leveraging the same proto messages and event/action semantics.
+- `bridge` is a gRPC service for forwarding events and actions across process or network boundaries (e.g., to Python/JS agents, mobile clients, or web workers) using the shared proto contracts. Supports RegisterAgent, bidirectional EventStream, ForwardAction, and Heartbeat.
+- `loom-py` provides Python bindings and Agent/Context API for writing agents in Python. Includes @capability decorator, Envelope support, and examples (trio.py). Communicates with Loom core via the bridge service.
 
 ## Overview
 
@@ -76,6 +79,8 @@ Asynchronous pub/sub message system with:
   mic.primary.speech     → Primary microphone speech
   sensor.imu.motion      → IMU motion events
   agent.{id}.intent      → Agent intent events
+  thread.{id}.broadcast  → Thread broadcast (collaboration)
+  thread.{id}.reply      → Thread replies (correlation)
   ```
 
 - **Backpressure Handling**: Sampling, dropping old events, aggregation
@@ -95,7 +100,57 @@ Asynchronous pub/sub message system with:
   }
   ```
 
-Envelope (thread/correlation): see `docs/core/envelope.md` for the reserved metadata keys (`thread_id`, `correlation_id`, `sender`, `reply_to`, `ttl`, `hop`, `ts`) and topic conventions (`thread.{id}.broadcast/reply`). Agents automatically maintain TTL/hop and drop expired events.
+**Envelope (thread/correlation)**: see `docs/core/envelope.md` for the reserved metadata keys (`thread_id`, `correlation_id`, `sender`, `reply_to`, `ttl`, `hop`, `ts`) and topic conventions (`thread.{id}.broadcast/reply`). Agents automatically maintain TTL/hop and drop expired events. The Envelope provides the foundation for multi-agent collaboration patterns.
+
+### Collaboration & Directories
+
+On top of the Envelope, Loom provides collaboration primitives (request/reply, fanout/fanin, contract-net) for multi-agent workflows, and directories to discover agents and capabilities. See `docs/core/collaboration.md` and `docs/core/directory.md`.
+
+**Collaboration Primitives (✅ IMPLEMENTED)**:
+
+- **request/reply**: Send request with correlation_id, wait for reply on thread reply topic
+- **fanout/fanin**: Broadcast to multiple agents, collect replies with strategies:
+  - `any`: Return first reply
+  - `first_k(n)`: Return first n replies
+  - `majority`: Wait for majority consensus
+  - `timeout(ms)`: Collect replies within timeout
+- **barrier**: Wait for N agents to check in before proceeding
+- **contract-net**: Call for proposals, collect bids, award contract, execute task
+
+**Directories (✅ IMPLEMENTED)**:
+
+- **AgentDirectory**: Discover agents by id, topics, or capabilities; auto-registers on agent creation
+- **CapabilityDirectory**: Snapshot of all registered capability providers from ActionBroker; query by name or provider type
+
+### MCP (Model Context Protocol) Client
+
+**✅ FULLY IMPLEMENTED** — Loom can now connect to MCP servers and use their tools as native capabilities:
+
+- **McpClient**: Low-level JSON-RPC 2.0 client over stdio transport
+  - Initialize handshake with protocol version (configurable, default: 2024-11-05)
+  - list_tools with pagination support
+  - call_tool with timeout and comprehensive error handling
+  - Background reader task for response correlation
+- **McpToolAdapter**: Implements `CapabilityProvider` trait
+  - Adapts MCP tools to ActionBroker interface
+  - Qualified naming (server:tool) to avoid conflicts
+  - Automatic JSON schema extraction for tool metadata
+  - Error code mapping (INVALID_PARAMS, TIMEOUT, TOOL_ERROR, etc.)
+- **McpManager**: Lifecycle management for multiple MCP servers
+  - add_server/remove_server with validation
+  - Auto-discovery and registration of tools
+  - Graceful shutdown with connection cleanup
+  - Protocol version validation
+
+**Configuration**: See `docs/MCP.md` for configuration examples and `core/src/mcp/README.md` for developer documentation.
+
+**Future Enhancements** (P1):
+
+- SSE transport (HTTP-based) in addition to stdio
+- Resources API (read/write/list resources)
+- Prompts API (list/get prompts with arguments)
+- Sampling support for multi-turn tool use
+- Notifications support
 
 ### Agent Runtime
 
@@ -140,6 +195,109 @@ let subs = runtime.get_agent_subscriptions("agent-1")?;
 - **Episodic**: Event sequences
 - **Semantic**: Knowledge graph
 - **Working**: Active context
+
+### Action System (ActionBroker + Tool Orchestrator)
+
+**ActionBroker (✅ IMPLEMENTED)**: Unified capability registry and invocation layer
+
+- **Capability Registration**: Providers implement `CapabilityProvider` trait
+  - Native Rust providers (WeatherProvider, WebSearchProvider, LlmGenerateProvider)
+  - MCP tools via McpToolAdapter
+  - Custom plugins via Plugin system
+- **Invocation API**:
+  - `invoke(call: ActionCall) -> ActionResult`
+  - Timeout handling, idempotency keys
+  - Result correlation via correlation_id
+- **Provider Types**:
+  - `ProviderNative`: Built-in Rust capabilities
+  - `ProviderMcp`: MCP server tools
+  - `ProviderPlugin`: WASM/external plugins
+  - `ProviderRemote`: Bridge-connected remote agents
+
+**Tool Orchestrator (✅ IMPLEMENTED)**: Unified tool call parsing and execution
+
+- Parse tool calls from LLM responses (function_call or structured format)
+- Route to ActionBroker with appropriate provider
+- Aggregate results for multi-tool scenarios
+- Emit tool execution metrics (latency, success/failure)
+
+**Error Codes** (standardized across all providers):
+
+- `ACTION_OK`: Success
+- `ACTION_ERROR`: Generic error
+- `ACTION_TIMEOUT`: Execution timeout
+- `INVALID_PARAMS`: Invalid tool arguments
+- `CAPABILITY_ERROR`: Provider-specific error
+- `PROVIDER_UNAVAILABLE`: Provider not found or offline
+
+### Bridge (gRPC)
+
+**✅ FULLY IMPLEMENTED** — Cross-process/network event and action forwarding:
+
+- **RegisterAgent**: Register external agents (Python/JS) with topics and capabilities
+- **EventStream**: Bidirectional streaming
+  - Inbound: External agents publish events to Loom EventBus
+  - Outbound: Loom pushes matching events to external agents
+  - Ack-first handshake for connection confirmation
+- **ForwardAction**: Client-initiated action invocation
+  - External agents invoke Loom capabilities via ActionBroker
+  - Result correlation and timeout handling
+- **ActionCall** (server-initiated): Internal push API
+  - Loom pushes action invocations to external agent capabilities
+  - Result correlation map for async responses
+- **Heartbeat**: Keep-alive mechanism for connection health
+- **Stateless Reconnection**: Agents can reconnect and resume subscriptions
+
+**Integration Tests** (all passing):
+
+- registration_test.rs: Agent registration flow
+- heartbeat_test.rs: Heartbeat and timeout handling
+- forward_action_test.rs: Action invocation and results
+- e2e integration tests: Full event/action roundtrip
+
+**Future Enhancements** (P2):
+
+- External admin RPC for server-initiated push
+- Metrics/backpressure export via gRPC
+- Authentication and namespaces
+- WebSocket transport alternative
+
+### Python SDK (loom-py)
+
+**✅ FULLY IMPLEMENTED** — Write agents in Python, communicate via Bridge:
+
+**Core API**:
+
+```python
+from loom import Agent, Context, capability
+
+# Define capability
+@capability("research.search", version="1.0")
+def search(query: str) -> dict:
+    return {"results": [...]}
+
+# Create agent
+async def on_event(ctx: Context, topic: str, event):
+    thread = ctx.thread(event)  # Extract thread_id from Envelope
+    await ctx.emit("target.topic", type="msg", payload=b"data")
+    results = await ctx.request(thread, "topic", payload, first_k=1, timeout_ms=2000)
+    await ctx.reply(thread, {"done": True})
+
+agent = Agent("my-agent", topics=["topic.in"], capabilities=[search], on_event=on_event)
+await agent.start()  # Connects to bridge, registers, starts streaming
+```
+
+**Features**:
+
+- Agent/Context abstraction with Envelope support
+- @capability decorator with Pydantic schema auto-generation
+- BridgeClient with gRPC connection management
+- Automatic correlation_id handling for request/reply
+- Thread-aware operations (thread(), emit(), request(), reply())
+
+**Example**: `loom-py/examples/trio.py` — Planner/Researcher/Writer collaboration
+
+**Packaging**: PyPI-ready with `pyproject.toml` (package name: `loom`)
 
 ### Collaboration & Directories
 
