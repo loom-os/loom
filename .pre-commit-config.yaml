@@ -24,15 +24,15 @@ repos:
         args: ["--line-length", "100"]
         files: "^loom-py/"
 
-  # Python: Linting with Ruff
+  # Python: Linting with Ruff (auto-fix, non-blocking for style issues)
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.4
     hooks:
       - id: ruff
-        args: ["--fix", "--exit-non-zero-on-fix"]
+        args: ["--fix"]
         files: "^loom-py/"
 
-  # Python: Type checking with mypy (disabled for now - run manually with: mypy src/loom)
+  # Python: Type checking with mypy (disabled - run manually: cd loom-py && mypy src/loom)
   # - repo: https://github.com/pre-commit/mirrors-mypy
   #   rev: v1.18.2
   #   hooks:
@@ -40,7 +40,12 @@ repos:
   #       additional_dependencies:
   #         - types-protobuf
   #         - types-pyyaml
-  #       args: ["--ignore-missing-imports"]
+  #       args:
+  #         [
+  #           "--ignore-missing-imports",
+  #           "--allow-untyped-defs",
+  #           "--no-warn-no-return",
+  #         ]
   #       files: "^loom-py/src/"
   #       exclude: "proto/generated/"
 

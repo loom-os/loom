@@ -1,8 +1,9 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+
 import time
 import uuid
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional
 
 META_PREFIX = "loom"
 
@@ -36,7 +37,7 @@ class Envelope:
         reply_to: Optional[str] = None,
         ttl_ms: Optional[int] = None,
         metadata: Optional[Dict[str, str]] = None,
-    ) -> "Envelope":
+    ) -> Envelope:
         now = int(time.time() * 1000)
         # Use random UUID for envelope id to avoid collisions across processes
         eid = str(uuid.uuid4())
@@ -66,7 +67,7 @@ class Envelope:
         )
 
     @classmethod
-    def from_proto(cls, ev) -> "Envelope":  # ev is loom.v1.Event
+    def from_proto(cls, ev) -> Envelope:  # ev is loom.v1.Event
         meta = dict(ev.metadata)
 
         def get_opt(key: str) -> Optional[str]:
@@ -85,7 +86,7 @@ class Envelope:
             correlation_id=get_opt("correlation_id"),
             sender=get_opt("sender"),
             reply_to=get_opt("reply_to"),
-            ttl_ms=int(get_opt("ttl_ms")) if get_opt("ttl_ms") else None,
+            ttl_ms=int(get_opt("ttl_ms")) if get_opt("ttl_ms") is not None else None,
         )
 
     def to_proto(self, pb_event_cls) -> Any:
