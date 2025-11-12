@@ -1,10 +1,78 @@
 // Model Router implementation
+//
+// The Router makes Local/Cloud/Hybrid routing decisions based on policy
+// (privacy, latency, cost, quality) and confidence estimates.
+
 use std::sync::Arc;
 
-use crate::local_model::LocalModel;
-use crate::{proto::Event, Result};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
+
+use crate::{proto::Event, Result};
+
+// ============================================================================
+// Confidence Estimator
+// ============================================================================
+
+/// Confidence estimator for routing decisions.
+///
+/// This trait is used by the Router to quickly assess whether a local model
+/// can handle an event with sufficient confidence, without performing full inference.
+/// Implementations should be fast and lightweight (< 10ms).
+///
+/// Future ML inference capabilities (e.g., ONNX Runtime, TensorFlow Lite) can
+/// implement this trait for Router integration while exposing their own
+/// comprehensive inference APIs independently.
+#[async_trait]
+pub trait ConfidenceEstimator: Send + Sync {
+    /// A static identifier for the estimator implementation
+    fn name(&self) -> &'static str;
+
+    /// Quick capability check without heavy computation.
+    ///
+    /// Returns true if this estimator can provide meaningful confidence scores
+    /// for the given event type.
+    fn supports_event_type(&self, event_type: &str) -> bool;
+
+    /// Lightweight confidence estimation for routing decisions.
+    ///
+    /// Returns a confidence score between 0.0 and 1.0 indicating how well
+    /// a local model could handle this event. Higher values suggest the Router
+    /// should prefer local processing.
+    async fn estimate_confidence(&self, event: &Event) -> Result<f32>;
+}
+
+/// A no-op dummy estimator used as the default placeholder.
+///
+/// Behavior:
+/// - Claims support for common edge event types (video, audio, face)
+/// - Returns a fixed confidence score of 0.87
+///
+/// This is useful for testing and development. In production, replace with a real
+/// estimator based on historical data, heuristics, or lightweight model checks.
+#[derive(Debug, Default, Clone)]
+pub struct DummyConfidenceEstimator;
+
+#[async_trait]
+impl ConfidenceEstimator for DummyConfidenceEstimator {
+    fn name(&self) -> &'static str {
+        "dummy-confidence-estimator"
+    }
+
+    fn supports_event_type(&self, event_type: &str) -> bool {
+        matches!(event_type, "video_frame" | "audio_chunk" | "face_event")
+    }
+
+    async fn estimate_confidence(&self, _event: &Event) -> Result<f32> {
+        // Simulate a reasonable confidence score for routing decisions
+        Ok(0.87)
+    }
+}
+
+// ============================================================================
+// Router Types
+// ============================================================================
 
 /// Routing target
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -50,7 +118,7 @@ pub struct ModelRouter {
     policy: RoutingPolicy,
     local_models: Vec<String>,
     cloud_endpoints: Vec<String>,
-    local_model: Arc<dyn LocalModel>,
+    confidence_estimator: Arc<dyn ConfidenceEstimator>,
 }
 
 impl ModelRouter {
@@ -68,13 +136,13 @@ impl ModelRouter {
                 "lightweight_llm".to_string(),
             ],
             cloud_endpoints: vec!["gpt-4".to_string(), "claude-3".to_string()],
-            local_model: Arc::new(crate::local_model::DummyLocalModel::default()),
+            confidence_estimator: Arc::new(DummyConfidenceEstimator::default()),
         })
     }
 
-    /// Create a router with an injected local model implementation
-    pub fn with_local_model(mut self, local_model: Arc<dyn LocalModel>) -> Self {
-        self.local_model = local_model;
+    /// Create a router with an injected confidence estimator implementation
+    pub fn with_confidence_estimator(mut self, estimator: Arc<dyn ConfidenceEstimator>) -> Self {
+        self.confidence_estimator = estimator;
         self
     }
 
@@ -92,7 +160,7 @@ impl ModelRouter {
     pub async fn route(
         &self,
         event: &Event,
-        context: Option<&AgentContext>,
+        _context: Option<&AgentContext>,
     ) -> Result<RoutingDecision> {
         debug!("Routing event: {} type: {}", event.id, event.r#type);
 
@@ -120,11 +188,11 @@ impl ModelRouter {
         }
 
         // 2. Check if local model supports event type
-        let local_supported = self.local_model.supports_event_type(&event.r#type);
+        let local_supported = self.confidence_estimator.supports_event_type(&event.r#type);
 
-        // 3. Simulate local model confidence (actual call to local model should be made)
+        // 3. Estimate local confidence
         let local_confidence = if local_supported {
-            self.local_model.estimate_confidence(event).await?
+            self.confidence_estimator.estimate_confidence(event).await?
         } else {
             0.0
         };
