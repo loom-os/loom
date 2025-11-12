@@ -69,7 +69,7 @@ jobs:
         run: python -m loom.proto.generate
 
       - name: Run tests
-        run: pytest -v --cov --cov-report=xml --cov-report=term
+        run: pytest -v --cov=loom --cov-report=xml --cov-report=term-missing --cov-branch
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -133,6 +133,9 @@ jobs:
         run: |
           pip install -e ".[dev]"
           pip install pytest-asyncio
+
+      - name: Generate proto files
+        run: python -m loom.proto.generate
 
       - name: Start Bridge server
         run: |

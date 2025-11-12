@@ -60,6 +60,8 @@ proto = "python -m loom.proto.generate"
 [project.optional-dependencies]
 dev = [
   "pytest>=7.4",
+  "pytest-asyncio>=0.23.0",
+  "pytest-cov>=4.1.0",
   "mypy>=1.8",
   "grpcio-tools>=1.62.0",
 ]
@@ -82,11 +84,6 @@ addopts = [
     "--strict-config",
     "--showlocals",
     "--tb=short",
-    "--cov=loom",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-report=xml",
-    "--cov-branch",
     "--asyncio-mode=auto",
 ]
 asyncio_mode = "auto"

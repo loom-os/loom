@@ -72,7 +72,8 @@ def main():
                 alias = mod.replace("_pb2", "__pb2")
                 line = f"from . import {mod} as {alias}"
             lines.append(line)
-        patched = "\n".join(lines)
+        # Ensure file ends with a newline (required by pre-commit)
+        patched = "\n".join(lines) + "\n"
         if patched != text:
             py.write_text(patched)
     print("Done.")

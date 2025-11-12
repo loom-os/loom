@@ -62,13 +62,13 @@ class Agent:
             topics.append(reply_topic)
         await self.client.register_agent(self.agent_id, topics, caps)
 
-        # Start stream (do not await: returns async iterator)
+        # Start stream
         async def outbound_iter():
             while True:
                 msg = await self._outbound_queue.get()
                 yield msg
 
-        self._stream = self.client.event_stream(self.agent_id, outbound_iter())
+        self._stream = await self.client.event_stream(self.agent_id, outbound_iter())
         self._stream_task = asyncio.create_task(self._run_stream())
         # Start heartbeat monitor
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
@@ -131,7 +131,7 @@ class Agent:
                             msg = await self._outbound_queue.get()
                             yield msg
 
-                    self._stream = self.client.event_stream(self.agent_id, outbound_iter())
+                    self._stream = await self.client.event_stream(self.agent_id, outbound_iter())
                     self._stream_task = asyncio.create_task(self._run_stream())
                     logging.info("[loom] Reconnected agent %s", self.agent_id)
                     return
