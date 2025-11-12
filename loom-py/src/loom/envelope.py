@@ -6,6 +6,7 @@ import uuid
 
 META_PREFIX = "loom"
 
+
 @dataclass
 class Envelope:
     id: str
@@ -40,9 +41,11 @@ class Envelope:
         # Use random UUID for envelope id to avoid collisions across processes
         eid = str(uuid.uuid4())
         meta = metadata.copy() if metadata else {}
+
         def set_opt(key: str, value: Optional[str | int]):
             if value is not None:
                 meta[f"{META_PREFIX}.{key}"] = str(value)
+
         set_opt("thread_id", thread_id)
         set_opt("correlation_id", correlation_id)
         set_opt("sender", sender)
@@ -55,13 +58,20 @@ class Envelope:
             source=source,
             payload=payload,
             metadata=meta,
+            thread_id=thread_id,
+            correlation_id=correlation_id,
+            sender=sender,
+            reply_to=reply_to,
+            ttl_ms=ttl_ms,
         )
 
     @classmethod
     def from_proto(cls, ev) -> "Envelope":  # ev is loom.v1.Event
         meta = dict(ev.metadata)
+
         def get_opt(key: str) -> Optional[str]:
             return meta.get(f"{META_PREFIX}.{key}")
+
         return cls(
             id=ev.id,
             type=ev.type,
