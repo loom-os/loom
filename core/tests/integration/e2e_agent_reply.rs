@@ -196,10 +196,10 @@ async fn test_envelope_agent_reply_topic_helper() {
 async fn test_envelope_with_agent_reply_constructor() {
     use loom_core::Envelope;
 
-    let env = Envelope::with_agent_reply("task-1", "agent.coordinator", "agent.coordinator");
+    let env = Envelope::with_agent_reply("task-1", "agent.coordinator", "coordinator");
     assert_eq!(env.thread_id, "task-1");
     assert_eq!(env.sender, "agent.coordinator");
-    assert_eq!(env.reply_to, "agent.agent.coordinator.replies");
+    assert_eq!(env.reply_to, "agent.coordinator.replies");
 
     // Verify it's different from thread reply
     let thread_env = Envelope::new("task-1", "agent.coordinator");

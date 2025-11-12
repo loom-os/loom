@@ -520,15 +520,15 @@ impl Envelope {
     ///
     /// * `thread_id` - Thread identifier for correlation
     /// * `sender` - Sender identifier
-    /// * `reply_to_agent` - Agent ID that should receive replies
+    /// * `reply_to_agent` - Agent ID (without "agent." prefix) that should receive replies
     ///
     /// # Examples
     ///
     /// ```
     /// use loom_core::Envelope;
     ///
-    /// let env = Envelope::with_agent_reply("task-1", "agent.coordinator", "agent.coordinator");
-    /// assert_eq!(env.reply_to, "agent.agent.coordinator.replies");
+    /// let env = Envelope::with_agent_reply("task-1", "agent.coordinator", "coordinator");
+    /// assert_eq!(env.reply_to, "agent.coordinator.replies");
     /// ```
     pub fn with_agent_reply(
         thread_id: impl Into<String>,
