@@ -365,8 +365,7 @@ async def conversation_agent(ctx, topic, event):
         type="message",
         payload=b"Hello",
         envelope=Envelope.new(
-            event_id=str(uuid.uuid4()),
-            event_type="message",
+            type="message",
             payload=b"Hello",
             thread_id=thread_id,
         ),
@@ -553,7 +552,7 @@ value = await memory.get("key")
 
 ## Contributing
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
 
 ## License
 

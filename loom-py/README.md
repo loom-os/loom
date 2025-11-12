@@ -92,22 +92,19 @@ python my_agent.py
 - Capability system with auto schema generation
 - Context API (emit, reply, tool invocation)
 - Envelope for correlation and threading
-
-🚧 **Coming Soon**:
-
 - Request/reply with timeout
+🚧 **Coming Soon**:
 - Memory backends
 - Dynamic subscriptions
 - Streaming responses
 
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ## Documentation
 
 - [SDK Guide](docs/SDK_GUIDE.md) - Complete API reference and tutorials
 - [Examples](examples/) - Working code samples
-- [DESIGN.md](DESIGN.md) - Architecture and design decisions
-- [FUTURE.md](FUTURE.md) - Roadmap and planned features
+- [DESIGN.md](docs/DESIGN.md) - Architecture and design decisions
+- [FUTURE.md](docs/FUTURE.md) - Roadmap and planned features
 
 ## Requirements
 
