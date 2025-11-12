@@ -1,0 +1,54 @@
+# Pre-commit hooks for loom-py
+# See https://pre-commit.com for more information
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: mixed-line-ending
+
+  # Python: Code formatting with Black
+  - repo: https://github.com/psf/black
+    rev: 25.11.0
+    hooks:
+      - id: black
+        language_version: python3
+        args: ["--line-length", "100"]
+        files: "^loom-py/"
+
+  # Python: Linting with Ruff
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.4
+    hooks:
+      - id: ruff
+        args: ["--fix", "--exit-non-zero-on-fix"]
+        files: "^loom-py/"
+
+  # Python: Type checking with mypy (disabled for now - run manually with: mypy src/loom)
+  # - repo: https://github.com/pre-commit/mirrors-mypy
+  #   rev: v1.18.2
+  #   hooks:
+  #     - id: mypy
+  #       additional_dependencies:
+  #         - types-protobuf
+  #         - types-pyyaml
+  #       args: ["--ignore-missing-imports"]
+  #       files: "^loom-py/src/"
+  #       exclude: "proto/generated/"
+
+  # Rust: Format check
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      - id: fmt
+        args: ["--manifest-path", "Cargo.toml", "--", "--check"]
+      - id: clippy
+        args: ["--manifest-path", "Cargo.toml", "--", "-D", "warnings"]
