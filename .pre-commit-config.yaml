@@ -23,6 +23,7 @@ repos:
         language_version: python3
         args: ["--line-length", "100"]
         files: "^loom-py/"
+        exclude: "proto/generated/"
 
   # Python: Linting with Ruff (auto-fix, non-blocking for style issues)
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -31,6 +32,7 @@ repos:
       - id: ruff
         args: ["--fix"]
         files: "^loom-py/"
+        exclude: "proto/generated/"
 
   # Python: Type checking with mypy (disabled - run manually: cd loom-py && mypy src/loom)
   # - repo: https://github.com/pre-commit/mirrors-mypy

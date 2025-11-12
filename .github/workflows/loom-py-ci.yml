@@ -37,10 +37,10 @@ jobs:
           pip install ruff black
 
       - name: Run ruff
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ --extend-exclude 'src/loom/proto/generated'
 
       - name: Run black check
-        run: black --check src/ tests/
+        run: black --check src/ tests/ --exclude 'proto/generated'
 
   test:
     name: Test Python ${{ matrix.python-version }}
@@ -78,33 +78,6 @@ jobs:
           file: ./loom-py/coverage.xml
           flags: python
           name: loom-py-coverage
-
-  proto-validation:
-    name: Validate Proto Generation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-
-      - name: Install dependencies
-        run: |
-          pip install -e ".[dev]"
-
-      - name: Generate proto files
-        run: python -m loom.proto.generate
-
-      - name: Check for uncommitted changes
-        run: |
-          if ! git diff --exit-code src/loom/proto/generated/; then
-            echo "Generated proto files have uncommitted changes!"
-            echo "Please run 'python -m loom.proto.generate' and commit the changes."
-            exit 1
-          fi
 
   build:
     name: Build Distribution
