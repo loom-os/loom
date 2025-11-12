@@ -9,7 +9,6 @@ pub mod directory; // Agent & Capability directories
 pub mod envelope; // Unified metadata envelope for events/actions threads
 pub mod event;
 pub mod llm;
-pub mod local_model;
 pub mod mcp; // Model Context Protocol client and adapters
 pub mod plugin;
 pub mod providers;
@@ -26,11 +25,12 @@ pub use directory::{AgentDirectory, AgentInfo, CapabilityDirectory};
 pub use envelope::{agent_reply_topic, Envelope, ThreadTopicKind};
 pub use event::{Event, EventBus, EventExt, EventHandler, QoSLevel};
 pub use llm::{LlmClient, LlmClientConfig, LlmResponse};
-pub use local_model::{DummyLocalModel, LocalInference, LocalModel};
 pub use mcp::{McpClient, McpManager, McpToolAdapter};
 pub use plugin::{Plugin, PluginManager};
 pub use providers::{WeatherProvider, WebSearchProvider};
-pub use router::{ModelRouter, Route, RoutingDecision};
+pub use router::{
+    ConfidenceEstimator, DummyConfidenceEstimator, ModelRouter, Route, RoutingDecision,
+};
 
 // Generated proto code
 // Re-export proto types from the shared crate so existing paths `crate::proto::...` continue to work.

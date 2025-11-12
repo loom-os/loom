@@ -1,18 +1,17 @@
-use loom_core::local_model::{LocalInference, LocalModel};
 use loom_core::proto::Event;
-use loom_core::router::{ModelRouter, Route};
+use loom_core::router::{ConfidenceEstimator, ModelRouter, Route};
 use loom_core::Result;
 use std::sync::Arc;
 
-// Mock local model with configurable confidence
-struct MockLocalModel {
+// Mock confidence estimator with configurable confidence
+struct MockConfidenceEstimator {
     confidence: f32,
 }
 
 #[async_trait::async_trait]
-impl LocalModel for MockLocalModel {
+impl ConfidenceEstimator for MockConfidenceEstimator {
     fn name(&self) -> &'static str {
-        "MockLocalModel"
+        "MockConfidenceEstimator"
     }
 
     fn supports_event_type(&self, _event_type: &str) -> bool {
@@ -21,13 +20,6 @@ impl LocalModel for MockLocalModel {
 
     async fn estimate_confidence(&self, _event: &Event) -> Result<f32> {
         Ok(self.confidence)
-    }
-
-    async fn infer(&self, _event: &Event) -> Result<LocalInference> {
-        Ok(LocalInference {
-            confidence: self.confidence,
-            metadata: Default::default(),
-        })
     }
 }
 
@@ -64,8 +56,10 @@ async fn route_local_only_privacy_always_local() -> Result<()> {
 
 #[tokio::test]
 async fn route_high_confidence_local_model_chooses_local() -> Result<()> {
-    let mock_model = Arc::new(MockLocalModel { confidence: 0.95 });
-    let router = ModelRouter::new().await?.with_local_model(mock_model);
+    let mock_estimator = Arc::new(MockConfidenceEstimator { confidence: 0.95 });
+    let router = ModelRouter::new()
+        .await?
+        .with_confidence_estimator(mock_estimator);
 
     let evt = make_event("e2");
     let decision = router.route(&evt, None).await?;
@@ -75,8 +69,10 @@ async fn route_high_confidence_local_model_chooses_local() -> Result<()> {
 
 #[tokio::test]
 async fn route_low_confidence_local_model_chooses_cloud() -> Result<()> {
-    let mock_model = Arc::new(MockLocalModel { confidence: 0.50 });
-    let router = ModelRouter::new().await?.with_local_model(mock_model);
+    let mock_estimator = Arc::new(MockConfidenceEstimator { confidence: 0.50 });
+    let router = ModelRouter::new()
+        .await?
+        .with_confidence_estimator(mock_estimator);
 
     let evt = make_event("e3");
     let decision = router.route(&evt, None).await?;
@@ -86,8 +82,10 @@ async fn route_low_confidence_local_model_chooses_cloud() -> Result<()> {
 
 #[tokio::test]
 async fn route_medium_confidence_chooses_hybrid() -> Result<()> {
-    let mock_model = Arc::new(MockLocalModel { confidence: 0.75 });
-    let router = ModelRouter::new().await?.with_local_model(mock_model);
+    let mock_estimator = Arc::new(MockConfidenceEstimator { confidence: 0.75 });
+    let router = ModelRouter::new()
+        .await?
+        .with_confidence_estimator(mock_estimator);
 
     let evt = make_event("e4");
     let decision = router.route(&evt, None).await?;
@@ -99,8 +97,10 @@ async fn route_medium_confidence_chooses_hybrid() -> Result<()> {
 async fn route_respects_latency_budget() -> Result<()> {
     // If local model infers quickly but we set a very strict latency budget,
     // router should prefer local for latency-sensitive events.
-    let mock_model = Arc::new(MockLocalModel { confidence: 0.70 });
-    let router = ModelRouter::new().await?.with_local_model(mock_model);
+    let mock_estimator = Arc::new(MockConfidenceEstimator { confidence: 0.70 });
+    let router = ModelRouter::new()
+        .await?
+        .with_confidence_estimator(mock_estimator);
 
     let evt = make_event("e5");
     let decision = router.route(&evt, None).await?;
@@ -114,8 +114,10 @@ async fn route_respects_latency_budget() -> Result<()> {
 
 #[tokio::test]
 async fn route_respects_cost_cap() -> Result<()> {
-    let mock_model = Arc::new(MockLocalModel { confidence: 0.60 });
-    let router = ModelRouter::new().await?.with_local_model(mock_model);
+    let mock_estimator = Arc::new(MockConfidenceEstimator { confidence: 0.60 });
+    let router = ModelRouter::new()
+        .await?
+        .with_confidence_estimator(mock_estimator);
 
     let evt = make_event("e6");
     let decision = router.route(&evt, None).await?;
@@ -133,8 +135,10 @@ async fn route_respects_cost_cap() -> Result<()> {
 
 #[tokio::test]
 async fn route_quality_threshold_above_local_confidence_chooses_cloud() -> Result<()> {
-    let mock_model = Arc::new(MockLocalModel { confidence: 0.70 });
-    let router = ModelRouter::new().await?.with_local_model(mock_model);
+    let mock_estimator = Arc::new(MockConfidenceEstimator { confidence: 0.70 });
+    let router = ModelRouter::new()
+        .await?
+        .with_confidence_estimator(mock_estimator);
 
     let evt = make_event("e7");
     let decision = router.route(&evt, None).await?;
@@ -150,8 +154,10 @@ async fn route_quality_threshold_above_local_confidence_chooses_cloud() -> Resul
 
 #[tokio::test]
 async fn route_private_privacy_level_prefers_local() -> Result<()> {
-    let mock_model = Arc::new(MockLocalModel { confidence: 0.80 });
-    let router = ModelRouter::new().await?.with_local_model(mock_model);
+    let mock_estimator = Arc::new(MockConfidenceEstimator { confidence: 0.80 });
+    let router = ModelRouter::new()
+        .await?
+        .with_confidence_estimator(mock_estimator);
 
     let evt = make_event_with_metadata("e8", "privacy", "private");
     let decision = router.route(&evt, None).await?;
@@ -170,8 +176,10 @@ async fn route_private_privacy_level_prefers_local() -> Result<()> {
 
 #[tokio::test]
 async fn route_public_privacy_level_allows_cloud() -> Result<()> {
-    let mock_model = Arc::new(MockLocalModel { confidence: 0.60 });
-    let router = ModelRouter::new().await?.with_local_model(mock_model);
+    let mock_estimator = Arc::new(MockConfidenceEstimator { confidence: 0.60 });
+    let router = ModelRouter::new()
+        .await?
+        .with_confidence_estimator(mock_estimator);
 
     let evt = make_event_with_metadata("e9", "privacy", "public");
     let decision = router.route(&evt, None).await?;
@@ -185,8 +193,10 @@ async fn route_public_privacy_level_allows_cloud() -> Result<()> {
 
 #[tokio::test]
 async fn route_sensitive_privacy_level_uses_hybrid() -> Result<()> {
-    let mock_model = Arc::new(MockLocalModel { confidence: 0.75 });
-    let router = ModelRouter::new().await?.with_local_model(mock_model);
+    let mock_estimator = Arc::new(MockConfidenceEstimator { confidence: 0.75 });
+    let router = ModelRouter::new()
+        .await?
+        .with_confidence_estimator(mock_estimator);
 
     let evt = make_event_with_metadata("e10", "privacy", "sensitive");
     let decision = router.route(&evt, None).await?;
