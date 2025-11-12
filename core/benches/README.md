@@ -323,6 +323,6 @@ criterion_group!(
 
 ---
 
-**Maintainers**: Loom Team  
-**Last Updated**: 2025-11-08  
+**Maintainers**: Loom Team
+**Last Updated**: 2025-11-08
 **Version**: v0.1.0

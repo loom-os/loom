@@ -344,7 +344,7 @@ pub fn weather_code_to_description(code: i32) -> String {
         61 | 63 | 65 => "rain",
         71 | 73 | 75 => "snow",
         77 => "snow grains",
-        80 | 81 | 82 => "rain showers",
+        80..=82 => "rain showers",
         85 | 86 => "snow showers",
         95 => "thunderstorm",
         96 | 99 => "thunderstorm with hail",

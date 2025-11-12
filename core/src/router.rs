@@ -7,9 +7,16 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::{debug, info, Span};
 
 use crate::{proto::Event, Result};
+
+// OpenTelemetry imports
+use opentelemetry::{
+    global,
+    metrics::{Counter, Histogram},
+    KeyValue,
+};
 
 // ============================================================================
 // Confidence Estimator
@@ -116,13 +123,50 @@ pub enum PrivacyLevel {
 #[derive(Clone)]
 pub struct ModelRouter {
     policy: RoutingPolicy,
+    #[allow(dead_code)]
     local_models: Vec<String>,
+    #[allow(dead_code)]
     cloud_endpoints: Vec<String>,
     confidence_estimator: Arc<dyn ConfidenceEstimator>,
+
+    // OpenTelemetry metrics
+    decisions_counter: Counter<u64>,
+    confidence_histogram: Histogram<f64>,
+    estimated_latency_histogram: Histogram<f64>,
+    estimated_cost_histogram: Histogram<f64>,
+    policy_violations_counter: Counter<u64>,
 }
 
 impl ModelRouter {
     pub async fn new() -> Result<Self> {
+        // Initialize OpenTelemetry metrics
+        let meter = global::meter("loom.router");
+
+        let decisions_counter = meter
+            .u64_counter("loom.router.decisions_total")
+            .with_description("Total number of routing decisions")
+            .init();
+
+        let confidence_histogram = meter
+            .f64_histogram("loom.router.confidence_score")
+            .with_description("Confidence score for routing decisions")
+            .init();
+
+        let estimated_latency_histogram = meter
+            .f64_histogram("loom.router.estimated_latency_ms")
+            .with_description("Estimated latency in milliseconds")
+            .init();
+
+        let estimated_cost_histogram = meter
+            .f64_histogram("loom.router.estimated_cost")
+            .with_description("Estimated cost per event")
+            .init();
+
+        let policy_violations_counter = meter
+            .u64_counter("loom.router.policy_violations_total")
+            .with_description("Total number of policy violations")
+            .init();
+
         Ok(Self {
             policy: RoutingPolicy {
                 privacy_level: PrivacyLevel::Sensitive,
@@ -136,7 +180,12 @@ impl ModelRouter {
                 "lightweight_llm".to_string(),
             ],
             cloud_endpoints: vec!["gpt-4".to_string(), "claude-3".to_string()],
-            confidence_estimator: Arc::new(DummyConfidenceEstimator::default()),
+            confidence_estimator: Arc::new(DummyConfidenceEstimator),
+            decisions_counter,
+            confidence_histogram,
+            estimated_latency_histogram,
+            estimated_cost_histogram,
+            policy_violations_counter,
         })
     }
 
@@ -157,6 +206,7 @@ impl ModelRouter {
     }
 
     /// Route event based on policy
+    #[tracing::instrument(skip(self, event, _context), fields(event_id = %event.id, event_type = %event.r#type, route, confidence, reason))]
     pub async fn route(
         &self,
         event: &Event,
@@ -178,13 +228,15 @@ impl ModelRouter {
             .unwrap_or(PrivacyLevel::Sensitive);
 
         if privacy_level == PrivacyLevel::LocalOnly {
-            return Ok(RoutingDecision {
+            let decision = RoutingDecision {
                 route: Route::Local,
                 confidence: 1.0,
                 reason: "Privacy policy requires local-only processing".to_string(),
                 estimated_latency_ms: 50,
                 estimated_cost: 0.0,
-            });
+            };
+            self.record_decision(&decision, &event.r#type);
+            return Ok(decision);
         }
 
         // 2. Check if local model supports event type
@@ -199,57 +251,109 @@ impl ModelRouter {
 
         // 4. Make routing decision based on rules
         if local_supported && local_confidence >= self.policy.quality_threshold {
-            return Ok(RoutingDecision {
+            let decision = RoutingDecision {
                 route: Route::Local,
                 confidence: local_confidence,
                 reason: "Local model confidence exceeds threshold".to_string(),
                 estimated_latency_ms: 50,
                 estimated_cost: 0.0,
-            });
+            };
+            self.record_decision(&decision, &event.r#type);
+            return Ok(decision);
         }
 
         // 5. Check latency budget
         if self.policy.latency_budget_ms < 100 {
-            return Ok(RoutingDecision {
+            self.policy_violations_counter
+                .add(1, &[KeyValue::new("violation_type", "latency_budget")]);
+            let decision = RoutingDecision {
                 route: Route::Local,
                 confidence: local_confidence,
                 reason: "Latency budget too tight for cloud".to_string(),
                 estimated_latency_ms: 50,
                 estimated_cost: 0.0,
-            });
+            };
+            self.record_decision(&decision, &event.r#type);
+            return Ok(decision);
         }
 
         // 6. Check cost limit
         let cloud_cost = self.estimate_cloud_cost(event);
         if cloud_cost > self.policy.cost_cap_per_event {
-            return Ok(RoutingDecision {
+            self.policy_violations_counter
+                .add(1, &[KeyValue::new("violation_type", "cost_cap")]);
+            let decision = RoutingDecision {
                 route: Route::LocalFallback,
                 confidence: local_confidence,
                 reason: "Cloud cost exceeds budget".to_string(),
                 estimated_latency_ms: 50,
                 estimated_cost: 0.0,
-            });
+            };
+            self.record_decision(&decision, &event.r#type);
+            return Ok(decision);
         }
 
         // 7. Hybrid strategy: local quick + cloud refine
         if local_supported && local_confidence > 0.5 {
-            return Ok(RoutingDecision {
+            let decision = RoutingDecision {
                 route: Route::Hybrid,
                 confidence: local_confidence,
                 reason: "Hybrid: local quick + cloud refine".to_string(),
                 estimated_latency_ms: 300,
                 estimated_cost: cloud_cost,
-            });
+            };
+            self.record_decision(&decision, &event.r#type);
+            return Ok(decision);
         }
 
         // 8. Default to cloud
-        Ok(RoutingDecision {
+        let decision = RoutingDecision {
             route: Route::Cloud,
             confidence: 0.0,
             reason: "Default to cloud for quality".to_string(),
             estimated_latency_ms: 500,
             estimated_cost: cloud_cost,
-        })
+        };
+        self.record_decision(&decision, &event.r#type);
+        Ok(decision)
+    }
+
+    // Helper method to record routing decision metrics and span attributes
+    fn record_decision(&self, decision: &RoutingDecision, event_type: &str) {
+        let route_str = format!("{:?}", decision.route);
+
+        // Record metrics
+        self.decisions_counter.add(
+            1,
+            &[
+                KeyValue::new("route", route_str.clone()),
+                KeyValue::new("reason", decision.reason.clone()),
+                KeyValue::new("event_type", event_type.to_string()),
+            ],
+        );
+
+        self.confidence_histogram.record(
+            decision.confidence as f64,
+            &[
+                KeyValue::new("route", route_str.clone()),
+                KeyValue::new("event_type", event_type.to_string()),
+            ],
+        );
+
+        self.estimated_latency_histogram.record(
+            decision.estimated_latency_ms as f64,
+            &[KeyValue::new("route", route_str.clone())],
+        );
+
+        self.estimated_cost_histogram.record(
+            decision.estimated_cost as f64,
+            &[KeyValue::new("route", route_str.clone())],
+        );
+
+        // Record span attributes
+        Span::current().record("route", &route_str);
+        Span::current().record("confidence", decision.confidence);
+        Span::current().record("reason", &decision.reason);
     }
 
     fn estimate_cloud_cost(&self, event: &Event) -> f32 {

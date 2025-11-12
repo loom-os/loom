@@ -3,12 +3,12 @@
 /// Adapts MCP tools to the CapabilityProvider trait so they can be
 /// registered with the ActionBroker and invoked like native capabilities.
 use super::client::McpClient;
-use super::types::{McpTool, McpToolResult};
+use super::types::McpTool;
 use crate::action_broker::CapabilityProvider;
 use crate::proto::{
     ActionCall, ActionError, ActionResult, ActionStatus, CapabilityDescriptor, ProviderKind,
 };
-use crate::{LoomError, Result};
+use crate::Result;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;

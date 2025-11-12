@@ -1,0 +1,8 @@
+# Grafana data
+grafana/data/
+
+# Prometheus data
+prometheus/data/
+
+# Docker volumes
+*.vol

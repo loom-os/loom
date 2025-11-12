@@ -47,8 +47,8 @@ pub trait CapabilityProvider: Send + Sync {
 
 #### Web Search Provider
 
-**Capability**: `web.search`  
-**API**: DuckDuckGo Instant Answer API (free, no authentication)  
+**Capability**: `web.search`
+**API**: DuckDuckGo Instant Answer API (free, no authentication)
 **Parameters**:
 
 - `query` (required, string): Search query
@@ -73,8 +73,8 @@ let result = provider.invoke(params).await?;
 
 #### Weather Provider
 
-**Capability**: `weather.get`  
-**API**: Open-Meteo API (free, no authentication, automatic geocoding)  
+**Capability**: `weather.get`
+**API**: Open-Meteo API (free, no authentication, automatic geocoding)
 **Parameters**:
 
 - `location` (required, string): City name, address, or coordinates
@@ -355,18 +355,18 @@ impl WeatherProvider {
 
 ### Performance Considerations
 
-**Timeouts**: Set reasonable HTTP client timeouts (10-30 seconds)  
-**Caching**: Consider caching API responses for repeated queries  
-**Rate Limiting**: Implement rate limiting for external APIs  
-**Async**: All providers must be async (use `#[async_trait]`)  
+**Timeouts**: Set reasonable HTTP client timeouts (10-30 seconds)
+**Caching**: Consider caching API responses for repeated queries
+**Rate Limiting**: Implement rate limiting for external APIs
+**Async**: All providers must be async (use `#[async_trait]`)
 **Connection Pooling**: Use shared `reqwest::Client` for connection reuse
 
 ### Security Considerations
 
-**API Keys**: Store in environment variables, not hardcoded  
-**Input Validation**: Sanitize all user inputs before API calls  
-**URL Encoding**: Properly encode parameters to prevent injection  
-**HTTPS**: Use rustls-tls for secure connections  
+**API Keys**: Store in environment variables, not hardcoded
+**Input Validation**: Sanitize all user inputs before API calls
+**URL Encoding**: Properly encode parameters to prevent injection
+**HTTPS**: Use rustls-tls for secure connections
 **Error Messages**: Don't leak sensitive information in error responses
 
 Example secure configuration:

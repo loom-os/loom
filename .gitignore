@@ -49,3 +49,11 @@ cache/
 
 # Piper
 piper/
+
+
+# Test and coverage reports
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/

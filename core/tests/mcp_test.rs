@@ -208,7 +208,7 @@ fn test_load_mcp_config_from_toml() {
         name = "search"
         command = "npx"
         args = ["-y", "@modelcontextprotocol/server-brave-search"]
-        
+
         [servers.env]
         API_KEY = "test"
     "#;

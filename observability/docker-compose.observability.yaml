@@ -1,0 +1,97 @@
+# Docker Compose configuration for Loom Observability Stack
+#
+# This stack includes:
+# - OpenTelemetry Collector: Receives telemetry from Loom Core
+# - Jaeger: Distributed tracing UI
+# - Prometheus: Metrics storage and querying
+# - Grafana: Unified dashboard for metrics and traces
+#
+# Usage:
+#   docker-compose -f docker-compose.observability.yaml up -d
+#
+# Access:
+#   - Jaeger UI: http://localhost:16686
+#   - Prometheus UI: http://localhost:9090
+#   - Grafana: http://localhost:3000 (admin/admin)
+#   - OTel Collector metrics: http://localhost:8888/metrics
+#   - OTel Collector health: http://localhost:13133
+
+services:
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: loom-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Collector metrics
+      - "8889:8889"   # Prometheus metrics exporter
+      - "13133:13133" # Health check
+      - "55679:55679" # zPages
+    networks:
+      - loom-observability
+    restart: unless-stopped
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: loom-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "14250:14250" # gRPC
+    networks:
+      - loom-observability
+    restart: unless-stopped
+
+  # Prometheus for metrics storage
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: loom-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - loom-observability
+    restart: unless-stopped
+
+  # Grafana for unified observability dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: loom-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - loom-observability
+    depends_on:
+      - prometheus
+      - jaeger
+    restart: unless-stopped
+
+networks:
+  loom-observability:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:

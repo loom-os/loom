@@ -1,0 +1,30 @@
+# Grafana datasources provisioning
+apiVersion: 1
+
+datasources:
+  # Prometheus datasource for metrics
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+      exemplarTraceIdDestinations:
+        - name: traceID
+          datasourceUid: jaeger
+
+  # Jaeger datasource for traces
+  - name: Jaeger
+    uid: jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: true
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: prometheus
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'

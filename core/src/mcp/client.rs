@@ -3,7 +3,6 @@
 /// Provides low-level communication with MCP servers via stdio transport.
 /// Supports JSON-RPC 2.0 protocol with proper request/response correlation.
 use super::types::*;
-use crate::LoomError;
 use serde_json::json;
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -11,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex};
 use tokio::time::{timeout, Duration};
 use tracing::{debug, error, info, warn};
 

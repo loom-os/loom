@@ -1,0 +1,115 @@
+# OpenTelemetry Collector Configuration for Loom Dashboard
+#
+# This configuration sets up the OTel Collector to:
+# 1. Receive traces and metrics from Loom Core via OTLP gRPC
+# 2. Export traces to Jaeger for visualization
+# 3. Export metrics to Prometheus
+# 4. Provide health check and telemetry endpoints
+#
+# Usage:
+#   docker run -v $(pwd)/otel-collector-config.yaml:/etc/otel-collector-config.yaml \
+#     -p 4317:4317 -p 4318:4318 -p 8888:8888 -p 8889:8889 -p 13133:13133 \
+#     otel/opentelemetry-collector:latest --config=/etc/otel-collector-config.yaml
+
+receivers:
+  # OTLP receiver for traces and metrics from Loom Core
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Batch processor to reduce network overhead
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # Resource processor to add additional attributes
+  resource:
+    attributes:
+      - key: service.namespace
+        value: loom
+        action: upsert
+      - key: deployment.environment
+        from_attribute: DEPLOYMENT_ENV
+        action: insert
+
+  # Span processor for filtering and sampling (optional)
+  probabilistic_sampler:
+    sampling_percentage: 100.0 # Sample 100% of traces (adjust for production)
+
+exporters:
+  # Jaeger exporter for traces
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # Prometheus exporter for metrics
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: loom
+    const_labels:
+      environment: development
+
+  # Debug exporter for debugging (optional, can be removed in production)
+  debug:
+    verbosity: detailed
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+  # OTLP exporter for forwarding to another collector (optional)
+  # otlp/upstream:
+  #   endpoint: upstream-collector:4317
+  #   tls:
+  #     insecure: true
+
+extensions:
+  # Health check extension
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  # Performance profiler extension
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  # zPages extension for diagnostics
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+
+  pipelines:
+    # Traces pipeline
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, probabilistic_sampler, batch]
+      exporters: [otlp/jaeger, debug]
+
+    # Metrics pipeline
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheus, debug]
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888

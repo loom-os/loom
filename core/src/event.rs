@@ -4,10 +4,18 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, warn, Span};
 
 pub use crate::proto::{Event, QoSLevel};
+
+// OpenTelemetry imports
+use opentelemetry::{
+    global,
+    metrics::{Counter, Histogram, UpDownCounter},
+    KeyValue,
+};
 
 /// Extension trait for Event providing fluent helpers for envelope metadata.
 ///
@@ -100,6 +108,7 @@ pub trait EventHandler: Send + Sync {
 #[derive(Debug, Clone)]
 struct Subscription {
     id: String,
+    #[allow(dead_code)]
     topic: String,
     event_types: Vec<String>,
     qos: QoSLevel,
@@ -122,6 +131,7 @@ pub struct EventBus {
     subscriptions: Arc<DashMap<String, Vec<Subscription>>>,
 
     // Broadcast channel for high priority events
+    #[allow(dead_code)]
     broadcast_tx: broadcast::Sender<Event>,
 
     // Statistics
@@ -129,16 +139,63 @@ pub struct EventBus {
 
     // Backpressure threshold
     backpressure_threshold: usize,
+
+    // OpenTelemetry metrics
+    published_counter: Counter<u64>,
+    delivered_counter: Counter<u64>,
+    dropped_counter: Counter<u64>,
+    backlog_gauge: UpDownCounter<i64>,
+    active_subscriptions_gauge: UpDownCounter<i64>,
+    publish_latency: Histogram<f64>,
 }
 impl EventBus {
     pub async fn new() -> Result<Self> {
         let (broadcast_tx, _) = broadcast::channel(1000);
+
+        // Initialize OpenTelemetry metrics
+        let meter = global::meter("loom.event_bus");
+
+        let published_counter = meter
+            .u64_counter("loom.event_bus.published_total")
+            .with_description("Total number of events published")
+            .init();
+
+        let delivered_counter = meter
+            .u64_counter("loom.event_bus.delivered_total")
+            .with_description("Total number of events delivered to subscribers")
+            .init();
+
+        let dropped_counter = meter
+            .u64_counter("loom.event_bus.dropped_total")
+            .with_description("Total number of events dropped")
+            .init();
+
+        let backlog_gauge = meter
+            .i64_up_down_counter("loom.event_bus.backlog_size")
+            .with_description("Current backlog size per topic")
+            .init();
+
+        let active_subscriptions_gauge = meter
+            .i64_up_down_counter("loom.event_bus.active_subscriptions")
+            .with_description("Number of active subscriptions")
+            .init();
+
+        let publish_latency = meter
+            .f64_histogram("loom.event_bus.publish_latency_ms")
+            .with_description("Event publish latency in milliseconds")
+            .init();
 
         Ok(Self {
             subscriptions: Arc::new(DashMap::new()),
             broadcast_tx,
             stats: Arc::new(DashMap::new()),
             backpressure_threshold: 10_000,
+            published_counter,
+            delivered_counter,
+            dropped_counter,
+            backlog_gauge,
+            active_subscriptions_gauge,
+            publish_latency,
         })
     }
 
@@ -154,8 +211,20 @@ impl EventBus {
     }
 
     /// Publish event to topic
+    #[tracing::instrument(skip(self, event), fields(topic = %topic, event_id = %event.id, event_type = %event.r#type, qos_level = "unknown"))]
     pub async fn publish(&self, topic: &str, event: Event) -> Result<u64> {
+        let start_time = Instant::now();
+
         debug!("Publishing event {} to topic {}", event.id, topic);
+
+        // Record published metric
+        self.published_counter.add(
+            1,
+            &[
+                KeyValue::new("topic", topic.to_string()),
+                KeyValue::new("event_type", event.r#type.clone()),
+            ],
+        );
 
         // Update stats: published and backlog increase
         let mut over_threshold = false;
@@ -166,8 +235,22 @@ impl EventBus {
                 stats.backlog_size
             })
             .unwrap_or(0);
+
+        // Update backlog gauge
+        self.backlog_gauge
+            .add(1, &[KeyValue::new("topic", topic.to_string())]);
+
         if current_backlog >= self.backpressure_threshold {
             over_threshold = true;
+            // Record backpressure event in span
+            Span::current().record("backpressure", true);
+            tracing::warn!(
+                target: "event_bus",
+                topic = %topic,
+                backlog = current_backlog,
+                threshold = self.backpressure_threshold,
+                "Backpressure threshold exceeded"
+            );
         }
 
         // Get subscribers
@@ -215,6 +298,39 @@ impl EventBus {
                 stats.backlog_size = stats.backlog_size.saturating_sub(1);
             });
 
+            // Record metrics
+            if delivered > 0 {
+                self.delivered_counter
+                    .add(delivered, &[KeyValue::new("topic", topic.to_string())]);
+            }
+            if dropped > 0 {
+                let reason = if over_threshold {
+                    "backpressure"
+                } else {
+                    "queue_full"
+                };
+                self.dropped_counter.add(
+                    dropped,
+                    &[
+                        KeyValue::new("topic", topic.to_string()),
+                        KeyValue::new("reason", reason),
+                    ],
+                );
+            }
+
+            // Update backlog gauge (decrement)
+            self.backlog_gauge
+                .add(-1, &[KeyValue::new("topic", topic.to_string())]);
+
+            // Record publish latency
+            let elapsed_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+            self.publish_latency
+                .record(elapsed_ms, &[KeyValue::new("topic", topic.to_string())]);
+
+            Span::current().record("delivered_count", delivered);
+            Span::current().record("dropped_count", dropped);
+            Span::current().record("latency_ms", elapsed_ms);
+
             Ok(delivered)
         } else {
             warn!("No subscriptions for topic: {}", topic);
@@ -222,11 +338,22 @@ impl EventBus {
             self.update_stats(topic, |stats| {
                 stats.backlog_size = stats.backlog_size.saturating_sub(1);
             });
+
+            // Update backlog gauge
+            self.backlog_gauge
+                .add(-1, &[KeyValue::new("topic", topic.to_string())]);
+
+            // Record publish latency even for no subscribers
+            let elapsed_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+            self.publish_latency
+                .record(elapsed_ms, &[KeyValue::new("topic", topic.to_string())]);
+
             Ok(0)
         }
     }
 
     /// Subscribe to topic
+    #[tracing::instrument(skip(self, event_types), fields(topic = %topic, subscription_id, qos = ?qos))]
     pub async fn subscribe(
         &self,
         topic: String,
@@ -234,6 +361,8 @@ impl EventBus {
         qos: QoSLevel,
     ) -> Result<(String, mpsc::Receiver<Event>)> {
         let subscription_id = format!("sub_{}_{}", topic, uuid::Uuid::new_v4());
+        Span::current().record("subscription_id", &subscription_id);
+
         let cap = match qos {
             QoSLevel::QosRealtime => 64,
             QoSLevel::QosBatched => 1024,
@@ -251,12 +380,16 @@ impl EventBus {
 
         self.subscriptions
             .entry(topic.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(subscription);
 
         self.update_stats(&topic, |stats| {
             stats.active_subscriptions += 1;
         });
+
+        // Update active subscriptions gauge
+        self.active_subscriptions_gauge
+            .add(1, &[KeyValue::new("topic", topic.clone())]);
 
         info!(
             "Created subscription {} for topic {}",
@@ -266,14 +399,23 @@ impl EventBus {
     }
 
     /// Unsubscribe from topic
+    #[tracing::instrument(skip(self), fields(subscription_id = %subscription_id))]
     pub async fn unsubscribe(&self, subscription_id: &str) -> Result<()> {
         for mut entry in self.subscriptions.iter_mut() {
             let topic = entry.key().clone();
+            let before_count = entry.value().len();
             entry.value_mut().retain(|sub| sub.id != subscription_id);
+            let after_count = entry.value().len();
 
-            self.update_stats(&topic, |stats| {
-                stats.active_subscriptions = stats.active_subscriptions.saturating_sub(1);
-            });
+            if before_count != after_count {
+                self.update_stats(&topic, |stats| {
+                    stats.active_subscriptions = stats.active_subscriptions.saturating_sub(1);
+                });
+
+                // Update active subscriptions gauge
+                self.active_subscriptions_gauge
+                    .add(-1, &[KeyValue::new("topic", topic)]);
+            }
         }
 
         info!("Unsubscribed {}", subscription_id);
@@ -292,7 +434,7 @@ impl EventBus {
     {
         self.stats
             .entry(topic.to_string())
-            .or_insert_with(EventBusStats::default)
+            .or_default()
             .value_mut()
             .apply(f);
     }
@@ -302,10 +444,7 @@ impl EventBus {
     where
         F: FnOnce(&mut EventBusStats) -> usize,
     {
-        let mut entry = self
-            .stats
-            .entry(topic.to_string())
-            .or_insert_with(EventBusStats::default);
+        let mut entry = self.stats.entry(topic.to_string()).or_default();
         let val = f(entry.value_mut());
         Some(val)
     }

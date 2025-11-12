@@ -20,11 +20,22 @@ use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .with_target(true)
-        .init();
+    // Set OpenTelemetry environment variables (optional - comment out to disable)
+    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317");
+    std::env::set_var("OTEL_SERVICE_NAME", "loom-mcp-example");
+
+    // Initialize telemetry BEFORE creating Loom
+    // This will set up both logging and OpenTelemetry tracing
+    if std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok() {
+        loom_core::telemetry::init_telemetry()
+            .map_err(|e| format!("Failed to initialize telemetry: {}", e))?;
+    } else {
+        // Fallback: just initialize basic tracing if OpenTelemetry is disabled
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .with_target(true)
+            .init();
+    }
 
     info!("Starting Loom with MCP integration example");
 
@@ -45,6 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ],
             env: None,
             cwd: None,
+            protocol_version: None, // Use latest supported version
         },
         // Example 2: Brave Search (requires API key)
         // Uncomment and add your API key to use:
@@ -62,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 env
             }),
             cwd: None,
+            protocol_version: None,
         },
         */
     ];

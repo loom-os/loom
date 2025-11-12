@@ -37,7 +37,7 @@ impl MemoryWriter for InMemoryMemory {
         let line = Self::summarize_event(&event);
         self.store
             .entry(session.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .value_mut()
             .push(line);
         Ok(())

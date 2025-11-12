@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, warn, Span};
 
 use crate::action_broker::ActionBroker;
 use crate::context::{PromptBundle, TokenBudget};
@@ -13,21 +13,23 @@ use crate::{LoomError, Result};
 use super::adapter::promptbundle_to_messages_and_text;
 use super::client::LlmClient;
 
+// OpenTelemetry imports
+use opentelemetry::{
+    global,
+    metrics::{Counter, Histogram},
+    KeyValue,
+};
+
 /// How the model should use tools
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ToolChoice {
     /// Let the model decide whether to call a tool
+    #[default]
     Auto,
     /// Require the model to call a tool at least once
     Required,
     /// Do not expose tools to the model
     None,
-}
-
-impl Default for ToolChoice {
-    fn default() -> Self {
-        ToolChoice::Auto
-    }
 }
 
 /// Orchestrator options controlling tool exposure and refinement
@@ -92,14 +94,68 @@ pub struct ToolOrchestrator {
     llm: Arc<LlmClient>,
     broker: Arc<ActionBroker>,
     pub stats: ToolOrchestratorStats,
+
+    // OpenTelemetry metrics
+    runs_counter: Counter<u64>,
+    tool_calls_counter: Counter<u64>,
+    tool_errors_counter: Counter<u64>,
+    refine_cycles_counter: Counter<u64>,
+    tool_latency: Histogram<f64>,
+    discovery_latency: Histogram<f64>,
+    llm_latency: Histogram<f64>,
 }
 
 impl ToolOrchestrator {
     pub fn new(llm: Arc<LlmClient>, broker: Arc<ActionBroker>) -> Self {
+        // Initialize OpenTelemetry metrics
+        let meter = global::meter("loom.tool_orchestrator");
+
+        let runs_counter = meter
+            .u64_counter("loom.tool_orch.runs_total")
+            .with_description("Total number of orchestrator runs")
+            .init();
+
+        let tool_calls_counter = meter
+            .u64_counter("loom.tool_orch.tool_calls_total")
+            .with_description("Total number of tool calls")
+            .init();
+
+        let tool_errors_counter = meter
+            .u64_counter("loom.tool_orch.tool_errors_total")
+            .with_description("Total number of tool errors")
+            .init();
+
+        let refine_cycles_counter = meter
+            .u64_counter("loom.tool_orch.refine_cycles_total")
+            .with_description("Total number of refine cycles")
+            .init();
+
+        let tool_latency = meter
+            .f64_histogram("loom.tool_orch.tool_latency_ms")
+            .with_description("Tool invocation latency in milliseconds")
+            .init();
+
+        let discovery_latency = meter
+            .f64_histogram("loom.tool_orch.discovery_latency_ms")
+            .with_description("Tool discovery latency in milliseconds")
+            .init();
+
+        let llm_latency = meter
+            .f64_histogram("loom.tool_orch.llm_latency_ms")
+            .with_description("LLM API latency in milliseconds")
+            .init();
+
         Self {
             llm,
             broker,
             stats: ToolOrchestratorStats::default(),
+            runs_counter,
+            tool_calls_counter,
+            tool_errors_counter,
+            refine_cycles_counter,
+            tool_latency,
+            discovery_latency,
+            llm_latency,
         }
     }
 
@@ -107,7 +163,7 @@ impl ToolOrchestrator {
     /// Contract:
     /// - Input: PromptBundle + budget + options
     /// - Output: FinalAnswer (text, tool calls, results)
-    #[tracing::instrument(name = "tool_orchestrator.run", skip(self, bundle), fields(tool_choice = ?options.tool_choice))]
+    #[tracing::instrument(name = "tool_orchestrator.run", skip(self, bundle), fields(tool_choice = ?options.tool_choice, tool_count, refine_enabled = options.refine_on_tool_result))]
     pub async fn run(
         &mut self,
         bundle: &PromptBundle,
@@ -118,11 +174,26 @@ impl ToolOrchestrator {
         let budget = budget.unwrap_or_default();
         self.stats.total_invocations += 1;
 
+        // Record run metric
+        self.runs_counter.add(
+            1,
+            &[KeyValue::new(
+                "tool_choice",
+                format!("{:?}", options.tool_choice),
+            )],
+        );
+
         // Build tools array from capabilities
         let discovery_started = Instant::now();
         let caps = self.broker.list_capabilities();
         let tools = self.build_tools_for_llm(&caps, options.max_tools_exposed);
-        debug!(target="tool_orch", count=%tools.len(), latency_ms=%discovery_started.elapsed().as_millis(), "Tool discovery complete");
+        let discovery_elapsed_ms = discovery_started.elapsed().as_secs_f64() * 1000.0;
+
+        // Record discovery metrics
+        self.discovery_latency.record(discovery_elapsed_ms, &[]);
+        Span::current().record("tool_count", tools.len());
+
+        debug!(target="tool_orch", count=%tools.len(), latency_ms=%discovery_elapsed_ms, "Tool discovery complete");
         let (messages, input_text) = promptbundle_to_messages_and_text(bundle, budget);
 
         // Prefer Responses API; fallback to Chat Completions
@@ -174,16 +245,48 @@ impl ToolOrchestrator {
             let action_call =
                 build_action_call(call, options.per_tool_timeout_ms, correlation_id.clone());
             let res = self.broker.invoke(action_call).await?;
-            let elapsed = started.elapsed().as_millis() as f64;
+            let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+
             // Update counters
             self.stats.total_tool_calls += 1;
-            if (res.status) != (ActionStatus::ActionOk as i32) {
+            let status_str = if (res.status) == (ActionStatus::ActionOk as i32) {
+                "success"
+            } else {
                 self.stats.total_tool_errors += 1;
-            }
+                "error"
+            };
+
             // Welford-like avg update
             let n = self.stats.total_tool_calls as f64;
             self.stats.avg_tool_latency_ms =
                 ((self.stats.avg_tool_latency_ms * (n - 1.0)) + elapsed) / n;
+
+            // Record metrics
+            self.tool_calls_counter.add(
+                1,
+                &[
+                    KeyValue::new("tool_name", call.name.clone()),
+                    KeyValue::new("status", status_str),
+                ],
+            );
+
+            self.tool_latency
+                .record(elapsed, &[KeyValue::new("tool_name", call.name.clone())]);
+
+            if status_str == "error" {
+                let error_code = res
+                    .error
+                    .as_ref()
+                    .map(|e| e.code.clone())
+                    .unwrap_or_else(|| "UNKNOWN".to_string());
+                self.tool_errors_counter.add(
+                    1,
+                    &[
+                        KeyValue::new("tool_name", call.name.clone()),
+                        KeyValue::new("error_code", error_code),
+                    ],
+                );
+            }
 
             info!(target="tool_orch", tool=%call.name, status=%res.status, latency_ms=%elapsed, "Tool invocation finished");
             results.push(res);
@@ -194,7 +297,14 @@ impl ToolOrchestrator {
             let refine_bundle = make_refine_bundle(bundle, &parsed_calls, &results);
             let refine_started = Instant::now();
             let final_resp = self.llm.generate(&refine_bundle, Some(budget)).await?;
-            debug!(target="tool_orch", latency_ms=%refine_started.elapsed().as_millis(), "Refine turn finished");
+            let refine_elapsed_ms = refine_started.elapsed().as_secs_f64() * 1000.0;
+
+            // Record refine cycle metric
+            self.refine_cycles_counter.add(1, &[]);
+            self.llm_latency
+                .record(refine_elapsed_ms, &[KeyValue::new("api_type", "refine")]);
+
+            debug!(target="tool_orch", latency_ms=%refine_elapsed_ms, "Refine turn finished");
             return Ok(FinalAnswer {
                 text: final_resp.text,
                 tool_calls: parsed_calls,
@@ -281,10 +391,9 @@ impl ToolOrchestrator {
                 status, text
             )));
         }
-        Ok(resp
-            .json::<Value>()
+        resp.json::<Value>()
             .await
-            .map_err(|e| LoomError::AgentError(format!("Failed to parse Responses JSON: {e}")))?)
+            .map_err(|e| LoomError::AgentError(format!("Failed to parse Responses JSON: {e}")))
     }
 
     async fn post_chat_with_tools(
@@ -333,10 +442,9 @@ impl ToolOrchestrator {
                 status, text
             )));
         }
-        Ok(resp
-            .json::<Value>()
+        resp.json::<Value>()
             .await
-            .map_err(|e| LoomError::AgentError(format!("Failed to parse Chat JSON: {e}")))?)
+            .map_err(|e| LoomError::AgentError(format!("Failed to parse Chat JSON: {e}")))
     }
 }
 

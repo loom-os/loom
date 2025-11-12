@@ -1,0 +1,165 @@
+{
+  "dashboard": {
+    "title": "Loom Overview",
+    "tags": ["loom", "overview"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Active Agents",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "loom_agent_runtime_agents_active",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }],
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "orientation": "auto",
+          "textMode": "auto",
+          "colorMode": "value",
+          "graphMode": "area"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 10, "color": "yellow"},
+                {"value": 50, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Event Bus Throughput",
+        "type": "graph",
+        "gridPos": {"x": 6, "y": 0, "w": 12, "h": 8},
+        "targets": [{
+          "expr": "rate(loom_event_bus_published_total[5m])",
+          "legendFormat": "Published",
+          "refId": "A"
+        }, {
+          "expr": "rate(loom_event_bus_delivered_total[5m])",
+          "legendFormat": "Delivered",
+          "refId": "B"
+        }, {
+          "expr": "rate(loom_event_bus_dropped_total[5m])",
+          "legendFormat": "Dropped",
+          "refId": "C"
+        }],
+        "yaxes": [{
+          "label": "events/sec",
+          "format": "short"
+        }]
+      },
+      {
+        "id": 3,
+        "title": "MCP Servers",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "loom_mcp_manager_servers_active",
+          "refId": "A"
+        }],
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Action Broker Latency (P50, P90, P99)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [{
+          "expr": "histogram_quantile(0.50, rate(loom_action_broker_invoke_latency_bucket[5m]))",
+          "legendFormat": "P50",
+          "refId": "A"
+        }, {
+          "expr": "histogram_quantile(0.90, rate(loom_action_broker_invoke_latency_bucket[5m]))",
+          "legendFormat": "P90",
+          "refId": "B"
+        }, {
+          "expr": "histogram_quantile(0.99, rate(loom_action_broker_invoke_latency_bucket[5m]))",
+          "legendFormat": "P99",
+          "refId": "C"
+        }],
+        "yaxes": [{
+          "label": "seconds",
+          "format": "s"
+        }]
+      },
+      {
+        "id": 5,
+        "title": "Routing Decisions",
+        "type": "piechart",
+        "gridPos": {"x": 12, "y": 8, "w": 6, "h": 8},
+        "targets": [{
+          "expr": "sum by (route) (loom_router_decisions_total)",
+          "legendFormat": "{{route}}",
+          "refId": "A"
+        }]
+      },
+      {
+        "id": 6,
+        "title": "Tool Invocations by Capability",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 16, "w": 18, "h": 8},
+        "targets": [{
+          "expr": "rate(loom_action_broker_invocations_total[5m])",
+          "legendFormat": "{{capability}}",
+          "refId": "A"
+        }],
+        "yaxes": [{
+          "label": "invocations/sec",
+          "format": "short"
+        }]
+      },
+      {
+        "id": 7,
+        "title": "Error Rate",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 16, "w": 6, "h": 4},
+        "targets": [{
+          "expr": "sum(rate(loom_action_broker_errors_total[5m])) / sum(rate(loom_action_broker_invocations_total[5m]))",
+          "refId": "A"
+        }],
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 0.01, "color": "yellow"},
+                {"value": 0.05, "color": "red"}
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

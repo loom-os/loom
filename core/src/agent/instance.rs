@@ -1,4 +1,7 @@
+use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::KeyValue;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
@@ -20,6 +23,11 @@ pub struct Agent {
     pub(crate) action_broker: Arc<ActionBroker>,
     pub(crate) event_bus: Arc<EventBus>,
     pub(crate) model_router: ModelRouter,
+    // OpenTelemetry metrics
+    events_processed_counter: Counter<u64>,
+    actions_executed_counter: Counter<u64>,
+    event_latency_histogram: Histogram<f64>,
+    routing_decisions_counter: Counter<u64>,
 }
 
 impl Agent {
@@ -39,6 +47,29 @@ impl Agent {
             metadata: config.parameters.clone(),
         };
 
+        // Initialize OpenTelemetry metrics
+        let meter = opentelemetry::global::meter("loom.agent");
+
+        let events_processed_counter = meter
+            .u64_counter("agent.events.processed")
+            .with_description("Number of events processed by agent")
+            .init();
+
+        let actions_executed_counter = meter
+            .u64_counter("agent.actions.executed")
+            .with_description("Number of actions executed by agent")
+            .init();
+
+        let event_latency_histogram = meter
+            .f64_histogram("agent.event.latency")
+            .with_description("Event processing latency in seconds")
+            .init();
+
+        let routing_decisions_counter = meter
+            .u64_counter("agent.routing.decisions")
+            .with_description("Number of routing decisions made")
+            .init();
+
         Self {
             config,
             state: Arc::new(RwLock::new(state)),
@@ -47,10 +78,15 @@ impl Agent {
             action_broker,
             event_bus,
             model_router,
+            events_processed_counter,
+            actions_executed_counter,
+            event_latency_histogram,
+            routing_decisions_counter,
         }
     }
 
     /// Start agent event loop
+    #[tracing::instrument(skip(self), fields(agent_id = %self.config.agent_id))]
     pub async fn run(mut self) -> Result<()> {
         info!("Agent {} starting", self.config.agent_id);
 
@@ -59,6 +95,7 @@ impl Agent {
 
         // Event loop
         while let Some(mut event) = self.event_rx.recv().await {
+            let event_start = Instant::now();
             debug!("Agent {} received event {}", self.config.agent_id, event.id);
 
             // Ensure envelope metadata present; attach defaults if missing
@@ -99,6 +136,17 @@ impl Agent {
                 let mut state = self.state.write().await;
                 state.last_update_ms = chrono::Utc::now().timestamp_millis();
             }
+
+            // Record metrics
+            let elapsed = event_start.elapsed().as_secs_f64();
+            self.events_processed_counter.add(
+                1,
+                &[KeyValue::new("agent_id", self.config.agent_id.clone())],
+            );
+            self.event_latency_histogram.record(
+                elapsed,
+                &[KeyValue::new("agent_id", self.config.agent_id.clone())],
+            );
         }
 
         // Cleanup
@@ -109,6 +157,7 @@ impl Agent {
     }
 
     /// Determine routing for the event, log the decision, and publish an observability event
+    #[tracing::instrument(skip(self, event, state, env), fields(agent_id = %self.config.agent_id, event_id = %event.id))]
     async fn route_event(
         &self,
         event: &Event,
@@ -187,6 +236,15 @@ impl Agent {
             .event_bus
             .publish(&format!("agent.{}", self.config.agent_id), obs_evt)
             .await;
+
+        // Record routing decision metric
+        self.routing_decisions_counter.add(
+            1,
+            &[
+                KeyValue::new("agent_id", self.config.agent_id.clone()),
+                KeyValue::new("route", format!("{:?}", decision.route)),
+            ],
+        );
 
         decision
     }
@@ -296,6 +354,7 @@ impl Agent {
         }
     }
 
+    #[tracing::instrument(skip(self, action), fields(agent_id = %self.config.agent_id, action_type = %action.action_type, priority = action.priority))]
     async fn execute_action(&self, action: Action) -> Result<()> {
         use crate::proto::{ActionCall, ActionStatus, QoSLevel};
         debug!("Executing action: {}", action.action_type);
@@ -372,6 +431,24 @@ impl Agent {
             .event_bus
             .publish(&format!("agent.{}", self.config.agent_id), evt)
             .await;
+
+        // Record action execution metric
+        self.actions_executed_counter.add(
+            1,
+            &[
+                KeyValue::new("agent_id", self.config.agent_id.clone()),
+                KeyValue::new("action_type", action.action_type.clone()),
+                KeyValue::new(
+                    "status",
+                    match res.status {
+                        x if x == ActionStatus::ActionOk as i32 => "ok",
+                        x if x == ActionStatus::ActionTimeout as i32 => "timeout",
+                        x if x == ActionStatus::ActionRetryable as i32 => "retryable",
+                        _ => "error",
+                    },
+                ),
+            ],
+        );
 
         Ok(())
     }

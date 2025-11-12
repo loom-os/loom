@@ -6,28 +6,28 @@ package loom.v1;
 message Event {
   // Unique event ID
   string id = 1;
-  
+
   // Event type (e.g., "video_frame", "audio_chunk", "face_event", "intent")
   string type = 2;
-  
+
   // Timestamp in milliseconds
   int64 timestamp_ms = 3;
-  
+
   // Event source (e.g., "camera.front", "mic.primary")
   string source = 4;
-  
+
   // Metadata key-value pairs
   map<string, string> metadata = 5;
-  
+
   // Payload data
   bytes payload = 6;
-  
+
   // Confidence score (0.0-1.0)
   float confidence = 7;
-  
+
   // Tags
   repeated string tags = 8;
-  
+
   // Priority (0=lowest, 100=highest)
   int32 priority = 9;
 }

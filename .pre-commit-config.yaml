@@ -56,6 +56,10 @@ repos:
     rev: v1.0
     hooks:
       - id: fmt
-        args: ["--manifest-path", "Cargo.toml", "--", "--check"]
+        args: ["--manifest-path", "core/Cargo.toml", "--", "--check"]
+        pass_filenames: false
+        files: "^core/"
       - id: clippy
-        args: ["--manifest-path", "Cargo.toml", "--", "-D", "warnings"]
+        args: ["--manifest-path", "core/Cargo.toml", "--", "-D", "warnings"]
+        pass_filenames: false
+        files: "^core/"

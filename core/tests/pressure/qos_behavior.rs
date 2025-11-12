@@ -77,7 +77,7 @@ pub async fn batched_qos_buffers_without_drop() -> Result<()> {
     // Now consume all
     let mut received = 0;
     while rx.try_recv().is_ok() {
-      received += 1;
+        received += 1;
     }
 
     let stats = bus.get_stats(topic).expect("stats");

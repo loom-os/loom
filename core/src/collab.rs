@@ -344,7 +344,7 @@ impl Collaborator {
         let corr_id = env.correlation_id.clone();
         while out.len() < first_k && Instant::now() < deadline {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            if let Ok(Some(ev)) = timeout(remaining, rx.recv()).await.map(|o| o) {
+            if let Ok(Some(ev)) = timeout(remaining, rx.recv()).await {
                 if ev.metadata.get(keys::CORRELATION_ID) == Some(&corr_id) {
                     out.push(ev);
                 }

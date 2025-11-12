@@ -6,6 +6,8 @@ use super::adapter::McpToolAdapter;
 use super::client::McpClient;
 use super::types::{McpError, McpServerConfig};
 use crate::action_broker::ActionBroker;
+use opentelemetry::metrics::{Counter, UpDownCounter};
+use opentelemetry::KeyValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -23,18 +25,58 @@ pub struct McpManager {
     clients: Arc<RwLock<HashMap<String, Arc<McpClient>>>>,
     /// Reference to ActionBroker for registering capabilities
     broker: Arc<ActionBroker>,
+    // OpenTelemetry metrics
+    servers_active_gauge: UpDownCounter<i64>,
+    servers_connected_counter: Counter<u64>,
+    servers_disconnected_counter: Counter<u64>,
+    tools_registered_counter: Counter<u64>,
+    reconnections_counter: Counter<u64>,
 }
 
 impl McpManager {
     /// Create a new MCP manager
     pub fn new(broker: Arc<ActionBroker>) -> Self {
+        // Initialize OpenTelemetry metrics
+        let meter = opentelemetry::global::meter("loom.mcp_manager");
+
+        let servers_active_gauge = meter
+            .i64_up_down_counter("mcp_manager.servers.active")
+            .with_description("Number of active MCP server connections")
+            .init();
+
+        let servers_connected_counter = meter
+            .u64_counter("mcp_manager.servers.connected")
+            .with_description("Total number of MCP servers connected")
+            .init();
+
+        let servers_disconnected_counter = meter
+            .u64_counter("mcp_manager.servers.disconnected")
+            .with_description("Total number of MCP servers disconnected")
+            .init();
+
+        let tools_registered_counter = meter
+            .u64_counter("mcp_manager.tools.registered")
+            .with_description("Total number of MCP tools registered")
+            .init();
+
+        let reconnections_counter = meter
+            .u64_counter("mcp_manager.reconnections.total")
+            .with_description("Total number of reconnection attempts")
+            .init();
+
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
             broker,
+            servers_active_gauge,
+            servers_connected_counter,
+            servers_disconnected_counter,
+            tools_registered_counter,
+            reconnections_counter,
         }
     }
 
     /// Add and connect to an MCP server
+    #[tracing::instrument(skip(self, config), fields(server = %config.name, protocol_version = %config.protocol_version()))]
     pub async fn add_server(&self, config: McpServerConfig) -> Result<(), McpError> {
         let server_name = config.name.clone();
 
@@ -96,12 +138,21 @@ impl McpManager {
         }
 
         // Store client
-        self.clients.write().await.insert(server_name, client);
+        self.clients
+            .write()
+            .await
+            .insert(server_name.clone(), client);
+
+        // Update metrics
+        self.servers_active_gauge.add(1, &[]);
+        self.servers_connected_counter
+            .add(1, &[KeyValue::new("server", server_name)]);
 
         Ok(())
     }
 
     /// Remove and disconnect from an MCP server
+    #[tracing::instrument(skip(self), fields(server = %server_name))]
     pub async fn remove_server(&self, server_name: &str) -> Result<(), McpError> {
         info!(
             target: "mcp_manager",
@@ -113,6 +164,12 @@ impl McpManager {
 
         if let Some(client) = client {
             client.disconnect().await?;
+
+            // Update metrics
+            self.servers_active_gauge.add(-1, &[]);
+            self.servers_disconnected_counter
+                .add(1, &[KeyValue::new("server", server_name.to_string())]);
+
             info!(
                 target: "mcp_manager",
                 server = %server_name,
@@ -135,6 +192,7 @@ impl McpManager {
     }
 
     /// Register tools from a client with the ActionBroker
+    #[tracing::instrument(skip(self, client), fields(server = %server_name))]
     async fn register_tools(
         &self,
         client: &Arc<McpClient>,
@@ -174,10 +232,17 @@ impl McpManager {
             );
         }
 
+        // Update metrics
+        self.tools_registered_counter.add(
+            registered as u64,
+            &[KeyValue::new("server", server_name.to_string())],
+        );
+
         Ok(registered)
     }
 
     /// Reconnect to a server (useful for error recovery)
+    #[tracing::instrument(skip(self), fields(server = %server_name))]
     pub async fn reconnect_server(&self, server_name: &str) -> Result<(), McpError> {
         info!(
             target: "mcp_manager",
@@ -202,6 +267,10 @@ impl McpManager {
 
         // Re-register tools
         self.register_tools(&client, server_name).await?;
+
+        // Update metrics
+        self.reconnections_counter
+            .add(1, &[KeyValue::new("server", server_name.to_string())]);
 
         info!(
             target: "mcp_manager",

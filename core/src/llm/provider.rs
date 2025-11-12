@@ -4,12 +4,11 @@ use crate::context::TokenBudget;
 use crate::proto::{
     ActionCall, ActionError, ActionResult, ActionStatus, CapabilityDescriptor, ProviderKind,
 };
-use crate::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use super::client::{LlmClient, LlmClientConfig};
+use super::client::LlmClient;
 
 /// Native Action provider that wraps LlmClient
 pub struct LlmGenerateProvider {
@@ -114,7 +113,7 @@ impl CapabilityProvider for LlmGenerateProvider {
         // Allow headers to override config dynamically
         // Keys: model, base_url, temperature, request_timeout_ms
         if !call.headers.is_empty() {
-            let mut cfg = (*self.client).cfg.clone();
+            let mut cfg = self.client.cfg.clone();
             if let Some(v) = call.headers.get("model") {
                 cfg.model = v.clone();
             }

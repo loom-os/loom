@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
+use opentelemetry::metrics::{Counter, UpDownCounter};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -40,6 +41,12 @@ pub struct AgentRuntime {
     event_bus: Arc<EventBus>,
     action_broker: Arc<ActionBroker>,
     model_router: ModelRouter,
+    // OpenTelemetry metrics
+    agents_active_gauge: UpDownCounter<i64>,
+    agents_created_counter: Counter<u64>,
+    agents_deleted_counter: Counter<u64>,
+    subscriptions_counter: Counter<u64>,
+    unsubscriptions_counter: Counter<u64>,
 }
 
 impl AgentRuntime {
@@ -48,11 +55,44 @@ impl AgentRuntime {
         action_broker: Arc<ActionBroker>,
         model_router: ModelRouter,
     ) -> Result<Self> {
+        // Initialize OpenTelemetry metrics
+        let meter = opentelemetry::global::meter("loom.agent_runtime");
+
+        let agents_active_gauge = meter
+            .i64_up_down_counter("agent_runtime.agents.active")
+            .with_description("Number of active agents")
+            .init();
+
+        let agents_created_counter = meter
+            .u64_counter("agent_runtime.agents.created")
+            .with_description("Total number of agents created")
+            .init();
+
+        let agents_deleted_counter = meter
+            .u64_counter("agent_runtime.agents.deleted")
+            .with_description("Total number of agents deleted")
+            .init();
+
+        let subscriptions_counter = meter
+            .u64_counter("agent_runtime.subscriptions.total")
+            .with_description("Total number of topic subscriptions")
+            .init();
+
+        let unsubscriptions_counter = meter
+            .u64_counter("agent_runtime.unsubscriptions.total")
+            .with_description("Total number of topic unsubscriptions")
+            .init();
+
         Ok(Self {
             agents: Arc::new(DashMap::new()),
             event_bus,
             action_broker,
             model_router,
+            agents_active_gauge,
+            agents_created_counter,
+            agents_deleted_counter,
+            subscriptions_counter,
+            unsubscriptions_counter,
         })
     }
 
@@ -79,6 +119,7 @@ impl AgentRuntime {
     }
 
     /// Create and start an Agent
+    #[tracing::instrument(skip(self, behavior), fields(agent_id = %config.agent_id, topic_count = config.subscribed_topics.len()))]
     pub async fn create_agent(
         &self,
         config: AgentConfig,
@@ -162,6 +203,9 @@ impl AgentRuntime {
             }
         });
 
+        // Capture subscription count before moving subscriptions
+        let sub_count = subscriptions.len();
+
         let metadata = AgentMetadata {
             task_handle,
             event_tx,
@@ -169,6 +213,12 @@ impl AgentRuntime {
         };
 
         self.agents.insert(agent_id.clone(), metadata);
+
+        // Update metrics
+        self.agents_active_gauge.add(1, &[]);
+        self.agents_created_counter.add(1, &[]);
+        self.subscriptions_counter.add(sub_count as u64, &[]);
+
         info!(
             "Created agent {} with private reply topic {}",
             agent_id,
@@ -179,8 +229,11 @@ impl AgentRuntime {
     }
 
     /// Delete an Agent
+    #[tracing::instrument(skip(self), fields(agent_id = %agent_id))]
     pub async fn delete_agent(&self, agent_id: &str) -> Result<()> {
         if let Some((_, metadata)) = self.agents.remove(agent_id) {
+            let sub_count = metadata.subscriptions.len();
+
             // Unsubscribe from all topics and abort forwarder tasks
             for entry in metadata.subscriptions.iter() {
                 let sub = entry.value();
@@ -190,6 +243,12 @@ impl AgentRuntime {
 
             // Abort agent task
             metadata.task_handle.abort();
+
+            // Update metrics
+            self.agents_active_gauge.add(-1, &[]);
+            self.agents_deleted_counter.add(1, &[]);
+            self.unsubscriptions_counter.add(sub_count as u64, &[]);
+
             info!("Deleted agent {}", agent_id);
             Ok(())
         } else {
@@ -230,6 +289,7 @@ impl AgentRuntime {
     /// # Ok(())
     /// # }
     /// ```
+    #[tracing::instrument(skip(self), fields(agent_id = %agent_id, topic = %topic))]
     pub async fn subscribe_agent(&self, agent_id: &str, topic: String) -> Result<()> {
         let metadata = self
             .agents
@@ -268,6 +328,9 @@ impl AgentRuntime {
             },
         );
 
+        // Update metrics
+        self.subscriptions_counter.add(1, &[]);
+
         info!("Agent {} subscribed to topic {}", agent_id, topic);
         Ok(())
     }
@@ -302,6 +365,7 @@ impl AgentRuntime {
     /// # Ok(())
     /// # }
     /// ```
+    #[tracing::instrument(skip(self), fields(agent_id = %agent_id, topic = %topic))]
     pub async fn unsubscribe_agent(&self, agent_id: &str, topic: &str) -> Result<()> {
         let metadata = self
             .agents
@@ -325,6 +389,9 @@ impl AgentRuntime {
 
         // Abort forwarder task
         sub.forwarder_handle.abort();
+
+        // Update metrics
+        self.unsubscriptions_counter.add(1, &[]);
 
         info!("Agent {} unsubscribed from topic {}", agent_id, topic);
         Ok(())
