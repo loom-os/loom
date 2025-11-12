@@ -9,22 +9,23 @@ imports like ``from loom.proto import bridge_pb2`` keep working.
 """
 
 from importlib import import_module
+
 from . import generated as _generated  # type: ignore
 
 _NAMES = [
-	"bridge_pb2",
-	"bridge_pb2_grpc",
-	"event_pb2",
-	"action_pb2",
-	"agent_pb2",
-	"plugin_pb2",
+    "bridge_pb2",
+    "bridge_pb2_grpc",
+    "event_pb2",
+    "action_pb2",
+    "agent_pb2",
+    "plugin_pb2",
 ]
 
 for _name in _NAMES:
-	try:
-		globals()[_name] = import_module(f"loom.proto.generated.{_name}")
-	except Exception:
-		# Modules may not exist yet if user hasn't generated them; remain lazy.
-		pass
+    try:
+        globals()[_name] = import_module(f"loom.proto.generated.{_name}")
+    except Exception:
+        # Modules may not exist yet if user hasn't generated them; remain lazy.
+        pass
 
 __all__ = _NAMES

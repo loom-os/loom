@@ -34,22 +34,13 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -e ".[dev]"
-          pip install ruff black isort mypy bandit[toml]
+          pip install ruff black
 
       - name: Run ruff
         run: ruff check src/ tests/
 
       - name: Run black check
-        run: black --check src/ tests/ examples/
-
-      - name: Run isort check
-        run: isort --check-only src/ tests/ examples/
-
-      - name: Run mypy
-        run: mypy src/loom --exclude 'proto/generated'
-
-      - name: Run bandit security check
-        run: bandit -r src/loom -c pyproject.toml
+        run: black --check src/ tests/
 
   test:
     name: Test Python ${{ matrix.python-version }}

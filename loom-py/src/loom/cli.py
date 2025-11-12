@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import argparse
 import os
 import shutil
@@ -20,6 +21,7 @@ def _pick_free_port() -> int:
 def cmd_proto(args):
     """Generate gRPC stubs into proto/generated/ (dev workflow)."""
     from .proto import generate  # type: ignore
+
     generate.main()
 
 
@@ -50,7 +52,7 @@ def cmd_dev(args):
             proc.kill()
 
 
-TEMPLATE_AGENT = '''from loom import Agent, capability
+TEMPLATE_AGENT = """from loom import Agent, capability
 import asyncio
 
 @capability("hello.echo", version="1.0")
@@ -65,12 +67,12 @@ agent = Agent("py-agent", topics=["topic.hello"], capabilities=[echo], on_event=
 
 if __name__ == "__main__":
     agent.run()
-'''.strip()
+""".strip()
 
-TEMPLATE_CONFIG = '''# loom project config
+TEMPLATE_CONFIG = """# loom project config
 topics = ["topic.hello"]
 # future options: managed_endpoint = "bridge.loomcloud.dev:443"
-'''.strip()
+""".strip()
 
 
 def cmd_init(args):
@@ -115,7 +117,7 @@ def _toml_format_value(v):
     if isinstance(v, (int, float)):
         return str(v)
     if isinstance(v, str):
-        esc = v.replace("\\", "\\\\").replace("\"", "\\\"")
+        esc = v.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{esc}"'
     if isinstance(v, (list, tuple)):
         return "[" + ", ".join(_toml_format_value(x) for x in v) + "]"
@@ -161,6 +163,7 @@ def cmd_up(args):
     Tries to start cached binary; if missing, attempts local dev build copy.
     """
     from . import embedded
+
     version = args.version
     port = _pick_free_port()
     address = f"127.0.0.1:{port}"

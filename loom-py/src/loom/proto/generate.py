@@ -5,9 +5,11 @@ Usage:
 
 Requires `grpcio-tools`.
 """
-from pathlib import Path
+
 import subprocess
 import sys
+from pathlib import Path
+
 
 # Attempt to locate repository root dynamically by searching upward for 'loom-proto' directory.
 def _find_repo_root(start: Path) -> Path:
@@ -19,6 +21,7 @@ def _find_repo_root(start: Path) -> Path:
             break
         cur = cur.parent
     raise RuntimeError("Could not locate repository root containing 'loom-proto/proto'")
+
 
 REPO_ROOT = _find_repo_root(Path(__file__).resolve())
 PROTO_SRC = REPO_ROOT / "loom-proto" / "proto"
@@ -32,6 +35,7 @@ FILES = [
     "agent.proto",
     "plugin.proto",
 ]
+
 
 def main():
     if not PROTO_SRC.exists():
@@ -59,7 +63,11 @@ def main():
                     target = parts[1]
                     line = f"from . import {target}"
             # Add alias expected by grpc python plugin (action__pb2, bridge__pb2, etc.)
-            if line.startswith("from . import ") and line.strip().endswith("_pb2") and " as " not in line:
+            if (
+                line.startswith("from . import ")
+                and line.strip().endswith("_pb2")
+                and " as " not in line
+            ):
                 mod = line.strip().split()[-1]
                 alias = mod.replace("_pb2", "__pb2")
                 line = f"from . import {mod} as {alias}"
@@ -68,6 +76,7 @@ def main():
         if patched != text:
             py.write_text(patched)
     print("Done.")
+
 
 if __name__ == "__main__":
     main()

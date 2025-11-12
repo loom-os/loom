@@ -1,6 +1,8 @@
 from __future__ import annotations
-from typing import Any, Dict
+
 from collections import defaultdict
+from typing import Any, Dict
+
 
 class InMemoryStore:
     """Simple thread-scoped key-value memory (MVP).
@@ -18,6 +20,7 @@ class InMemoryStore:
 
     def thread(self, thread_id: str) -> Dict[str, Any]:
         return self._data[thread_id]
+
 
 _memory = InMemoryStore()
 
