@@ -12,7 +12,8 @@ functions can remain provider-agnostic. The design goals:
 
 Future: integrate tool calling, function calling, reasoning, multi-turn state.
 """
-from .base import Provider, ChatMessage, ChatRequest, ChatResponse, Usage
+
+from .base import ChatMessage, ChatRequest, ChatResponse, Provider, Usage
 from .openai import OpenAIProvider
 
 __all__ = [

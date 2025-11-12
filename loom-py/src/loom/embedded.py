@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import os
 import platform
 import shutil
@@ -6,7 +7,6 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 from platformdirs import user_cache_dir
 

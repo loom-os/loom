@@ -1,11 +1,21 @@
 from __future__ import annotations
-from typing import Any, Callable, Optional
-from pydantic import BaseModel, create_model
-import json
+
 import inspect
+import json
+from typing import Any, Callable, Optional
+
+from pydantic import BaseModel, create_model
+
 
 class Capability:
-    def __init__(self, name: str, version: str, func: Callable[..., Any], input_model: Optional[type[BaseModel]], output_model: Optional[type[BaseModel]]):
+    def __init__(
+        self,
+        name: str,
+        version: str,
+        func: Callable[..., Any],
+        input_model: Optional[type[BaseModel]],
+        output_model: Optional[type[BaseModel]],
+    ):
         self.name = name
         self.version = version
         self.func = func
@@ -17,13 +27,19 @@ class Capability:
         meta: dict[str, str] = {}
         if self.input_model:
             # Use model_json_schema() to get dict, then dump for portability
-            meta["input_schema"] = json.dumps(self.input_model.model_json_schema(), separators=(",", ":"))
+            meta["input_schema"] = json.dumps(
+                self.input_model.model_json_schema(), separators=(",", ":")
+            )
         if self.output_model:
-            meta["output_schema"] = json.dumps(self.output_model.model_json_schema(), separators=(",", ":"))
+            meta["output_schema"] = json.dumps(
+                self.output_model.model_json_schema(), separators=(",", ":")
+            )
         return meta
 
 
-def _model_from_signature(func: Callable[..., Any]) -> tuple[Optional[type[BaseModel]], Optional[type[BaseModel]]]:
+def _model_from_signature(
+    func: Callable[..., Any],
+) -> tuple[Optional[type[BaseModel]], Optional[type[BaseModel]]]:
     sig = inspect.signature(func)
     fields = {}
     for name, param in sig.parameters.items():
@@ -56,11 +72,20 @@ def capability(name: str, version: str = "1.0"):
         @capability("web.search", version="1.0")
         def web_search(query: str) -> dict: ...
     """
+
     def wrapper(func: Callable[..., Any]):
         input_model, output_model = _model_from_signature(func)
-        cap = Capability(name=name, version=version, func=func, input_model=input_model, output_model=output_model)
-        setattr(func, "__loom_capability__", cap)
+        cap = Capability(
+            name=name,
+            version=version,
+            func=func,
+            input_model=input_model,
+            output_model=output_model,
+        )
+        func.__loom_capability__ = cap
         return func
+
     return wrapper
+
 
 __all__ = ["Capability", "capability"]

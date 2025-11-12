@@ -1,14 +1,15 @@
 from __future__ import annotations
+
 import asyncio
 import json
 import uuid
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
-from .client import BridgeClient, pb_bridge, pb_action, pb_event
+from .client import BridgeClient, pb_action, pb_bridge, pb_event
 from .envelope import Envelope
-from .memory import _memory
 
 EventHandler = Callable[["Context", str, Envelope], Awaitable[None]]
+
 
 class Context:
     def __init__(self, agent_id: str, client: BridgeClient):
@@ -17,14 +18,18 @@ class Context:
         self._pending: Dict[str, asyncio.Future[Envelope]] = {}
 
     # Event API
-    async def emit(self, topic: str, *, type: str, payload: bytes = b"", envelope: Optional[Envelope] = None) -> None:
+    async def emit(
+        self, topic: str, *, type: str, payload: bytes = b"", envelope: Optional[Envelope] = None
+    ) -> None:
         env = envelope or Envelope.new(type=type, payload=payload, sender=self.agent_id)
         ev = env.to_proto(pb_event.Event)
         msg = pb_bridge.ClientEvent(publish=pb_bridge.Publish(topic=topic, event=ev))
         # Send via stream producer (in Agent)
         await self._send(msg)
 
-    async def request(self, topic: str, *, type: str, payload: bytes = b"", timeout_ms: int = 5000) -> Envelope:
+    async def request(
+        self, topic: str, *, type: str, payload: bytes = b"", timeout_ms: int = 5000
+    ) -> Envelope:
         # Create correlation id and wait for a matching reply
         env = Envelope.new(type=type, payload=payload, sender=self.agent_id)
         env.correlation_id = env.id
@@ -48,7 +53,9 @@ class Context:
         )
         await self.emit(thread_topic, type=env.type, payload=env.payload, envelope=env)
 
-    async def tool(self, name: str, *, version: str = "1.0", payload: Any = None, timeout_ms: int = 5000) -> bytes:
+    async def tool(
+        self, name: str, *, version: str = "1.0", payload: Any = None, timeout_ms: int = 5000
+    ) -> bytes:
         data = payload
         if payload is not None and not isinstance(payload, (bytes, bytearray)):
             data = json.dumps(payload).encode("utf-8")
@@ -96,5 +103,6 @@ class Context:
             fut = self._pending[cid]
             if not fut.done():
                 fut.set_result(env)
+
 
 __all__ = ["Context"]
