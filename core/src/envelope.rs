@@ -53,7 +53,7 @@ pub enum ThreadTopicKind {
 /// # Examples
 ///
 /// ```
-/// use loom_core::envelope::agent_reply_topic;
+/// use loom_core::agent_reply_topic;
 ///
 /// let topic = agent_reply_topic("worker-1");
 /// assert_eq!(topic, "agent.worker-1.replies");
@@ -505,7 +505,7 @@ impl Envelope {
     pub fn agent_reply_topic(&self) -> String {
         // Extract agent ID from sender (format: "agent.{id}")
         if let Some(agent_id) = self.sender.strip_prefix("agent.") {
-            super::envelope::agent_reply_topic(agent_id)
+            agent_reply_topic(agent_id)
         } else {
             String::new()
         }
@@ -540,7 +540,7 @@ impl Envelope {
         let reply_to_agent = reply_to_agent.into();
 
         Self {
-            reply_to: super::envelope::agent_reply_topic(&reply_to_agent),
+            reply_to: agent_reply_topic(&reply_to_agent),
             thread_id: thread_id.clone(),
             correlation_id: thread_id,
             sender,
