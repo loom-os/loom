@@ -1,24 +1,59 @@
-# Loom Python SDK (MVP)
+# Loom Python SDK
 
-Build event-driven multi-agent systems in Python and talk to Loom Core over gRPC.
+[![PyPI](https://img.shields.io/pypi/v/loom.svg)](https://pypi.org/project/loom/)
+[![Python Version](https://img.shields.io/pypi/pyversions/loom.svg)](https://pypi.org/project/loom/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![CI](https://github.com/loom-os/loom/workflows/Loom%20Python%20SDK%20CI/badge.svg)](https://github.com/loom-os/loom/actions)
 
-Status: MVP for Roadmap P0. Expect breaking changes until 0.1.0.
+Build event-driven multi-agent systems in Python and connect to Loom Core over gRPC.
+
+**Status**: Alpha (0.1.0a1) - Expect breaking changes until 0.1.0 stable release.
 
 ## Install
 
-From source (until a PyPI release is published):
+### From PyPI (Recommended)
 
 ```bash
-pip install -e ./loom-py
-# Stubs are not required at runtime: wheels on PyPI will include them.
-# When working from the monorepo, you can optionally generate stubs for local edits:
-#   pip install 'loom[dev]'
-#   loom proto
+pip install loom
 ```
 
-Planned: `pip install loom` once published to PyPI.
+### From Source
 
-## Quickstart
+```bash
+git clone https://github.com/loom-os/loom.git
+cd loom/loom-py
+pip install -e .
+```
+
+### Development Mode
+
+```bash
+pip install -e ".[dev]"
+```
+
+## Quick Start
+
+### 1. Start Bridge Server
+
+The Bridge server enables communication between Python agents and Loom Core:
+
+```bash
+# Option 1: Auto-download and run (coming soon)
+loom up
+
+# Option 2: Build from source
+git clone https://github.com/loom-os/loom.git
+cd loom
+cargo run -p loom-bridge --bin loom-bridge-server
+```
+
+Or connect to a remote bridge:
+
+```bash
+export LOOM_BRIDGE_ADDR="bridge.example.com:50051"
+```
+
+### 2. Create Your First Agent
 
 ```python
 from loom import Agent, capability
@@ -42,29 +77,71 @@ if __name__ == "__main__":
     agent.run()
 ```
 
-## Local developer workflow
+### 3. Run Your Agent
 
-- Start a local bridge:
-  - `loom up` (embedded mode: download/cache or reuse a local build into ~/.cache/loom/bin)
-  - or `loom dev` (from source via cargo)
-- Scaffold a new agent: `loom new my-agent && cd my-agent && python agent.py`
+```bash
+python my_agent.py
+```
 
-In production or CI, you can point the SDK at a managed bridge via `LOOM_BRIDGE_ADDR` or a config file; SDK defaults to `127.0.0.1:50051` if unset.
+## What's Included
 
-## Features
+✅ **Core Features** (v0.1.0a1):
 
-- Agent: register, stream events, graceful shutdown
-- Context API: emit/request/reply/tool/memory/join_thread (MVP: emit/reply/tool; request/join_thread simplified)
-- Capability decorator: register Python functions with JSON Schema metadata
-- Unified envelope: thread_id/correlation_id/sender/reply_to/ttl_ms encoded in Event.metadata
+- Agent lifecycle management
+- Event pub/sub via Bridge
+- Capability system with auto schema generation
+- Context API (emit, reply, tool invocation)
+- Envelope for correlation and threading
 
-See `examples/` for a minimal Planner→Researcher→Writer trio.
+🚧 **Coming Soon**:
 
-## Design overview
+- Request/reply with timeout
+- Memory backends
+- Dynamic subscriptions
+- Streaming responses
 
-- Transport: gRPC Bridge (`RegisterAgent`, `EventStream` with Ack handshake, `ForwardAction`, `Heartbeat`).
-- Agent: owns connection lifecycle and the streaming loop; dispatches `Delivery` to a user `on_event`, and executes `action_call` against registered capabilities.
-- Context: event primitives (`emit`, `reply`, basic `request`), tool invocations, and lightweight in-process memory; unified envelope encodes thread/correlation metadata in `Event.metadata`.
-- Capabilities: declared via `@capability`; input schema is derived from function signature using Pydantic and registered in capability metadata.
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
-More details in `FUTURE.md` and inline docstrings.
+## Documentation
+
+- [SDK Guide](docs/SDK_GUIDE.md) - Complete API reference and tutorials
+- [Examples](examples/) - Working code samples
+- [DESIGN.md](DESIGN.md) - Architecture and design decisions
+- [FUTURE.md](FUTURE.md) - Roadmap and planned features
+
+## Requirements
+
+- Python 3.9+
+- Loom Bridge server (local or remote)
+
+## Development
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Generate proto files
+python -m loom.proto.generate
+
+# Run tests
+pytest
+
+# Format code
+black src/ tests/
+ruff check src/ tests/
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) in the main repository.
+
+## License
+
+Apache License 2.0 - See [LICENSE](LICENSE)
+
+## Links
+
+- [Main Repository](https://github.com/loom-os/loom)
+- [Documentation](https://github.com/loom-os/loom/tree/main/docs)
+- [PyPI Package](https://pypi.org/project/loom/)
+- [Issue Tracker](https://github.com/loom-os/loom/issues)
