@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Loom Dashboard - Event Flow</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        overflow: hidden;
+      }
+
+      .container {
+        display: grid;
+        grid-template-columns: 350px 1fr;
+        grid-template-rows: 60px 1fr;
+        height: 100vh;
+        gap: 1px;
+        background: #1e293b;
+      }
+
+      header {
+        grid-column: 1 / -1;
+        background: #1e293b;
+        padding: 0 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid #334155;
+      }
+
+      h1 {
+        font-size: 20px;
+        font-weight: 600;
+        color: #f1f5f9;
+      }
+
+      .logo {
+        color: #3b82f6;
+        margin-right: 12px;
+      }
+
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        font-size: 13px;
+        color: #94a3b8;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #10b981;
+        animation: pulse 2s infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      .sidebar {
+        background: #1e293b;
+        padding: 16px;
+        overflow-y: auto;
+        border-right: 1px solid #334155;
+      }
+
+      .main-content {
+        background: #0f172a;
+        padding: 16px;
+        overflow-y: auto;
+      }
+
+      .section-title {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #64748b;
+        margin-bottom: 12px;
+      }
+
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+
+      .metric-card {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 12px;
+      }
+
+      .metric-label {
+        font-size: 11px;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+
+      .metric-value {
+        font-size: 24px;
+        font-weight: 600;
+        color: #f1f5f9;
+      }
+
+      .filters {
+        margin-bottom: 24px;
+      }
+
+      .filter-input {
+        width: 100%;
+        padding: 8px 12px;
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        color: #e2e8f0;
+        font-size: 13px;
+        margin-bottom: 8px;
+      }
+
+      .filter-input:focus {
+        outline: none;
+        border-color: #3b82f6;
+      }
+
+      .topology {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        height: 250px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #64748b;
+        font-size: 13px;
+      }
+
+      .event-stream {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 16px;
+        height: calc(100vh - 120px);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .stream-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #334155;
+      }
+
+      .stream-controls {
+        display: flex;
+        gap: 8px;
+      }
+
+      .btn {
+        padding: 6px 12px;
+        background: #334155;
+        border: 1px solid #475569;
+        border-radius: 6px;
+        color: #e2e8f0;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .btn:hover {
+        background: #475569;
+      }
+
+      .btn.active {
+        background: #3b82f6;
+        border-color: #3b82f6;
+      }
+
+      .events-list {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .event-item {
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 12px;
+        font-size: 13px;
+        transition: border-color 0.3s;
+      }
+
+      .event-item:hover {
+        border-color: #475569;
+      }
+
+      .event-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+
+      .event-topic {
+        font-weight: 600;
+        color: #3b82f6;
+        font-family: "Courier New", monospace;
+      }
+
+      .event-time {
+        font-size: 11px;
+        color: #64748b;
+      }
+
+      .event-meta {
+        display: flex;
+        gap: 16px;
+        font-size: 11px;
+        color: #94a3b8;
+        margin-bottom: 8px;
+      }
+
+      .event-meta-item {
+        display: flex;
+        gap: 4px;
+      }
+
+      .event-meta-label {
+        color: #64748b;
+      }
+
+      .event-payload {
+        font-family: "Courier New", monospace;
+        font-size: 12px;
+        color: #cbd5e1;
+        background: #1e293b;
+        padding: 8px;
+        border-radius: 4px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+      }
+
+      .event-type-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+
+      .event-type-event_published {
+        background: #3b82f620;
+        color: #3b82f6;
+      }
+
+      .event-type-event_delivered {
+        background: #10b98120;
+        color: #10b981;
+      }
+
+      .event-type-agent_registered {
+        background: #8b5cf620;
+        color: #8b5cf6;
+      }
+
+      .event-type-tool_invoked {
+        background: #f59e0b20;
+        color: #f59e0b;
+      }
+
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+
+      ::-webkit-scrollbar-track {
+        background: #1e293b;
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background: #334155;
+        border-radius: 4px;
+      }
+
+      ::-webkit-scrollbar-thumb:hover {
+        background: #475569;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1><span class="logo">◉</span> Loom Dashboard</h1>
+        <div class="status">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <div class="status-dot"></div>
+            <span id="connectionStatus">Connected</span>
+          </div>
+          <span id="eventCounter">0 events</span>
+        </div>
+      </header>
+
+      <aside class="sidebar">
+        <div class="section-title">Metrics</div>
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-label">Events/sec</div>
+            <div class="metric-value" id="eventsPerSec">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Active Agents</div>
+            <div class="metric-value" id="activeAgents">0</div>
+          </div>
+        </div>
+
+        <div class="section-title">Filters</div>
+        <div class="filters">
+          <input
+            type="text"
+            class="filter-input"
+            id="filterThreadId"
+            placeholder="Filter by thread_id"
+          />
+          <input
+            type="text"
+            class="filter-input"
+            id="filterTopic"
+            placeholder="Filter by topic"
+          />
+          <input
+            type="text"
+            class="filter-input"
+            id="filterSender"
+            placeholder="Filter by sender"
+          />
+        </div>
+
+        <div class="section-title">Agent Topology</div>
+        <div class="topology" id="topology">Loading topology...</div>
+      </aside>
+
+      <main class="main-content">
+        <div class="event-stream">
+          <div class="stream-header">
+            <div class="section-title" style="margin: 0">Event Stream</div>
+            <div class="stream-controls">
+              <button class="btn active" id="btnAutoScroll">Auto-scroll</button>
+              <button class="btn" id="btnClear">Clear</button>
+            </div>
+          </div>
+          <div class="events-list" id="eventsList">
+            <div style="text-align: center; color: #64748b; padding: 32px">
+              Waiting for events...
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      // State
+      let eventCount = 0;
+      let autoScroll = true;
+      let eventSource = null;
+      let filters = {
+        threadId: "",
+        topic: "",
+        sender: "",
+      };
+
+      // DOM elements
+      const eventsList = document.getElementById("eventsList");
+      const eventCounter = document.getElementById("eventCounter");
+      const connectionStatus = document.getElementById("connectionStatus");
+      const btnAutoScroll = document.getElementById("btnAutoScroll");
+      const btnClear = document.getElementById("btnClear");
+
+      // Initialize SSE connection
+      function connectEventStream() {
+        eventSource = new EventSource("/api/events/stream");
+
+        eventSource.onopen = () => {
+          connectionStatus.textContent = "Connected";
+          console.log("SSE connected");
+        };
+
+        eventSource.onmessage = (event) => {
+          try {
+            const dashboardEvent = JSON.parse(event.data);
+            addEvent(dashboardEvent);
+          } catch (e) {
+            console.error("Failed to parse event:", e);
+          }
+        };
+
+        eventSource.onerror = () => {
+          connectionStatus.textContent = "Disconnected";
+          console.error("SSE connection error");
+          // Reconnect after 3 seconds
+          setTimeout(connectEventStream, 3000);
+        };
+      }
+
+      // Add event to the list
+      function addEvent(event) {
+        // Apply filters
+        if (
+          filters.threadId &&
+          (!event.thread_id || !event.thread_id.includes(filters.threadId))
+        ) {
+          return;
+        }
+        if (filters.topic && !event.topic.includes(filters.topic)) {
+          return;
+        }
+        if (
+          filters.sender &&
+          (!event.sender || !event.sender.includes(filters.sender))
+        ) {
+          return;
+        }
+
+        eventCount++;
+        eventCounter.textContent = `${eventCount} events`;
+
+        // Clear placeholder
+        if (
+          eventsList.children.length === 1 &&
+          eventsList.children[0].textContent.includes("Waiting")
+        ) {
+          eventsList.innerHTML = "";
+        }
+
+        const eventItem = document.createElement("div");
+        eventItem.className = "event-item";
+
+        const time = new Date(event.timestamp).toLocaleTimeString();
+        const eventType = event.event_type;
+
+        eventItem.innerHTML = `
+                <div class="event-header">
+                    <span class="event-topic">${escapeHtml(event.topic)}</span>
+                    <span class="event-time">${time}</span>
+                </div>
+                <div class="event-meta">
+                    <span class="event-type-badge event-type-${eventType}">${eventType}</span>
+                    ${
+                      event.sender
+                        ? `<div class="event-meta-item"><span class="event-meta-label">sender:</span>${escapeHtml(
+                            event.sender
+                          )}</div>`
+                        : ""
+                    }
+                    ${
+                      event.thread_id
+                        ? `<div class="event-meta-item"><span class="event-meta-label">thread:</span>${escapeHtml(
+                            event.thread_id
+                          )}</div>`
+                        : ""
+                    }
+                    ${
+                      event.correlation_id
+                        ? `<div class="event-meta-item"><span class="event-meta-label">corr:</span>${escapeHtml(
+                            event.correlation_id.substring(0, 8)
+                          )}...</div>`
+                        : ""
+                    }
+                </div>
+                <div class="event-payload">${escapeHtml(
+                  event.payload_preview
+                )}</div>
+            `;
+
+        eventsList.appendChild(eventItem);
+
+        // Keep only last 100 events
+        if (eventsList.children.length > 100) {
+          eventsList.removeChild(eventsList.firstChild);
+        }
+
+        // Auto-scroll
+        if (autoScroll) {
+          eventsList.scrollTop = eventsList.scrollHeight;
+        }
+      }
+
+      // Escape HTML
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      // Auto-scroll toggle
+      btnAutoScroll.addEventListener("click", () => {
+        autoScroll = !autoScroll;
+        btnAutoScroll.classList.toggle("active", autoScroll);
+        btnAutoScroll.textContent = autoScroll ? "Auto-scroll" : "Paused";
+      });
+
+      // Clear events
+      btnClear.addEventListener("click", () => {
+        eventsList.innerHTML =
+          '<div style="text-align: center; color: #64748b; padding: 32px;">Waiting for events...</div>';
+        eventCount = 0;
+        eventCounter.textContent = "0 events";
+      });
+
+      // Filter inputs
+      document
+        .getElementById("filterThreadId")
+        .addEventListener("input", (e) => {
+          filters.threadId = e.target.value;
+        });
+      document.getElementById("filterTopic").addEventListener("input", (e) => {
+        filters.topic = e.target.value;
+      });
+      document.getElementById("filterSender").addEventListener("input", (e) => {
+        filters.sender = e.target.value;
+      });
+
+      // Load topology
+      async function loadTopology() {
+        try {
+          const response = await fetch("/api/topology");
+          const topology = await response.json();
+
+          const topologyDiv = document.getElementById("topology");
+          const agentCount = topology.agents.length;
+
+          if (agentCount === 0) {
+            topologyDiv.textContent = "No agents registered";
+          } else {
+            topologyDiv.innerHTML = `
+                        <div>
+                            <div style="font-size: 32px; font-weight: 600; color: #3b82f6;">${agentCount}</div>
+                            <div style="margin-top: 8px;">Agents registered</div>
+                            <div style="margin-top: 12px; font-size: 11px;">
+                                ${topology.agents
+                                  .map(
+                                    (a) =>
+                                      `<div style="margin: 4px 0; color: #94a3b8;">${escapeHtml(
+                                        a.id
+                                      )}</div>`
+                                  )
+                                  .join("")}
+                            </div>
+                        </div>
+                    `;
+          }
+
+          document.getElementById("activeAgents").textContent = agentCount;
+        } catch (e) {
+          console.error("Failed to load topology:", e);
+        }
+      }
+
+      // Load metrics
+      async function loadMetrics() {
+        try {
+          const response = await fetch("/api/metrics");
+          const metrics = await response.json();
+          document.getElementById("eventsPerSec").textContent =
+            metrics.events_per_sec;
+        } catch (e) {
+          console.error("Failed to load metrics:", e);
+        }
+      }
+
+      // Initialize
+      connectEventStream();
+      loadTopology();
+      setInterval(loadTopology, 5000); // Refresh topology every 5s
+      setInterval(loadMetrics, 1000); // Refresh metrics every 1s
+    </script>
+  </body>
+</html>

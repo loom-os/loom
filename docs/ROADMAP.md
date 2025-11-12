@@ -59,19 +59,67 @@ Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researc
 
 ### 🚧 In Progress / Pending in P0
 
-6. **JS SDK MVP (loom‑js)** — 🚧 TODO
+6. **OpenTelemetry Integration** — ✅ COMPLETE (feat/otpl branch)
+
+   - OTLP gRPC exporter (traces + metrics) → Jaeger + Prometheus
+   - One-command Observability Stack (docker-compose)
+   - Core instrumentation: EventBus, ActionBroker, Router, ToolOrchestrator, Agent Runtime, MCP Manager
+   - Comprehensive metrics (60+ metrics exported)
+   - Basic Grafana dashboard with throughput, latency, routing, tool invocations
+   - Complete documentation (QUICKSTART, METRICS reference)
+   - **Validated**: Jaeger shows full trace chains, Prometheus collects all metrics
+
+7. **Dashboard MVP (Event Flow Focus)** — ✅ BASIC VERSION COMPLETE (feat/otpl branch)
+
+   **Goal**: Visualize real-time event flow across multi-agent systems, regardless of application design
+
+   **Implemented (MVP v0.1)**:
+
+   - ✅ **Real-time Event Stream (SSE)**
+     - Server-Sent Events API (`/api/events/stream`)
+     - Display: timestamp, event_id, topic, sender, thread_id, correlation_id, payload preview
+     - Real-time filtering by thread_id/topic/sender
+     - Pause/resume auto-scroll, keep last 100 events
+   - ✅ **Agent Topology (Basic)**
+     - Show registered agents and their subscribed topics
+     - Auto-refresh every 5 seconds
+   - ✅ **Key Metrics Cards**
+     - Events/sec, Active Agents
+     - REST APIs: `/api/topology`, `/api/metrics`
+   - ✅ **Zero-build Frontend**
+     - Pure HTML/CSS/JS, dark theme, responsive design
+   - ✅ **EventBus Integration**
+     - EventBroadcaster (tokio broadcast channel)
+     - Dashboard events pushed on every EventBus.publish()
+   - ✅ **Example & Documentation**
+     - `dashboard_demo.rs` - simple demo
+     - `core/src/dashboard/README.md` - usage guide
+
+   **Still TODO for full MVP**:
+
+   - 🚧 D3.js force-directed topology graph (currently list-only)
+   - 🚧 Thread timeline / Gantt chart view
+   - 🚧 Prometheus metrics integration (placeholder API now)
+   - 🚧 Event detail modal and search
+   - 🚧 Export event log to JSON
+
+   **Quick Start**:
+
+   ```bash
+   cd core
+   export LOOM_DASHBOARD_PORT=3030
+   cargo run --example dashboard_demo
+   # Open http://localhost:3030 in browser
+   ```
+
+   **Next steps**: Test integration with trio.py, add D3.js visualization
+
+8. **JS SDK MVP (loom‑js)** — 🚧 TODO
 
    - defineAgent(handler), ctx.emit/request/reply/tool
    - Similar API surface to loom-py for consistency
 
-7. **Dashboard MVP** — 🚧 TODO
-
-   - Nodes and edges (Agents, Topics, Tool invocations)
-   - Swimlane of last N events (by thread_id)
-   - Metric cards: published/delivered/dropped, tool_calls_total, latency stats
-   - Technology choice: Web-based (React/Vue + WebSocket) or terminal UI (Ratatui)
-
-8. **CLI basics** — 🚧 TODO
+9. **CLI basics** — 🚧 TODO
    - `loom new <template>` (multi-agent, voice-assistant, etc.)
    - `loom dev` (hot-boot external agents, watch for changes)
    - `loom list` (show registered agents/capabilities)
@@ -84,7 +132,9 @@ Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researc
 - ✅ Multi-agent collaboration works (trio example functional)
 - ✅ MCP tools can be ingested and invoked via ActionBroker
 - ✅ Bridge supports gRPC with full lifecycle management
-- 🚧 Dashboard shows real-time topology and metrics (pending)
+- ✅ OpenTelemetry integration: traces to Jaeger, metrics to Prometheus (feat/otpl)
+- ✅ Basic Grafana dashboard with throughput, latency, routing (feat/otpl)
+- ✅ **Dashboard MVP**: Real-time event stream visualization (SSE, basic topology, filters) (feat/otpl)
 - 🚧 CLI provides quick-start templates (pending)
 - 🚧 Auto-reconnect tested with network interruptions (needs formal test)
 - 🚧 P50/P99 latency benchmarks published (needs benchmark suite)
@@ -225,10 +275,11 @@ Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researc
 - **MCP Client**: JSON-RPC 2.0 over stdio, auto-discovery, qualified naming (server:tool), configurable protocol version, comprehensive error handling
 - **Bridge**: gRPC with RegisterAgent/EventStream/ForwardAction/Heartbeat, integration tests
 - **Python SDK**: Agent/Context API, @capability decorator, Envelope support, trio example
+- **OpenTelemetry** (feat/otpl): OTLP exporter, Jaeger + Prometheus + Grafana stack, 60+ metrics, core component instrumentation, comprehensive docs
 
 ### 🚧 In Progress
 
-- **Dashboard**: Technology selection and initial implementation
+- **Dashboard MVP**: Event stream API (WebSocket/SSE), swimlane visualization, agent topology graph
 - **CLI**: Template scaffolding and dev workflow tools
 - **JS SDK**: API design and initial implementation
 

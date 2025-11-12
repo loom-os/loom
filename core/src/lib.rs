@@ -5,6 +5,7 @@ pub mod action_broker;
 pub mod agent;
 pub mod collab; // Collaboration primitives built on EventBus + Envelope
 pub mod context;
+pub mod dashboard; // Real-time event flow visualization
 pub mod directory; // Agent & Capability directories
 pub mod envelope; // Unified metadata envelope for events/actions threads
 pub mod event;

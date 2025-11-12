@@ -224,6 +224,33 @@ Enables polyglot multi-agent systems with Python/JS agents collaborating with Ru
 - **Storage**: RocksDB for agent state; optional Vector DB for long-term memory
 - **Telemetry**: Structured logs, OpenTelemetry tracing, Prometheus metrics (events/sec, latency P50/P99, routing decisions, tool calls)
 
+### Dashboard & Observability
+
+**Real-time Event Flow Visualization**:
+
+- Server-Sent Events (SSE) API streaming events to browser
+- Display: timestamp, event_id, topic, sender, thread_id, correlation_id, payload
+- Filter by thread_id/topic/sender for debugging multi-agent conversations
+- Zero-build frontend (pure HTML/CSS/JS, dark theme)
+
+**Quick Start**:
+
+```bash
+cd core
+export LOOM_DASHBOARD_PORT=3030
+cargo run --example dashboard_demo
+# Open http://localhost:3030
+```
+
+**OpenTelemetry Integration**:
+
+- OTLP gRPC exporter (traces + metrics)
+- One-command observability stack: Jaeger + Prometheus + Grafana
+- 60+ metrics exported from EventBus, ActionBroker, Router, MCP Manager
+- Full trace chains showing event publish → routing → tool invocation
+
+See `docs/dashboard/DASHBOARD_QUICKSTART.md` and `observability/README.md` for complete setup.
+
 The audio pipeline (mic/VAD/STT/wake/TTS) lives in `loom-audio` and is intentionally optional.
 
 ## 🧩 Plugins & Integrations

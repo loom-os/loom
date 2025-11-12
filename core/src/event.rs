@@ -140,6 +140,9 @@ pub struct EventBus {
     // Backpressure threshold
     backpressure_threshold: usize,
 
+    // Dashboard event broadcaster (optional)
+    dashboard_broadcaster: Option<crate::dashboard::EventBroadcaster>,
+
     // OpenTelemetry metrics
     published_counter: Counter<u64>,
     delivered_counter: Counter<u64>,
@@ -190,6 +193,7 @@ impl EventBus {
             broadcast_tx,
             stats: Arc::new(DashMap::new()),
             backpressure_threshold: 10_000,
+            dashboard_broadcaster: None,
             published_counter,
             delivered_counter,
             dropped_counter,
@@ -210,12 +214,36 @@ impl EventBus {
         Ok(())
     }
 
+    /// Set dashboard broadcaster for real-time event streaming
+    pub fn set_dashboard_broadcaster(&mut self, broadcaster: crate::dashboard::EventBroadcaster) {
+        self.dashboard_broadcaster = Some(broadcaster);
+    }
+
     /// Publish event to topic
     #[tracing::instrument(skip(self, event), fields(topic = %topic, event_id = %event.id, event_type = %event.r#type, qos_level = "unknown"))]
     pub async fn publish(&self, topic: &str, event: Event) -> Result<u64> {
         let start_time = Instant::now();
 
         debug!("Publishing event {} to topic {}", event.id, topic);
+
+        // Broadcast to Dashboard (if enabled)
+        if let Some(ref broadcaster) = self.dashboard_broadcaster {
+            let payload_preview = String::from_utf8_lossy(&event.payload)
+                .chars()
+                .take(100)
+                .collect::<String>();
+
+            broadcaster.broadcast(crate::dashboard::DashboardEvent {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                event_type: crate::dashboard::DashboardEventType::EventPublished,
+                event_id: event.id.clone(),
+                topic: topic.to_string(),
+                sender: event.sender().map(|s| s.to_string()),
+                thread_id: event.thread_id().map(|s| s.to_string()),
+                correlation_id: event.correlation_id().map(|s| s.to_string()),
+                payload_preview,
+            });
+        }
 
         // Record published metric
         self.published_counter.add(
