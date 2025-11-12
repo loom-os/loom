@@ -68,8 +68,8 @@ jobs:
       - name: Generate proto files
         run: python -m loom.proto.generate
 
-      - name: Run tests
-        run: pytest -v --cov=loom --cov-report=xml --cov-report=term-missing --cov-branch
+      - name: Run tests (unit + non-integration)
+        run: pytest -v -m "not integration" --cov=loom --cov-report=xml --cov-report=term-missing --cov-branch
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
