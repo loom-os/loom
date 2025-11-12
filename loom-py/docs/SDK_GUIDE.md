@@ -151,8 +151,7 @@ An **Envelope** wraps events with metadata for correlation and routing:
 from loom import Envelope
 
 env = Envelope.new(
-    event_id="evt-123",
-    event_type="my.event",
+    type="my.event",
     payload=b"data",
     thread_id="conversation-1",
     correlation_id="req-456",

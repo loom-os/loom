@@ -10,8 +10,9 @@ from typing import Any, Callable, Optional
 from .capability import Capability
 from .client import BridgeClient, pb_action, pb_bridge
 from .context import Context
+from .envelope import Envelope
 
-EventHandler = Callable[[Context, str, Any], Awaitable[None]]
+EventHandler = Callable[[Context, str, Envelope], Awaitable[None]]
 
 
 class Agent:
@@ -80,8 +81,10 @@ class Agent:
                 if which == "delivery":
                     delivery = server_msg.delivery
                     self._ctx._on_delivery(delivery)
+                    # Convert proto Event -> Envelope before calling user handler for type safety
                     if self._on_event and delivery.event is not None:
-                        await self._on_event(self._ctx, delivery.topic, delivery.event)
+                        env = Envelope.from_proto(delivery.event)
+                        await self._on_event(self._ctx, delivery.topic, env)
                 elif which == "action_call":
                     await self._handle_action_call(server_msg.action_call)
                 elif which == "pong":
