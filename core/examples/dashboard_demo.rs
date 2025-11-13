@@ -3,7 +3,7 @@
 // Shows how to run Loom Core with Dashboard enabled
 
 use loom_core::{
-    dashboard::{DashboardConfig, DashboardServer, EventBroadcaster},
+    dashboard::{DashboardConfig, DashboardServer, EventBroadcaster, FlowTracker},
     directory::AgentDirectory,
     event::{Event, EventBus, EventExt},
 };
@@ -22,8 +22,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut event_bus = EventBus::new().await?;
     let agent_directory = Arc::new(AgentDirectory::new());
 
-    // Create dashboard broadcaster
+    // Create dashboard broadcaster and flow tracker
     let broadcaster = EventBroadcaster::new(1000);
+    let flow_tracker = Arc::new(FlowTracker::new());
 
     // Connect EventBus to Dashboard
     event_bus.set_dashboard_broadcaster(broadcaster.clone());
@@ -32,7 +33,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Start Dashboard server
     let config = DashboardConfig::from_env();
-    let dashboard = DashboardServer::new(config.clone(), broadcaster, agent_directory.clone());
+    let dashboard = DashboardServer::new(config.clone(), broadcaster, agent_directory.clone())
+        .with_flow_tracker(flow_tracker.clone());
 
     info!(
         "Dashboard will be available at http://{}:{}",
@@ -77,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     info!("Registered 3 agents");
 
-    // Publish some example events
+    // Simulate event flow between components
     let thread_id = format!(
         "thread-{}",
         std::time::SystemTime::now()
@@ -86,30 +88,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .as_secs()
     );
 
-    for i in 0..10 {
-        sleep(Duration::from_secs(2)).await;
+    info!("Starting event flow simulation...");
 
-        let event = Event {
-            id: format!("event-{}-{}", thread_id, i),
-            r#type: "task.created".to_string(),
-            timestamp_ms: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as i64,
-            source: "demo".to_string(),
-            payload: format!("Task {} payload", i).into_bytes(),
-            metadata: Default::default(),
-            confidence: 1.0,
-            tags: vec![],
-            priority: 50,
+    // Simulate continuous event flow
+    tokio::spawn({
+        let flow_tracker = flow_tracker.clone();
+        let event_bus = event_bus.clone();
+        async move {
+            let agents = vec!["planner", "researcher", "writer"];
+            let topics = vec!["agent.task", "agent.research", "agent.write"];
+
+            for i in 0.. {
+                sleep(Duration::from_millis(1500)).await;
+
+                let agent_idx = i % agents.len();
+                let agent = agents[agent_idx];
+                let topic = topics[agent_idx];
+
+                // Record flow: EventBus -> Agent
+                flow_tracker.record_flow("EventBus", agent, topic).await;
+
+                // Also record reverse flow: Agent -> EventBus (agent publishing)
+                if i % 3 == 0 {
+                    flow_tracker.record_flow(agent, "EventBus", topic).await;
+                }
+
+                // Occasionally show Router and LLM interaction
+                if i % 5 == 0 {
+                    flow_tracker
+                        .record_flow("Router", "llm-provider", "llm.request")
+                        .await;
+                    flow_tracker
+                        .record_flow("llm-provider", "Router", "llm.response")
+                        .await;
+                }
+
+                let event = Event {
+                    id: format!("event-{}-{}", thread_id, i),
+                    r#type: "task.created".to_string(),
+                    timestamp_ms: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as i64,
+                    source: agent.to_string(),
+                    payload: format!("Task {} from {}", i, agent).into_bytes(),
+                    metadata: Default::default(),
+                    confidence: 1.0,
+                    tags: vec![],
+                    priority: 50,
+                }
+                .with_thread(thread_id.clone())
+                .with_sender(agent.to_string())
+                .with_correlation(format!("corr-{}", i));
+
+                let _ = event_bus.publish(topic, event).await;
+
+                if i < 20 {
+                    info!("Published event {} from {}", i, agent);
+                }
+            }
         }
-        .with_thread(thread_id.clone())
-        .with_sender("demo".to_string())
-        .with_correlation(format!("corr-{}", i));
-
-        event_bus.publish("agent.task", event).await?;
-        info!("Published event {}", i);
-    }
+    });
 
     info!("Demo complete. Dashboard server will continue running...");
     info!("Open http://{}:{} to view events", config.host, config.port);

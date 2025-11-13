@@ -4,10 +4,12 @@
 
 mod api;
 mod event_stream;
+mod flow_tracker;
 mod topology;
 
 pub use api::DashboardServer;
 pub use event_stream::{DashboardEvent, DashboardEventType, EventBroadcaster};
+pub use flow_tracker::{EventFlow, FlowGraph, FlowNode, FlowTracker, NodeType};
 
 /// Dashboard configuration
 #[derive(Clone, Debug)]

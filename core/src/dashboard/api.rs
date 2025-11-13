@@ -3,6 +3,7 @@
 // Provides REST endpoints and SSE streaming for the Dashboard UI
 
 use crate::dashboard::event_stream::EventBroadcaster;
+use crate::dashboard::flow_tracker::FlowTracker;
 use crate::dashboard::topology::TopologyBuilder;
 use crate::dashboard::DashboardConfig;
 use crate::directory::AgentDirectory;
@@ -27,6 +28,7 @@ use tracing::{info, warn};
 struct DashboardState {
     broadcaster: EventBroadcaster,
     topology_builder: Arc<TopologyBuilder>,
+    flow_tracker: Arc<FlowTracker>,
 }
 
 /// Dashboard HTTP server
@@ -34,6 +36,7 @@ pub struct DashboardServer {
     config: DashboardConfig,
     broadcaster: EventBroadcaster,
     agent_directory: Arc<AgentDirectory>,
+    flow_tracker: Arc<FlowTracker>,
 }
 
 impl DashboardServer {
@@ -42,11 +45,18 @@ impl DashboardServer {
         broadcaster: EventBroadcaster,
         agent_directory: Arc<AgentDirectory>,
     ) -> Self {
+        let flow_tracker = Arc::new(FlowTracker::new());
         Self {
             config,
             broadcaster,
             agent_directory,
+            flow_tracker,
         }
+    }
+
+    pub fn with_flow_tracker(mut self, flow_tracker: Arc<FlowTracker>) -> Self {
+        self.flow_tracker = flow_tracker;
+        self
     }
 
     /// Start the Dashboard server
@@ -61,13 +71,25 @@ impl DashboardServer {
         let state = DashboardState {
             broadcaster: self.broadcaster,
             topology_builder: Arc::new(TopologyBuilder::new(self.agent_directory)),
+            flow_tracker: self.flow_tracker.clone(),
         };
+
+        // Start cleanup task for flow tracker
+        let flow_tracker_clone = state.flow_tracker.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                flow_tracker_clone.cleanup().await;
+            }
+        });
 
         // Build router
         let app = Router::new()
             .route("/", get(index_handler))
             .route("/api/events/stream", get(event_stream_handler))
             .route("/api/topology", get(topology_handler))
+            .route("/api/flow", get(flow_handler))
             .route("/api/metrics", get(metrics_handler))
             .layer(
                 CorsLayer::new()
@@ -129,6 +151,17 @@ async fn topology_handler(
 ) -> Result<impl IntoResponse, StatusCode> {
     let snapshot = state.topology_builder.build_snapshot().await;
     match serde_json::to_string(&snapshot) {
+        Ok(json) => Ok((StatusCode::OK, json)),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+/// Get current flow graph snapshot
+async fn flow_handler(
+    State(state): State<DashboardState>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let graph = state.flow_tracker.get_graph().await;
+    match serde_json::to_string(&graph) {
         Ok(json) => Ok((StatusCode::OK, json)),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }

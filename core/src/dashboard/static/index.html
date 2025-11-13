@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Loom Dashboard - Event Flow</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
       * {
         margin: 0;
@@ -22,10 +23,49 @@
       .container {
         display: grid;
         grid-template-columns: 350px 1fr;
-        grid-template-rows: 60px 1fr;
+        grid-template-rows: 60px 50px 1fr;
         height: 100vh;
         gap: 1px;
         background: #1e293b;
+      }
+
+      .tabs {
+        grid-column: 2;
+        background: #1e293b;
+        border-bottom: 1px solid #334155;
+        display: flex;
+        gap: 2px;
+        padding: 0 16px;
+      }
+
+      .tab {
+        padding: 12px 24px;
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+      }
+
+      .tab:hover {
+        color: #e2e8f0;
+        background: #0f172a;
+      }
+
+      .tab.active {
+        color: #3b82f6;
+        border-bottom-color: #3b82f6;
+      }
+
+      .tab-content {
+        display: none;
+      }
+
+      .tab-content.active {
+        display: block;
       }
 
       header {
@@ -154,6 +194,122 @@
         justify-content: center;
         color: #64748b;
         font-size: 13px;
+      }
+
+      .flow-graph {
+        width: 100%;
+        height: calc(100vh - 128px);
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        position: relative;
+      }
+
+      .flow-graph svg {
+        width: 100%;
+        height: 100%;
+      }
+
+      .node {
+        cursor: pointer;
+      }
+
+      .node circle {
+        stroke: #334155;
+        stroke-width: 2px;
+      }
+
+      .node.agent circle {
+        fill: #3b82f6;
+      }
+
+      .node.eventbus circle {
+        fill: #8b5cf6;
+      }
+
+      .node.router circle {
+        fill: #f59e0b;
+      }
+
+      .node.llm circle {
+        fill: #10b981;
+      }
+
+      .node.tool circle {
+        fill: #ef4444;
+      }
+
+      .node.storage circle {
+        fill: #06b6d4;
+      }
+
+      .node text {
+        fill: #e2e8f0;
+        font-size: 11px;
+        font-weight: 500;
+        pointer-events: none;
+        text-anchor: middle;
+      }
+
+      .node .badge {
+        fill: #334155;
+        stroke: none;
+      }
+
+      .node .badge-text {
+        fill: #94a3b8;
+        font-size: 9px;
+      }
+
+      .link {
+        stroke: #475569;
+        stroke-opacity: 0.6;
+        stroke-width: 1.5px;
+        fill: none;
+      }
+
+      .link.active {
+        stroke: #3b82f6;
+        stroke-opacity: 0.8;
+        stroke-width: 2.5px;
+        animation: dash 1s linear infinite;
+      }
+
+      @keyframes dash {
+        to {
+          stroke-dashoffset: -20;
+        }
+      }
+
+      .link-label {
+        fill: #64748b;
+        font-size: 9px;
+        text-anchor: middle;
+        pointer-events: none;
+      }
+
+      .flow-legend {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 11px;
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+
+      .legend-circle {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
       }
 
       .event-stream {
@@ -367,18 +523,63 @@
         <div class="topology" id="topology">Loading topology...</div>
       </aside>
 
+      <div class="tabs">
+        <button class="tab active" data-tab="flow">Event Flow</button>
+        <button class="tab" data-tab="stream">Event Stream</button>
+      </div>
+
       <main class="main-content">
-        <div class="event-stream">
-          <div class="stream-header">
-            <div class="section-title" style="margin: 0">Event Stream</div>
-            <div class="stream-controls">
-              <button class="btn active" id="btnAutoScroll">Auto-scroll</button>
-              <button class="btn" id="btnClear">Clear</button>
+        <!-- Flow View Tab -->
+        <div class="tab-content active" id="flowTab">
+          <div class="flow-graph" id="flowGraph">
+            <div class="flow-legend">
+              <div style="font-weight: 600; margin-bottom: 8px; color: #e2e8f0">
+                Node Types
+              </div>
+              <div class="legend-item">
+                <div class="legend-circle" style="background: #3b82f6"></div>
+                <span>Agent</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-circle" style="background: #8b5cf6"></div>
+                <span>EventBus</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-circle" style="background: #f59e0b"></div>
+                <span>Router</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-circle" style="background: #10b981"></div>
+                <span>LLM</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-circle" style="background: #ef4444"></div>
+                <span>Tool</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-circle" style="background: #06b6d4"></div>
+                <span>Storage</span>
+              </div>
             </div>
           </div>
-          <div class="events-list" id="eventsList">
-            <div style="text-align: center; color: #64748b; padding: 32px">
-              Waiting for events...
+        </div>
+
+        <!-- Stream View Tab -->
+        <div class="tab-content" id="streamTab">
+          <div class="event-stream">
+            <div class="stream-header">
+              <div class="section-title" style="margin: 0">Event Stream</div>
+              <div class="stream-controls">
+                <button class="btn active" id="btnAutoScroll">
+                  Auto-scroll
+                </button>
+                <button class="btn" id="btnClear">Clear</button>
+              </div>
+            </div>
+            <div class="events-list" id="eventsList">
+              <div style="text-align: center; color: #64748b; padding: 32px">
+                Waiting for events...
+              </div>
             </div>
           </div>
         </div>
@@ -595,10 +796,224 @@
         }
       }
 
+      // Tab switching
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          const tabName = tab.dataset.tab;
+
+          // Update active tab
+          document
+            .querySelectorAll(".tab")
+            .forEach((t) => t.classList.remove("active"));
+          tab.classList.add("active");
+
+          // Update active content
+          document.querySelectorAll(".tab-content").forEach((content) => {
+            content.classList.remove("active");
+          });
+          document.getElementById(tabName + "Tab").classList.add("active");
+
+          // Restart flow graph if switching to flow tab
+          if (tabName === "flow") {
+            initFlowGraph();
+          }
+        });
+      });
+
+      // Flow Graph Visualization
+      let simulation;
+      let svg;
+      let linkGroup, nodeGroup;
+
+      function initFlowGraph() {
+        const container = document.getElementById("flowGraph");
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+
+        // Clear existing SVG
+        d3.select("#flowGraph svg").remove();
+
+        // Create SVG
+        svg = d3
+          .select("#flowGraph")
+          .append("svg")
+          .attr("width", width)
+          .attr("height", height);
+
+        // Create arrow marker for links
+        svg
+          .append("defs")
+          .append("marker")
+          .attr("id", "arrowhead")
+          .attr("viewBox", "0 -5 10 10")
+          .attr("refX", 20)
+          .attr("refY", 0)
+          .attr("markerWidth", 6)
+          .attr("markerHeight", 6)
+          .attr("orient", "auto")
+          .append("path")
+          .attr("d", "M0,-5L10,0L0,5")
+          .attr("fill", "#475569");
+
+        // Create groups for links and nodes
+        linkGroup = svg.append("g").attr("class", "links");
+        nodeGroup = svg.append("g").attr("class", "nodes");
+
+        // Create force simulation
+        simulation = d3
+          .forceSimulation()
+          .force(
+            "link",
+            d3
+              .forceLink()
+              .id((d) => d.id)
+              .distance(150)
+          )
+          .force("charge", d3.forceManyBody().strength(-400))
+          .force("center", d3.forceCenter(width / 2, height / 2))
+          .force("collision", d3.forceCollide().radius(40));
+
+        // Load initial flow data
+        updateFlowGraph();
+      }
+
+      async function updateFlowGraph() {
+        try {
+          const response = await fetch("/api/flow");
+          const flowData = await response.json();
+
+          // Prepare data for D3
+          const nodes = flowData.nodes.map((n) => ({
+            id: n.id,
+            type: n.node_type,
+            eventCount: n.event_count,
+            topics: n.topics,
+          }));
+
+          const links = flowData.flows.map((f) => ({
+            source: f.source,
+            target: f.target,
+            topic: f.topic,
+            count: f.count,
+            active: Date.now() - f.last_event_ms < 2000,
+          }));
+
+          renderFlowGraph(nodes, links);
+        } catch (e) {
+          console.error("Failed to load flow graph:", e);
+        }
+      }
+
+      function renderFlowGraph(nodes, links) {
+        // Update simulation
+        simulation.nodes(nodes);
+        simulation.force("link").links(links);
+
+        // Render links
+        const link = linkGroup
+          .selectAll(".link")
+          .data(links, (d) => `${d.source.id}-${d.target.id}-${d.topic}`);
+
+        link.exit().remove();
+
+        const linkEnter = link
+          .enter()
+          .append("path")
+          .attr("class", "link")
+          .attr("marker-end", "url(#arrowhead)");
+
+        link
+          .merge(linkEnter)
+          .classed("active", (d) => d.active)
+          .attr("stroke-dasharray", (d) => (d.active ? "5,5" : "none"));
+
+        // Render nodes
+        const node = nodeGroup.selectAll(".node").data(nodes, (d) => d.id);
+
+        node.exit().remove();
+
+        const nodeEnter = node
+          .enter()
+          .append("g")
+          .attr("class", (d) => `node ${d.type}`)
+          .call(
+            d3
+              .drag()
+              .on("start", dragStarted)
+              .on("drag", dragged)
+              .on("end", dragEnded)
+          );
+
+        // Add circles
+        nodeEnter.append("circle").attr("r", 20);
+
+        // Add labels
+        nodeEnter
+          .append("text")
+          .attr("dy", 35)
+          .text((d) => d.id);
+
+        // Add event count badge
+        const badge = nodeEnter
+          .append("g")
+          .attr("class", "event-badge")
+          .attr("transform", "translate(12, -12)");
+
+        badge.append("circle").attr("class", "badge").attr("r", 10);
+
+        badge
+          .append("text")
+          .attr("class", "badge-text")
+          .attr("dy", 3)
+          .attr("text-anchor", "middle")
+          .text((d) => (d.eventCount > 99 ? "99+" : d.eventCount));
+
+        // Update existing nodes
+        node
+          .merge(nodeEnter)
+          .select(".badge-text")
+          .text((d) => (d.eventCount > 99 ? "99+" : d.eventCount));
+
+        // Simulation tick
+        simulation.on("tick", () => {
+          linkGroup.selectAll(".link").attr("d", (d) => {
+            const dx = d.target.x - d.source.x;
+            const dy = d.target.y - d.source.y;
+            const dr = Math.sqrt(dx * dx + dy * dy);
+            return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+          });
+
+          nodeGroup
+            .selectAll(".node")
+            .attr("transform", (d) => `translate(${d.x},${d.y})`);
+        });
+
+        simulation.alpha(0.3).restart();
+      }
+
+      function dragStarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      }
+
+      function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+      }
+
+      function dragEnded(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+      }
+
       // Initialize
       connectEventStream();
       loadTopology();
+      initFlowGraph();
       setInterval(loadTopology, 5000); // Refresh topology every 5s
+      setInterval(updateFlowGraph, 2000); // Refresh flow graph every 2s
       setInterval(loadMetrics, 1000); // Refresh metrics every 1s
     </script>
   </body>
