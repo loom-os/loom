@@ -5,6 +5,7 @@
 mod api;
 mod event_stream;
 mod flow_tracker;
+mod static_assets;
 mod topology;
 
 pub use api::DashboardServer;

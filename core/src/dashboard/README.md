@@ -7,7 +7,7 @@ Real-time observability for Loom Core. The dashboard presents a live event strea
 ## TL;DR
 
 - **One binary** - served directly from `DashboardServer`; no external build step.
-- **Vue 3 + D3** UI - responsive layout, dark theme, tuned for day-long monitoring.
+- **React + D3** UI - modular components, dark theme, tuned for day-long monitoring.
 - **Flow-aware storage** - in-memory graph with automatic TTL and bounded topic lists to avoid runaway memory usage.
 - **Safe SSE handling** - resilient reconnect logic that keeps a single EventSource per browser tab.
 
@@ -25,21 +25,21 @@ cargo run --example dashboard_demo
 What you will see:
 
 - **Event Flow** - D3 force-directed map of recent routes (rolling 60 s window).
-- **Event Stream** - filtered log of the latest 500 events with auto-scroll toggle.
+- **Event Stream** - live log with per-agent quick filters, auto-scroll toggle, and export-friendly payload previews.
 - **Agent Roster** - active agents, their topics, and capability hints.
-- **Agent Activity** - per-agent timeline highlighting recent in/out traffic.
+- **Agent Timeline** - select any agent in the stream to reveal the full inbound/outbound history (no arbitrary 5-item cap).
 - **Metrics** - request-rate placeholders ready for OpenTelemetry backends.
 
 ---
 
 ## Architecture Snapshot
 
-| Layer                            | Purpose                                                                                  |
-| -------------------------------- | ---------------------------------------------------------------------------------------- |
-| `EventBus` -> `EventBroadcaster` | Publishes trimmed event payloads over SSE.                                               |
-| `FlowTracker`                    | Records `(source, target, topic)` edges, prunes after 60 s, caps each node to 20 topics. |
-| `TopologyBuilder`                | Reads `AgentDirectory` to surface live roster data.                                      |
-| Frontend (`static/index.html`)   | Vue 3 SPA with D3 graph, tailored layout, resilient SSE client.                          |
+| Layer                            | Purpose                                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `EventBus` -> `EventBroadcaster` | Publishes trimmed event payloads over SSE.                                                        |
+| `FlowTracker`                    | Records `(source, target, topic)` edges, prunes after 60 s, caps each node to 20 topics.          |
+| `TopologyBuilder`                | Reads `AgentDirectory` to surface live roster data.                                               |
+| Frontend (`static/`)             | React modules + HTM wrappers, D3 flow graph helper, resilient SSE client with per-agent timeline. |
 
 Event data stays on the server; the browser only renders JSON delivered via `/api/events/stream`, `/api/flow`, `/api/topology`, and `/api/metrics`.
 
