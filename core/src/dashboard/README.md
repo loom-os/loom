@@ -1,10 +1,10 @@
-# Dashboard MVP
+## Dashboard MVP
 
-简单的实时事件流可视化界面，用于查看 Loom 系统中的事件流动。
+A simple real-time event-stream visualization UI for viewing event flow within the Loom system.
 
-## 快速开始
+## Quick Start
 
-### 1. 启动 Dashboard 演示
+### 1. Start the Dashboard demo
 
 ```bash
 cd core
@@ -12,76 +12,76 @@ export LOOM_DASHBOARD_PORT=3030
 cargo run --example dashboard_demo
 ```
 
-### 2. 打开浏览器
+### 2. Open your browser
 
 ```bash
 open http://localhost:3030
 ```
 
-你将看到：
+You will see:
 
-- **实时事件流**：所有发布到 EventBus 的事件
-- **Agent 拓扑**：已注册的 Agent 列表
-- **关键指标**：事件速率、活跃 Agent 数量
+- Real-time event stream: events published to the EventBus
+- Agent topology: list of registered Agents
+- Key metrics: event rate, number of active Agents
 
-## 功能特性
+## Features
 
-### ✅ 已实现
+### ✅ Implemented
 
-- **实时事件流 (SSE)**
+- Real-time event stream (SSE)
 
-  - 按时间顺序显示事件
-  - 显示：timestamp, event_id, topic, sender, thread_id, correlation_id, payload
-  - 按 thread_id/topic/sender 过滤
-  - 暂停/恢复自动滚动
-  - 保留最近 100 个事件
+  - Displays events in chronological order
+  - Shows: timestamp, event_id, topic, sender, thread_id, correlation_id, payload
+  - Filter by thread_id / topic / sender
+  - Pause / resume automatic scrolling
+  - Keeps the most recent 100 events
 
-- **Agent 拓扑**
+- Agent topology
 
-  - 显示已注册的 Agent 列表
-  - 显示订阅的 topics
-  - 自动刷新（每 5 秒）
+  - Displays the list of registered Agents
+  - Shows subscribed topics
+  - Auto-refresh (every 5 seconds)
 
-- **关键指标**
+- Key metrics
 
   - Events/sec
   - Active Agents
 
-- **零依赖前端**
-  - 纯 HTML/CSS/JS（无构建步骤）
-  - 响应式设计
-  - 暗色主题
+- Zero-dependency frontend
+  - Pure HTML/CSS/JS (no build step)
+  - Responsive design
+  - Dark theme
 
-### 🚧 待实现
+### 🚧 To be implemented
 
-- **高级可视化**
+- Advanced visualizations
 
-  - D3.js 拓扑图（力导向图）
+  - D3.js topology (force-directed graph)
   - Thread timeline (Gantt chart)
-  - Event 关联关系可视化
+  - Event relationship visualization
 
-- **更多指标**
+- More metrics
 
   - Tool invocations/sec
   - P99 latency
-  - 从 Prometheus 读取实时指标
+  - Read real-time metrics from Prometheus
 
-- **交互功能**
-  - 点击事件查看详情
-  - 事件搜索
-  - 导出事件日志为 JSON
+- Interactive features
+  - Click an event to view details
+  - Event search
+  - Export event log as JSON
 
-## API 端点
+## API Endpoints
 
 ### `GET /`
 
-返回 Dashboard HTML 页面
+Returns the Dashboard HTML page
 
 ### `GET /api/events/stream`
 
-**Server-Sent Events (SSE)** 端点，推送实时事件
+Server-Sent Events (SSE) endpoint that pushes real-time events
 
-响应格式：
+Response format:
 
 ```json
 {
@@ -98,9 +98,9 @@ open http://localhost:3030
 
 ### `GET /api/topology`
 
-返回当前 Agent 拓扑快照
+Returns a snapshot of the current Agent topology
 
-响应格式：
+Response format:
 
 ```json
 {
@@ -124,9 +124,9 @@ open http://localhost:3030
 
 ### `GET /api/metrics`
 
-返回关键指标快照
+Returns a snapshot of key metrics
 
-响应格式：
+Response format:
 
 ```json
 {
@@ -137,15 +137,15 @@ open http://localhost:3030
 }
 ```
 
-## 环境变量
+## Environment Variables
 
-| 变量                  | 默认值      | 说明                |
-| --------------------- | ----------- | ------------------- |
-| `LOOM_DASHBOARD`      | `false`     | 是否启用 Dashboard  |
-| `LOOM_DASHBOARD_PORT` | `3030`      | Dashboard HTTP 端口 |
-| `LOOM_DASHBOARD_HOST` | `127.0.0.1` | Dashboard 绑定地址  |
+| Variable                | Default  | Description                         |
+| ----------------------- | -------- | ----------------------------------- |
+| `LOOM_DASHBOARD`        | `false`  | Whether to enable the Dashboard     |
+| `LOOM_DASHBOARD_PORT`   | `3030`   | Dashboard HTTP port                 |
+| `LOOM_DASHBOARD_HOST`   | `127.0.0.1` | Dashboard bind address           |
 
-## 集成到应用
+## Integrating into your application
 
 ```rust
 use loom_core::{
@@ -178,7 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 ```
 
-## 架构
+## Architecture
 
 ```
 ┌─────────────┐
@@ -208,19 +208,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                   └─────────┘
 ```
 
-## 性能
+## Performance
 
-- **事件缓冲**: 1000 个事件（可配置）
-- **前端限制**: 显示最近 100 个事件
-- **更新频率**:
-  - 事件流: 实时（SSE 推送）
-  - 拓扑: 每 5 秒
-  - 指标: 每 1 秒
+- Event buffer: 1000 events (configurable)
+- Frontend limit: displays the most recent 100 events
+- Update frequencies:
+  - Event stream: real-time (SSE push)
+  - Topology: every 5 seconds
+  - Metrics: every 1 second
 
-## 下一步
+## Next steps
 
-- [ ] 完成 ROADMAP 更新
-- [ ] 测试与 trio.py 集成
-- [ ] 添加 D3.js 拓扑可视化
-- [ ] 集成 Prometheus metrics
-- [ ] 添加 Thread timeline 视图
+- [ ] Update ROADMAP
+- [ ] Test integration with trio.py
+- [ ] Add D3.js topology visualization
+- [ ] Integrate Prometheus metrics
+- [ ] Add Thread timeline view
+
+Completion summary: Translation of README.md is done. Next steps I can take on request: (1) commit the translated README into the repo, (2) produce a side-by-side diff, or (3) refine wording for a specific audience (developer vs. product). Which would you prefer?
