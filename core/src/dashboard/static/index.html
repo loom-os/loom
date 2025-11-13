@@ -596,6 +596,7 @@
         topic: "",
         sender: "",
       };
+      let reconnectTimer = null;
 
       // DOM elements
       const eventsList = document.getElementById("eventsList");
@@ -606,11 +607,20 @@
 
       // Initialize SSE connection
       function connectEventStream() {
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+
         eventSource = new EventSource("/api/events/stream");
 
         eventSource.onopen = () => {
           connectionStatus.textContent = "Connected";
           console.log("SSE connected");
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+          }
         };
 
         eventSource.onmessage = (event) => {
@@ -625,8 +635,16 @@
         eventSource.onerror = () => {
           connectionStatus.textContent = "Disconnected";
           console.error("SSE connection error");
-          // Reconnect after 3 seconds
-          setTimeout(connectEventStream, 3000);
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          if (!reconnectTimer) {
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              connectEventStream();
+            }, 3000);
+          }
         };
       }
 

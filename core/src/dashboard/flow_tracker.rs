@@ -3,7 +3,7 @@
 // Tracks event flow between agents and components for visualization
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -12,6 +12,10 @@ type FlowKey = (String, String, String); // (source, target, topic)
 type FlowMap = HashMap<FlowKey, EventFlow>;
 type NodeMap = HashMap<String, FlowNode>;
 type Shared<T> = Arc<RwLock<T>>;
+
+const FLOW_RETENTION_MS: u64 = 60_000;
+const NODE_RETENTION_MS: u64 = 120_000;
+const MAX_TOPICS_PER_NODE: usize = 20;
 
 /// Represents an event flow between two nodes (agents/components)
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -29,7 +33,8 @@ pub struct FlowNode {
     pub id: String,
     pub node_type: NodeType,
     pub event_count: u64,
-    pub topics: Vec<String>,
+    pub topics: VecDeque<String>,
+    pub last_active_ms: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -60,6 +65,7 @@ pub struct FlowTracker {
 impl FlowTracker {
     pub fn new() -> Self {
         let mut nodes = HashMap::new();
+        let now = Self::now_ms();
 
         // Add EventBus as central node
         nodes.insert(
@@ -68,7 +74,8 @@ impl FlowTracker {
                 id: "EventBus".to_string(),
                 node_type: NodeType::EventBus,
                 event_count: 0,
-                topics: vec![],
+                topics: VecDeque::new(),
+                last_active_ms: now,
             },
         );
 
@@ -80,63 +87,35 @@ impl FlowTracker {
 
     /// Record an event flow from source to target
     pub async fn record_flow(&self, source: &str, target: &str, topic: &str) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let now = Self::now_ms();
+        let source_id = source.to_string();
+        let target_id = target.to_string();
+        let topic_id = topic.to_string();
 
         // Update flow
-        let mut flows = self.flows.write().await;
-        let key: FlowKey = (source.to_string(), target.to_string(), topic.to_string());
+        {
+            let mut flows = self.flows.write().await;
+            let key: FlowKey = (source_id.clone(), target_id.clone(), topic_id.clone());
 
-        flows
-            .entry(key)
-            .and_modify(|f| {
-                f.count += 1;
-                f.last_event_ms = now;
-            })
-            .or_insert(EventFlow {
-                source: source.to_string(),
-                target: target.to_string(),
-                topic: topic.to_string(),
-                count: 1,
-                last_event_ms: now,
-            });
+            flows
+                .entry(key)
+                .and_modify(|f| {
+                    f.count += 1;
+                    f.last_event_ms = now;
+                })
+                .or_insert(EventFlow {
+                    source: source_id.clone(),
+                    target: target_id.clone(),
+                    topic: topic_id.clone(),
+                    count: 1,
+                    last_event_ms: now,
+                });
+        }
 
         // Update nodes
         let mut nodes = self.nodes.write().await;
-
-        // Update or create source node
-        nodes
-            .entry(source.to_string())
-            .and_modify(|n| {
-                n.event_count += 1;
-                if !n.topics.contains(&topic.to_string()) {
-                    n.topics.push(topic.to_string());
-                }
-            })
-            .or_insert(FlowNode {
-                id: source.to_string(),
-                node_type: Self::infer_node_type(source),
-                event_count: 1,
-                topics: vec![topic.to_string()],
-            });
-
-        // Update or create target node
-        nodes
-            .entry(target.to_string())
-            .and_modify(|n| {
-                n.event_count += 1;
-                if !n.topics.contains(&topic.to_string()) {
-                    n.topics.push(topic.to_string());
-                }
-            })
-            .or_insert(FlowNode {
-                id: target.to_string(),
-                node_type: Self::infer_node_type(target),
-                event_count: 1,
-                topics: vec![topic.to_string()],
-            });
+        Self::update_node(&mut nodes, &source_id, now, topic_id.as_str());
+        Self::update_node(&mut nodes, &target_id, now, topic_id.as_str());
     }
 
     /// Get current flow graph snapshot
@@ -145,19 +124,24 @@ impl FlowTracker {
         let nodes = self.nodes.read().await;
 
         // Clean up old flows (> 30 seconds)
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let now = Self::now_ms();
 
         let active_flows: Vec<EventFlow> = flows
             .values()
-            .filter(|f| now - f.last_event_ms < 30_000)
+            .filter(|f| now.saturating_sub(f.last_event_ms) < FLOW_RETENTION_MS / 2)
+            .cloned()
+            .collect();
+
+        let active_nodes: Vec<FlowNode> = nodes
+            .values()
+            .filter(|n| {
+                n.id == "EventBus" || now.saturating_sub(n.last_active_ms) < NODE_RETENTION_MS
+            })
             .cloned()
             .collect();
 
         FlowGraph {
-            nodes: nodes.values().cloned().collect(),
+            nodes: active_nodes,
             flows: active_flows,
             timestamp: chrono::Utc::now().to_rfc3339(),
         }
@@ -165,13 +149,22 @@ impl FlowTracker {
 
     /// Clear old flows (> 60 seconds)
     pub async fn cleanup(&self) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let now = Self::now_ms();
 
-        let mut flows = self.flows.write().await;
-        flows.retain(|_, f| now - f.last_event_ms < 60_000);
+        {
+            let mut flows = self.flows.write().await;
+            flows.retain(|_, f| now.saturating_sub(f.last_event_ms) < FLOW_RETENTION_MS);
+        }
+
+        {
+            let mut nodes = self.nodes.write().await;
+            nodes.retain(|id, node| {
+                if id == "EventBus" {
+                    return true;
+                }
+                now.saturating_sub(node.last_active_ms) < NODE_RETENTION_MS
+            });
+        }
     }
 
     /// Infer node type from node ID
@@ -184,6 +177,39 @@ impl FlowTracker {
             id if id.contains("storage") => NodeType::Storage,
             _ => NodeType::Agent,
         }
+    }
+
+    fn update_node(nodes: &mut NodeMap, node_id: &str, now: u64, topic: &str) {
+        nodes
+            .entry(node_id.to_string())
+            .and_modify(|n| {
+                n.event_count = n.event_count.saturating_add(1);
+                n.last_active_ms = now;
+                if !n.topics.iter().any(|existing| existing == topic) {
+                    if n.topics.len() >= MAX_TOPICS_PER_NODE {
+                        n.topics.pop_front();
+                    }
+                    n.topics.push_back(topic.to_string());
+                }
+            })
+            .or_insert_with(|| {
+                let mut topics = VecDeque::new();
+                topics.push_back(topic.to_string());
+                FlowNode {
+                    id: node_id.to_string(),
+                    node_type: Self::infer_node_type(node_id),
+                    event_count: 1,
+                    topics,
+                    last_active_ms: now,
+                }
+            });
+    }
+
+    fn now_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_millis(0))
+            .as_millis() as u64
     }
 }
 
