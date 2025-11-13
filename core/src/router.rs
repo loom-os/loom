@@ -123,9 +123,7 @@ pub enum PrivacyLevel {
 #[derive(Clone)]
 pub struct ModelRouter {
     policy: RoutingPolicy,
-    #[allow(dead_code)]
     local_models: Vec<String>,
-    #[allow(dead_code)]
     cloud_endpoints: Vec<String>,
     confidence_estimator: Arc<dyn ConfidenceEstimator>,
 
@@ -240,7 +238,9 @@ impl ModelRouter {
         }
 
         // 2. Check if local model supports event type
-        let local_supported = self.confidence_estimator.supports_event_type(&event.r#type);
+        let local_model_available = self.has_local_model_for(&event.r#type);
+        let estimator_supports = self.confidence_estimator.supports_event_type(&event.r#type);
+        let local_supported = local_model_available && estimator_supports;
 
         // 3. Estimate local confidence
         let local_confidence = if local_supported {
@@ -306,16 +306,29 @@ impl ModelRouter {
             return Ok(decision);
         }
 
-        // 8. Default to cloud
-        let decision = RoutingDecision {
-            route: Route::Cloud,
-            confidence: 0.0,
-            reason: "Default to cloud for quality".to_string(),
-            estimated_latency_ms: 500,
-            estimated_cost: cloud_cost,
-        };
-        self.record_decision(&decision, &event.r#type);
-        Ok(decision)
+        // 8. Default to cloud if available, otherwise defer
+        if self.has_cloud_endpoint() {
+            let decision = RoutingDecision {
+                route: Route::Cloud,
+                confidence: 0.0,
+                reason: "Default to cloud for quality".to_string(),
+                estimated_latency_ms: 500,
+                estimated_cost: cloud_cost,
+            };
+            self.record_decision(&decision, &event.r#type);
+            Ok(decision)
+        } else {
+            // No cloud endpoints available - defer or drop
+            let decision = RoutingDecision {
+                route: Route::Defer,
+                confidence: 0.0,
+                reason: "No cloud endpoints available".to_string(),
+                estimated_latency_ms: 0,
+                estimated_cost: 0.0,
+            };
+            self.record_decision(&decision, &event.r#type);
+            Ok(decision)
+        }
     }
 
     // Helper method to record routing decision metrics and span attributes
@@ -386,5 +399,51 @@ impl ModelRouter {
     /// Get a copy of the active routing policy
     pub fn policy(&self) -> RoutingPolicy {
         self.policy.clone()
+    }
+
+    /// Check if a local model is available for the given event type
+    ///
+    /// This method maps event types to their corresponding local models
+    /// and checks if the model is registered in the router.
+    ///
+    /// Returns true if:
+    /// 1. A specific model mapping exists for the event type and is registered, OR
+    /// 2. At least one local model is available (for unknown/generic event types)
+    fn has_local_model_for(&self, event_type: &str) -> bool {
+        // First check for explicit model mappings
+        let model_name = match event_type {
+            "video_frame" | "face_event" => Some("face_detector"),
+            "audio_chunk" => Some("emotion_classifier"),
+            "intent" | "chat" => Some("lightweight_llm"),
+            _ => None,
+        };
+
+        if let Some(name) = model_name {
+            // For known event types, check if the specific model is available
+            self.local_models.iter().any(|m| m == name)
+        } else {
+            // For unknown event types, assume local models can handle if any are available
+            // This allows the confidence estimator to make the final determination
+            !self.local_models.is_empty()
+        }
+    }
+
+    /// Check if a cloud endpoint is available
+    ///
+    /// Returns true if at least one cloud endpoint is configured.
+    /// In production, this could be extended to check endpoint health,
+    /// rate limits, or specific model capabilities.
+    fn has_cloud_endpoint(&self) -> bool {
+        !self.cloud_endpoints.is_empty()
+    }
+
+    /// Get available local models
+    pub fn local_models(&self) -> &[String] {
+        &self.local_models
+    }
+
+    /// Get available cloud endpoints
+    pub fn cloud_endpoints(&self) -> &[String] {
+        &self.cloud_endpoints
     }
 }
