@@ -28,11 +28,10 @@ cargo run --example dashboard_demo
 
 What you will see:
 
-- **Event Flow** - D3 force-directed map of recent routes (rolling 60 s window).
-- **Event Stream** - live log with per-agent quick filters, auto-scroll toggle, and export-friendly payload previews.
-- **Agent Roster** - active agents, their topics, and capability hints.
-- **Agent Timeline** - select any agent in the stream to reveal the full inbound/outbound history (no arbitrary 5-item cap).
-- **Metrics** - request-rate placeholders ready for OpenTelemetry backends.
+- **Event Flow** – streaming list with per-agent filters, QoS badges, and thread/correlation hints.
+- **Agent Communications** – tool calls, outputs, and inter-agent messages rendered chronologically.
+- **Agent Network Graph** – animated canvas view of active nodes and recent flows (60 s window).
+- **Metrics** – events/sec (client-derived), active agents, routing decisions, latency, QoS mix.
 
 ---
 

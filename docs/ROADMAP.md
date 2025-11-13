@@ -69,50 +69,46 @@ Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researc
    - Complete documentation (QUICKSTART, METRICS reference)
    - **Validated**: Jaeger shows full trace chains, Prometheus collects all metrics
 
-7. **Dashboard MVP (Event Flow Focus)** — ✅ BASIC VERSION COMPLETE (feat/otpl branch)
+7. **Dashboard MVP (Event Flow Focus)** — ✅ React bundle integrated (feat/dashboard branch)
 
    **Goal**: Visualize real-time event flow across multi-agent systems, regardless of application design
 
-   **Implemented (MVP v0.1)**:
+   **Implemented (React bundle v0.2)**:
 
    - ✅ **Real-time Event Stream (SSE)**
-     - Server-Sent Events API (`/api/events/stream`)
-     - Display: timestamp, event_id, topic, sender, thread_id, correlation_id, payload preview
-     - Real-time filtering by thread_id/topic/sender
-     - Pause/resume auto-scroll, keep last 100 events
-   - ✅ **Agent Topology (Basic)**
-     - Show registered agents and their subscribed topics
-     - Auto-refresh every 5 seconds
-   - ✅ **Key Metrics Cards**
-     - Events/sec, Active Agents
-     - REST APIs: `/api/topology`, `/api/metrics`
-   - ✅ **Zero-build Frontend**
-     - Pure HTML/CSS/JS, dark theme, responsive design
-   - ✅ **EventBus Integration**
-     - EventBroadcaster (tokio broadcast channel)
-     - Dashboard events pushed on every EventBus.publish()
-   - ✅ **Example & Documentation**
-     - `dashboard_demo.rs` - simple demo
-     - `core/src/dashboard/README.md` - usage guide
+     - Rich payload preview, QoS badges, sender/topic/thread filters
+   - ✅ **Agent Communications Feed**
+     - Messages, tool calls, outputs with timestamps and results
+   - ✅ **Agent Network Graph**
+     - Canvas animation showing recent flows between agents/tools/EventBus
+   - ✅ **Metrics Overview**
+     - Cards for events/sec (client-side rate), active agents, routing decisions, latency, QoS distribution
+   - ✅ **React + shadcn Frontend**
+     - Vite-built assets embedded via `include_dir`, available from the `core` binary
+   - ✅ **Docs & Demo**
+     - Updated quick-start docs and `dashboard_demo.rs` showcase
 
    **Still TODO for full MVP**:
 
-   - 🚧 D3.js force-directed topology graph (currently list-only)
-   - 🚧 Thread timeline / Gantt chart view
-   - 🚧 Prometheus metrics integration (placeholder API now)
-   - 🚧 Event detail modal and search
-   - 🚧 Export event log to JSON
+   - 🚧 Server-side metrics aggregator (replace `/api/metrics` placeholders)
+   - 🚧 Thread timeline / swimlane view
+   - 🚧 Prometheus metrics integration
+   - 🚧 Event detail modal and advanced search
+   - 🚧 Export event log / flow history
 
    **Quick Start**:
 
    ```bash
-   cd core
+   cd core/src/dashboard/frontend
+   npm install
+   npm run build
+   cd ../../..
    export LOOM_DASHBOARD_PORT=3030
    cargo run --example dashboard_demo
    # Open http://localhost:3030 in browser
    ```
 
-   **Next steps**: Test integration with trio.py, add D3.js visualization
+   **Next steps**: Ship server-side metrics, add timeline view, expand filtering/search
 
 8. **JS SDK MVP (loom‑js)** — 🚧 TODO
 

@@ -2,27 +2,42 @@
 
 Real-time event flow visualization for Loom multi-agent systems.
 
-## Quick Demo (30 seconds)
+## Quick Demo (60 seconds)
 
 ```bash
-# Terminal 1: Start Dashboard with demo events
-cd core
+# One time (or when frontend changes): build dashboard assets
+cd core/src/dashboard/frontend
+npm install
+npm run build
+cd ../../..
+
+# Start Dashboard with demo events
 export LOOM_DASHBOARD_PORT=3030
 cargo run --example dashboard_demo
 
-# Terminal 2: Open in browser
+# Open in browser
 open http://localhost:3030
 ```
 
 You should see:
 
-- **Event Stream**: Real-time events flowing through the system
-- **Agent Topology**: 3 registered agents (planner, researcher, writer)
-- **Metrics**: Events/sec counter
+- **Hero + Metrics**: Snapshot cards for events/sec, active agents, routing decisions, latency, QoS mix
+- **Event Flow**: Streaming list with per-agent filters, QoS badges, thread/correlation hints
+- **Agent Communications**: Tool calls, messages, outputs with timestamps and results
+- **Agent Network Graph**: Animated canvas showing agent-to-agent traffic with glowing particles
 
 ## Usage Scenarios
 
 ### Scenario 1: Debug Python Multi-Agent System (trio.py)
+
+**Step 0** (first run): Build dashboard assets
+
+```bash
+cd core/src/dashboard/frontend
+npm install
+npm run build
+cd ../../..
+```
 
 **Step 1**: Start Loom Core with Dashboard enabled
 
@@ -151,37 +166,31 @@ cargo run --release
 - **Pause auto-scroll**: Click "Auto-scroll" button to pause and inspect events
 - **Clear**: Remove all events from view
 
-### Agent Topology
+### Agent Communications
 
-**What you see:**
-
-```
-┌──────────────────────────┐
-│ 3 Agents registered      │
-├──────────────────────────┤
-│ planner                  │
-│ researcher               │
-│ writer                   │
-└──────────────────────────┘
-```
-
-**Updates**: Auto-refreshes every 5 seconds
+- Tool invocations, agent-to-agent messages, and outputs rendered chronologically
+- Badge color highlights communication type (tool call, output, message)
+- Thread identifiers (when present) displayed for quick correlation
 
 ### Metrics Cards
 
-```
-┌─────────────┬─────────────┐
-│ Events/sec  │ Active      │
-│     12      │  Agents     │
-│             │      3      │
-└─────────────┴─────────────┘
-```
+- Events/sec (client-side rate derived from SSE timestamps while backend metrics mature)
+- Active agents (from topology snapshot)
+- Routing decisions & latency (placeholder until OpenTelemetry metrics land)
+- QoS distribution bar chart (realtime/batched/background mix)
+
+### Agent Network Graph
+
+- Canvas-based circular layout of active agents with animated message particles
+- Node glow indicates recent activity (`active`, `processing`, `idle`)
+- Connection list below the graph summarizes capabilities per agent
+- Shows latest inter-agent messages derived from flow tracker data
 
 ## API Endpoints
 
 ### `GET /`
 
-Main Dashboard HTML page
+Main Dashboard HTML page. Serves the Vite-built React bundle (`/static/index.html` + hashed assets).
 
 ### `GET /api/events/stream`
 
@@ -306,11 +315,12 @@ let broadcaster = EventBroadcaster::new(100);  // Keep only 100
 ## Performance
 
 - **Backend buffer**: 1000 events (configurable)
-- **Frontend display**: Last 100 events
+- **Frontend display**: Last 200 events (oldest trimmed automatically)
 - **Update frequency**:
   - Events: Real-time (SSE push)
-  - Topology: 5 seconds
-  - Metrics: 1 second
+  - Topology snapshot: 10 seconds
+  - Flow graph: 3 seconds
+  - Metrics: 5 seconds (client-side rate derived from SSE when API returns placeholders)
 - **Overhead**: ~5-10ms per event published (broadcast to channel)
 
 ## Next Steps
@@ -322,19 +332,18 @@ let broadcaster = EventBroadcaster::new(100);  // Keep only 100
 
 ## Roadmap
 
-**Current (MVP v0.1)**:
+**Current (React bundle v0.2)**:
 
-- ✅ Real-time event stream (SSE)
-- ✅ Basic agent topology (list view)
-- ✅ Key metrics cards
-- ✅ Event filtering
-- ✅ Zero-build frontend
+- ✅ Real-time event stream (SSE) with per-agent filtering
+- ✅ Agent communications feed (messages, tool invocations, outputs)
+- ✅ Canvas-based agent network graph with animated message particles
+- ✅ Metrics overview cards + QoS distribution (client-side enrichment)
+- ✅ Vite-built React + shadcn UI served directly from `core` binary
 
 **Coming Soon**:
 
-- 🚧 D3.js force-directed topology graph
-- 🚧 Thread timeline / Gantt chart
-- 🚧 Prometheus metrics integration
-- 🚧 Event detail modal
-- 🚧 Export to JSON
-- 🚧 Search and advanced filtering
+- 🚧 Server-side metrics aggregator (replace placeholder `/api/metrics` values)
+- 🚧 Event detail modal and search across payloads
+- 🚧 Thread timeline / swimlane visualization
+- 🚧 Export event log / flow data as JSON
+- 🚧 Additional topology overlays (backpressure, error hotspots)
