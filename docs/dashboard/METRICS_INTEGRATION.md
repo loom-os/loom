@@ -11,6 +11,12 @@ This document tracks the work to replace placeholder metrics with live data in t
   - tool_invocations_per_sec (from Tool orchestration / EventBus topics)
 - Expose metrics via `/api/metrics` and optionally export via OpenTelemetry/Prometheus.
 
+## Current Status
+
+- `/api/metrics` still returns placeholder values (zeros) until the server-side aggregator lands.
+- The React dashboard derives a temporary `eventsPerSecond` rate from SSE timestamps and falls back to topology counts for `activeAgents`.
+- QoS distribution cards render using either the API payload (when available) or a safe default mix.
+
 ## Approach
 
 1. Source-of-truth and instrumentation

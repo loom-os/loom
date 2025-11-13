@@ -428,6 +428,13 @@ Span: PublishEvent
 
 **Logging**: Structured JSON logs (DEBUG/INFO/WARN/ERROR) with sensitive data masking
 
+### Dashboard (React UI)
+
+- Vite-built React + shadcn frontend embedded into `loom-core` via `include_dir`.
+- Consumes `/api/events/stream` (SSE), `/api/flow`, `/api/topology`, and `/api/metrics`.
+- Provides event timeline, agent communications feed, animated agent network graph, and metrics cards.
+- Frontend assets live under `core/src/dashboard/static/` and refresh via `npm run build` in `core/src/dashboard/frontend/`.
+
 ## Data Flow Examples
 
 ### Example 1: Real-time Face Emotion Recognition

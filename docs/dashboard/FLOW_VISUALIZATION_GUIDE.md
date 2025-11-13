@@ -2,74 +2,49 @@
 
 ## Overview
 
-The enhanced dashboard now includes an interactive event flow visualization that shows real-time event flow between agents and system components using D3.js force-directed graphs.
+The dashboard renders a live **Agent Network Graph** powered by `FlowTracker`. It shows how events move between agents, the EventBus, tools, and routers using an animated HTML canvas. Each particle represents a recent message, letting you spot active conversations at a glance.
 
-## What's New
+## Graph Capabilities
 
-### 1. Event Flow Graph Tab
-
-- **Interactive Force-Directed Graph**: Visualize how events flow between components in real-time
-- **Animated Links**: Active event flows (< 2 seconds old) are highlighted with blue animated lines
-- **Color-Coded Nodes**: Each node type has a distinct color
-- **Event Count Badges**: Shows total events processed by each node
-- **Draggable Layout**: Click and drag nodes to customize the graph layout
-
-### 2. Dual-Tab Interface
-
-- **Event Flow Tab**: D3.js visualization (default view)
-- **Event Stream Tab**: Traditional chronological event list
-
-### 3. New API Endpoint
-
-- `GET /api/flow`: Returns current flow graph data with nodes and edges
+- **Circular Layout**: Agents and system nodes are positioned on a ring for quick scanning.
+- **Animated Particles**: New flows spawn glowing particles that travel along their edge.
+- **Status Glow**: Node halos communicate activity — bright teal for active (<5 s), green for processing (≤30 s), and slate for idle.
+- **Capability Summary**: Cards beneath the visualization list each agent, its status, and capability count.
+- **Auto-Pruned Data**: FlowTracker keeps a rolling 60 s window to avoid runaway memory usage.
 
 ## Quick Test
 
 ```bash
-# Terminal 1: Start the dashboard
-cd core
+# Build dashboard assets (first run or after frontend changes)
+cd core/src/dashboard/frontend
+npm install
+npm run build
+cd ../../..
+
+# Start the demo event pipeline + dashboard
 export LOOM_DASHBOARD_PORT=3030
 cargo run --example dashboard_demo
 
-# Terminal 2: Open browser
+# View the graph
 open http://localhost:3030
 ```
 
-## What You'll See
+## Data Pipeline
 
-The dashboard_demo creates a continuous event flow simulation:
+1. `FlowTracker::record_flow()` records `(source, target, topic)` edges with timestamps.
+2. `/api/flow` returns the latest nodes and flows every few seconds.
+3. The React dashboard fetches `/api/flow` (3 s interval) and feeds the `AgentNetworkGraph` canvas.
+4. The canvas animates particles for connections seen in the last ~3 s and fades nodes based on activity.
 
-1. **Nodes appear** representing:
-
-   - **EventBus** (purple center) - The message hub
-   - **Agents** (blue) - planner, researcher, writer
-   - **Router** (orange) - Routing decisions
-   - **llm-provider** (green) - Language model interactions
-
-2. **Links animate** showing:
-
-   - EventBus → Agents (event delivery)
-   - Agents → EventBus (agent publishing)
-   - Router ↔ LLM (periodic interactions)
-
-3. **Event counts** increment on node badges as events flow
-
-4. **Auto-refresh** every 2 seconds to show latest flows
-
-## Node Type Legend
-
-| Color     | Type     | Description                   |
-| --------- | -------- | ----------------------------- |
-| 🔵 Blue   | Agent    | User-defined event processors |
-| 🟣 Purple | EventBus | Central message bus           |
-| 🟠 Orange | Router   | Routing decisions             |
-| 🟢 Green  | LLM      | Language model interactions   |
-| 🔴 Red    | Tool     | Tool invocations              |
-| 🔵 Cyan   | Storage  | Data persistence              |
+```mermaid
+graph TD
+    A[FlowTracker] -->|record_flow| B[(In-memory graphs)]
+    B -->|GET /api/flow| C[Dashboard API]
+    C -->|poll every ~3s| D[React AgentNetworkGraph]
+    D -->|HTMLCanvasElement| E[Animated visualization]
+```
 
 ## Integration Example
-
-To use FlowTracker in your own application:
 
 ```rust
 use loom_core::dashboard::FlowTracker;
@@ -77,78 +52,45 @@ use std::sync::Arc;
 
 let flow_tracker = Arc::new(FlowTracker::new());
 
-// Record when EventBus delivers event to agent
-flow_tracker.record_flow("EventBus", "my-agent", "my.topic").await;
+// EventBus delivering to an agent
+flow_tracker.record_flow("EventBus", "planner", "agent.task").await;
 
-// Record when agent processes and publishes result
-flow_tracker.record_flow("my-agent", "EventBus", "result.topic").await;
+// Agent publishing a result
+flow_tracker.record_flow("planner", "EventBus", "agent.research").await;
 
-// Record LLM interactions
-flow_tracker.record_flow("Router", "openai-llm", "llm.request").await;
-flow_tracker.record_flow("openai-llm", "Router", "llm.response").await;
+// Tool/LLM round-trip
+flow_tracker.record_flow("Router", "llm-provider", "llm.request").await;
+flow_tracker.record_flow("llm-provider", "Router", "llm.response").await;
 ```
 
-## Performance Characteristics
+## FlowTracker Defaults
 
-- **Flow Retention**: 60 seconds (auto-cleanup of old flows)
-- **Active Flow Threshold**: 2 seconds (animated links)
-- **Display Threshold**: 30 seconds (visible flows)
-- **Update Interval**: 2 seconds
-- **Memory Impact**: Minimal (HashMap with time-based cleanup)
+- **Flow retention**: 60 000 ms (flows older than 60 s removed in background task)
+- **Display window**: Graph shows flows seen within the last 30 s
+- **Animation threshold**: Particles spawn for flows newer than ~3 s
+- **Node retention**: Nodes expire after 120 s of inactivity (EventBus is always kept)
 
 ## Troubleshooting
 
-### No flows showing?
+| Issue | Fix |
+| ----- | --- |
+| No particles/edges | Confirm `flow_tracker.record_flow()` is called for both directions of the exchange |
+| Only EventBus visible | Ensure agents have published/received within the retention window |
+| Graph feels empty | Increase traffic, or lower retention constants in `FlowTracker` for testing |
+| Browser FPS drops | Reduce particle speed or pruning window (see comments in `AgentNetworkGraph.tsx`) |
 
-- Ensure `FlowTracker::record_flow()` is being called in your code
-- Check that demo is running: look for "Starting event flow simulation..." log
+## Customization Tips
 
-### Nodes overlapping?
+- Tune `FlowTracker::cleanup` retention constants to match your traffic profile.
+- Extend `AgentNetworkGraph` to color nodes by capability type or QoS.
+- Feed additional metadata (e.g., error counts) through `/api/flow` by augmenting `FlowNode`.
+- For long-lived flows, consider persisting historical snapshots separately and loading on demand.
 
-- Drag nodes to separate them
-- The force simulation will auto-arrange after a few seconds
+## Future Enhancements
 
-### Performance issues?
+- Node tooltip/details (topic history, last payload preview)
+- Topic-based filtering of edges
+- Error/backpressure overlays
+- Export/recording of flow snapshots for postmortems
 
-- Reduce update interval if needed (currently 2s)
-- Flows auto-cleanup after 60 seconds to prevent memory growth
-
-## Next Enhancements
-
-Planned features:
-
-- Click on nodes to see details
-- Filter flows by topic
-- Show event payloads on hover
-- Thread timeline view
-- Export graph as image
-- Integrate with actual EventBus for automatic flow tracking
-
-## Architecture
-
-```
-FlowTracker (Rust)
-    ↓
-REST API (/api/flow)
-    ↓
-D3.js Force Simulation (Browser)
-    ↓
-SVG Visualization
-```
-
-The flow tracking is:
-
-1. **Recorded** by calling `flow_tracker.record_flow()`
-2. **Stored** in-memory with timestamps
-3. **Cleaned** automatically (60s retention)
-4. **Queried** via `/api/flow` endpoint
-5. **Visualized** using D3.js force-directed graph
-
-## Tips
-
-- **Zoom**: Not yet implemented, but nodes are draggable
-- **Best view**: Flow graph works best with 3-10 nodes
-- **Performance**: Handles up to 50 nodes smoothly
-- **Mobile**: Works on mobile but desktop experience is better
-
-Enjoy exploring event flows! 🚀
+Enjoy exploring your agents’ traffic patterns! 🚀
