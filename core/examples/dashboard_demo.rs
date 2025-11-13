@@ -49,19 +49,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
 
     // Register some example agents
-    loom_core::directory::AgentInfo {
+    let planner_info = loom_core::directory::AgentInfo {
         agent_id: "planner".to_string(),
         subscribed_topics: vec!["agent.task".to_string(), "thread.*.broadcast".to_string()],
         capabilities: vec!["plan.create".to_string()],
         metadata: Default::default(),
     };
 
-    agent_directory.register_agent(loom_core::directory::AgentInfo {
-        agent_id: "planner".to_string(),
-        subscribed_topics: vec!["agent.task".to_string()],
-        capabilities: vec!["plan.create".to_string()],
-        metadata: Default::default(),
-    });
+    agent_directory.register_agent(planner_info);
 
     agent_directory.register_agent(loom_core::directory::AgentInfo {
         agent_id: "researcher".to_string(),

@@ -60,6 +60,10 @@ You’ll see:
 - More metrics: tool invocations/sec, P99 latency, Prometheus integration
 - Interactions: node/event details, search, JSON export, topic filters
 
+## Important: Metrics are placeholders
+
+Today the Metrics endpoint returns static zeros as placeholders. Live metrics (events/sec, active agents, tool invocations, etc.) will be wired up via OpenTelemetry/Prometheus in a follow-up. See docs/dashboard/METRICS_INTEGRATION.md for the plan and tracking checklist.
+
 ## API Endpoints
 
 ### GET /
