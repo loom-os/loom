@@ -231,12 +231,16 @@ Enables polyglot multi-agent systems with Python/JS agents collaborating with Ru
 - Server-Sent Events (SSE) API streaming events to browser
 - Display: timestamp, event_id, topic, sender, thread_id, correlation_id, payload
 - Filter by thread_id/topic/sender for debugging multi-agent conversations
-- Zero-build frontend (pure HTML/CSS/JS, dark theme)
+- React + Tailwind dashboard (Vite build, shadcn UI kit)
 
 **Quick Start**:
 
 ```bash
 cd core
+pushd src/dashboard/frontend
+npm install
+npm run build           # emits assets into ../static/
+popd
 export LOOM_DASHBOARD_PORT=3030
 cargo run --example dashboard_demo
 # Open http://localhost:3030

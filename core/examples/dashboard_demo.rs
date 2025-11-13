@@ -5,7 +5,7 @@
 use loom_core::{
     dashboard::{DashboardConfig, DashboardServer, EventBroadcaster, FlowTracker},
     directory::AgentDirectory,
-    event::{Event, EventBus, EventExt},
+    event::{Event, EventBus, EventExt, QoSLevel},
 };
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
@@ -85,39 +85,152 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     info!("Starting event flow simulation...");
 
-    // Simulate continuous event flow
+    // Wire real subscriptions to demonstrate end-to-end consumption
+    // planner: receives tasks -> publishes research request
+    {
+        let event_bus = event_bus.clone();
+        let flow_tracker = flow_tracker.clone();
+        let (sub_id, mut rx) = event_bus
+            .subscribe("agent.task".to_string(), vec![], QoSLevel::QosRealtime)
+            .await?;
+        info!("planner subscribed: {}", sub_id);
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                flow_tracker
+                    .record_flow("EventBus", "planner", "agent.task")
+                    .await;
+                // Planner emits research request
+                let out = Event {
+                    id: format!("{}-plan", event.id),
+                    r#type: "plan.created".to_string(),
+                    timestamp_ms: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as i64,
+                    source: "planner".to_string(),
+                    payload: format!("Plan for {}", String::from_utf8_lossy(&event.payload))
+                        .into_bytes(),
+                    metadata: Default::default(),
+                    confidence: 1.0,
+                    tags: vec![],
+                    priority: 50,
+                }
+                .with_thread(event.thread_id().unwrap_or("thread").to_string())
+                .with_sender("planner".to_string())
+                .with_correlation(event.correlation_id().unwrap_or_default().to_string());
+                flow_tracker
+                    .record_flow("planner", "EventBus", "agent.research")
+                    .await;
+                let _ = event_bus.publish("agent.research", out).await;
+            }
+        });
+    }
+
+    // researcher: receives research req -> publishes draft to writer
+    {
+        let event_bus = event_bus.clone();
+        let flow_tracker = flow_tracker.clone();
+        let (sub_id, mut rx) = event_bus
+            .subscribe("agent.research".to_string(), vec![], QoSLevel::QosRealtime)
+            .await?;
+        info!("researcher subscribed: {}", sub_id);
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                flow_tracker
+                    .record_flow("EventBus", "researcher", "agent.research")
+                    .await;
+                let out = Event {
+                    id: format!("{}-research", event.id),
+                    r#type: "research.completed".to_string(),
+                    timestamp_ms: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as i64,
+                    source: "researcher".to_string(),
+                    payload: b"Findings: ...".to_vec(),
+                    metadata: Default::default(),
+                    confidence: 1.0,
+                    tags: vec![],
+                    priority: 50,
+                }
+                .with_thread(event.thread_id().unwrap_or("thread").to_string())
+                .with_sender("researcher".to_string())
+                .with_correlation(event.correlation_id().unwrap_or_default().to_string());
+                flow_tracker
+                    .record_flow("researcher", "EventBus", "agent.write")
+                    .await;
+                let _ = event_bus.publish("agent.write", out).await;
+            }
+        });
+    }
+
+    // writer: receives draft -> publishes final to thread.broadcast
+    {
+        let event_bus = event_bus.clone();
+        let flow_tracker = flow_tracker.clone();
+        let (sub_id, mut rx) = event_bus
+            .subscribe("agent.write".to_string(), vec![], QoSLevel::QosRealtime)
+            .await?;
+        info!("writer subscribed: {}", sub_id);
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                flow_tracker
+                    .record_flow("EventBus", "writer", "agent.write")
+                    .await;
+                let out = Event {
+                    id: format!("{}-final", event.id),
+                    r#type: "content.finalized".to_string(),
+                    timestamp_ms: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as i64,
+                    source: "writer".to_string(),
+                    payload: b"Article: ...".to_vec(),
+                    metadata: Default::default(),
+                    confidence: 1.0,
+                    tags: vec![],
+                    priority: 50,
+                }
+                .with_thread(event.thread_id().unwrap_or("thread").to_string())
+                .with_sender("writer".to_string())
+                .with_correlation(event.correlation_id().unwrap_or_default().to_string());
+                flow_tracker
+                    .record_flow("writer", "EventBus", "thread.broadcast")
+                    .await;
+                let _ = event_bus.publish("thread.broadcast", out).await;
+            }
+        });
+    }
+
+    // planner listens for final broadcast (close the loop)
+    {
+        let flow_tracker = flow_tracker.clone();
+        let event_bus = event_bus.clone();
+        let (sub_id, mut rx) = event_bus
+            .subscribe(
+                "thread.broadcast".to_string(),
+                vec![],
+                QoSLevel::QosRealtime,
+            )
+            .await?;
+        info!("planner broadcast subscriber: {}", sub_id);
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                flow_tracker
+                    .record_flow("EventBus", "planner", "thread.broadcast")
+                    .await;
+                let _ = event; // end-of-pipeline
+            }
+        });
+    }
+
+    // Simulate continuous event flow: seed pipeline by publishing to agent.task
     tokio::spawn({
         let flow_tracker = flow_tracker.clone();
         let event_bus = event_bus.clone();
         async move {
-            let agents = vec!["planner", "researcher", "writer"];
-            let topics = vec!["agent.task", "agent.research", "agent.write"];
-
             for i in 0.. {
                 sleep(Duration::from_millis(1500)).await;
-
-                let agent_idx = i % agents.len();
-                let agent = agents[agent_idx];
-                let topic = topics[agent_idx];
-
-                // Record flow: EventBus -> Agent
-                flow_tracker.record_flow("EventBus", agent, topic).await;
-
-                // Also record reverse flow: Agent -> EventBus (agent publishing)
-                if i % 3 == 0 {
-                    flow_tracker.record_flow(agent, "EventBus", topic).await;
-                }
-
-                // Occasionally show Router and LLM interaction
-                if i % 5 == 0 {
-                    flow_tracker
-                        .record_flow("Router", "llm-provider", "llm.request")
-                        .await;
-                    flow_tracker
-                        .record_flow("llm-provider", "Router", "llm.response")
-                        .await;
-                }
-
                 let event = Event {
                     id: format!("event-{}-{}", thread_id, i),
                     r#type: "task.created".to_string(),
@@ -125,21 +238,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_millis() as i64,
-                    source: agent.to_string(),
-                    payload: format!("Task {} from {}", i, agent).into_bytes(),
+                    source: "planner".to_string(),
+                    payload: format!("Task {}", i).into_bytes(),
                     metadata: Default::default(),
                     confidence: 1.0,
                     tags: vec![],
                     priority: 50,
                 }
                 .with_thread(thread_id.clone())
-                .with_sender(agent.to_string())
+                .with_sender("planner".to_string())
                 .with_correlation(format!("corr-{}", i));
 
-                let _ = event_bus.publish(topic, event).await;
+                // Planner seeds the pipeline with a task
+                flow_tracker
+                    .record_flow("planner", "EventBus", "agent.task")
+                    .await;
+                let _ = event_bus.publish("agent.task", event).await;
 
                 if i < 20 {
-                    info!("Published event {} from {}", i, agent);
+                    info!("Published task {}", i);
                 }
             }
         }

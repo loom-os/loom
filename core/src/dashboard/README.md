@@ -6,17 +6,21 @@ Real-time observability for Loom Core. The dashboard presents a live event strea
 
 ## TL;DR
 
-- **One binary** - served directly from `DashboardServer`; no external build step.
-- **React + D3** UI - modular components, dark theme, tuned for day-long monitoring.
-- **Flow-aware storage** - in-memory graph with automatic TTL and bounded topic lists to avoid runaway memory usage.
-- **Safe SSE handling** - resilient reconnect logic that keeps a single EventSource per browser tab.
+- **Build once, serve everywhere** – run `npm run build` in `src/dashboard/frontend/` to emit assets the server embeds automatically.
+- **React + Tailwind UI** – shadcn component kit, animated flow graph, responsive layout for day-long monitoring.
+- **Flow-aware storage** – in-memory graph with automatic TTL and bounded topic lists to avoid runaway memory usage.
+- **Safe SSE handling** – resilient reconnect logic that keeps a single EventSource per browser tab.
 
 ---
 
 ## Quick Start
 
 ```bash
-cd core
+cd core/src/dashboard/frontend
+npm install
+npm run build           # outputs hashed assets into ../static
+
+cd ../../..
 export LOOM_DASHBOARD_PORT=3030
 cargo run --example dashboard_demo
 # open http://127.0.0.1:3030
@@ -34,12 +38,12 @@ What you will see:
 
 ## Architecture Snapshot
 
-| Layer                            | Purpose                                                                                           |
-| -------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `EventBus` -> `EventBroadcaster` | Publishes trimmed event payloads over SSE.                                                        |
-| `FlowTracker`                    | Records `(source, target, topic)` edges, prunes after 60 s, caps each node to 20 topics.          |
-| `TopologyBuilder`                | Reads `AgentDirectory` to surface live roster data.                                               |
-| Frontend (`static/`)             | React modules + HTM wrappers, D3 flow graph helper, resilient SSE client with per-agent timeline. |
+| Layer                            | Purpose                                                                                               |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `EventBus` -> `EventBroadcaster` | Publishes trimmed event payloads over SSE.                                                            |
+| `FlowTracker`                    | Records `(source, target, topic)` edges, prunes after 60 s, caps each node to 20 topics.              |
+| `TopologyBuilder`                | Reads `AgentDirectory` to surface live roster data.                                                   |
+| Frontend (`static/`)             | Vite-built React bundle (shadcn UI) consuming `/api/*`, canvas flow animations, resilient SSE client. |
 
 Event data stays on the server; the browser only renders JSON delivered via `/api/events/stream`, `/api/flow`, `/api/topology`, and `/api/metrics`.
 
@@ -82,7 +86,7 @@ Set `LOOM_DASHBOARD=true` in production or guard the server behind your own auth
 
 ## Operations & Observability Tips
 
-- **SSE clients** - the Vue client keeps exactly one `EventSource`, closing it before reconnects. If you see multiple `events/stream` requests in DevTools, treat that as a bug.
+- **SSE clients** - the React app keeps exactly one `EventSource`, closing it before reconnects. If you see multiple `events/stream` requests in DevTools, treat that as a bug.
 - **Flow retention** - edges expire after 60 s, nodes after 120 s of inactivity. The browser graph polls every 2.5 s; adjust in `static/index.html` if you need longer windows.
 - **Topic list bounds** - each node keeps the 20 most recent topics, guaranteeing predictable JSON payloads even when topics are dynamic (thread-scoped IDs, etc.).
 - **Metrics endpoint** - returns placeholders today. Swap in your own struct or hook into OpenTelemetry exporters when ready.
@@ -91,13 +95,12 @@ Set `LOOM_DASHBOARD=true` in production or guard the server behind your own auth
 
 ## Extending the UI
 
-The dashboard uses plain Vue-in-the-browser (no bundler) so you can:
+The dashboard ships as a Vite-powered React application:
 
-- Drop new Vue components in `static/index.html` (the script tag is an ES module).
-- Inject additional fetches (e.g., `/api/metrics/detailed`) and wire them into new cards.
-- Customize D3 forces or colors inside `renderFlowGraph` to match your topology conventions.
-
-After editing, reload the page; the server automatically serves the updated static file.
+- Develop inside `core/src/dashboard/frontend` with `npm run dev`.
+- Fetch additional APIs (e.g., `/api/metrics/detailed`) via React Query hooks inside `src/lib/dashboardApi.ts`.
+- Customize the flow canvas or cards by editing the components under `src/components/`.
+- Run `npm run build` to regenerate static assets; the Rust server embeds whatever lives in `core/src/dashboard/static/`.
 
 ---
 

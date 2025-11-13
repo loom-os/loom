@@ -24,6 +24,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 axum = "0.7"
 tower-http = { version = "0.5", features = ["fs", "cors"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
+include_dir = "0.7"
+mime_guess = "2.0"
 
 # OpenTelemetry dependencies
 opentelemetry = "0.22"

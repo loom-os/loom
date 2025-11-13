@@ -115,18 +115,20 @@ impl DashboardServer {
 }
 
 /// Serve the main HTML page
+const FALLBACK_INDEX: &str = r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>Loom Dashboard</title></head><body><h1>Loom Dashboard assets not found</h1><p>Please run <code>npm run build</code> inside <code>core/src/dashboard/frontend</code> to generate the static assets.</p></body></html>"#;
+
 async fn index_handler() -> Html<&'static str> {
-    Html(include_str!("static/index.html"))
+    let html = crate::dashboard::static_assets::get_text("index.html").unwrap_or(FALLBACK_INDEX);
+    Html(html)
 }
 
 async fn static_asset_handler(Path(asset): Path<String>) -> impl IntoResponse {
     match crate::dashboard::static_assets::get(asset.as_str()) {
         Some(asset) => {
             let mut headers = HeaderMap::new();
-            headers.insert(
-                header::CONTENT_TYPE,
-                header::HeaderValue::from_static(asset.content_type),
-            );
+            if let Ok(value) = header::HeaderValue::from_str(asset.content_type.as_ref()) {
+                headers.insert(header::CONTENT_TYPE, value);
+            }
             (StatusCode::OK, headers, asset.body).into_response()
         }
         None => {
