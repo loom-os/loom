@@ -165,8 +165,9 @@
       .visual-panel {
         flex: 1;
         min-width: 0;
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: minmax(420px, 2.3fr) minmax(260px, 1fr);
+        align-items: stretch;
         gap: 20px;
         overflow: hidden;
       }
@@ -454,7 +455,6 @@
         display: flex;
         flex-direction: column;
         gap: 16px;
-        flex: 1;
         min-height: 0;
       }
 
@@ -501,11 +501,157 @@
       .flow-canvas {
         position: relative;
         flex: 1;
-        min-height: 430px;
+        min-height: 360px;
         border-radius: 16px;
         border: 1px solid rgba(148, 163, 184, 0.18);
         background: rgba(11, 18, 32, 0.76);
         overflow: hidden;
+      }
+
+      .activity-card {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        min-height: 0;
+      }
+
+      .activity-list {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow-y: auto;
+        max-height: 420px;
+        padding-right: 4px;
+      }
+
+      .agent-activity {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(14, 21, 36, 0.78);
+      }
+
+      .agent-activity header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .activity-headline {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .activity-agent {
+        font-weight: 600;
+        color: #f8fafc;
+      }
+
+      .activity-muted {
+        font-size: 11px;
+        color: #94a3b8;
+      }
+
+      .activity-relative {
+        font-size: 11px;
+        color: #60a5fa;
+        font-weight: 600;
+      }
+
+      .activity-timeline {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .activity-item {
+        display: grid;
+        grid-template-columns: 68px 58px 1fr;
+        gap: 10px;
+        font-size: 12px;
+        align-items: start;
+      }
+
+      .activity-time {
+        color: #7f8cb2;
+        font-family: "JetBrains Mono", "Courier New", monospace;
+      }
+
+      .activity-direction {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .direction-out {
+        background: rgba(59, 130, 246, 0.18);
+        color: #9cc4ff;
+        border: 1px solid rgba(59, 130, 246, 0.24);
+      }
+
+      .direction-in {
+        background: rgba(16, 185, 129, 0.18);
+        color: #6ee7b7;
+        border: 1px solid rgba(16, 185, 129, 0.26);
+      }
+
+      .direction-system {
+        background: rgba(148, 163, 184, 0.18);
+        color: #d1d5db;
+        border: 1px solid rgba(148, 163, 184, 0.28);
+      }
+
+      .activity-topic {
+        font-family: "JetBrains Mono", "Courier New", monospace;
+        color: #38bdf8;
+      }
+
+      .activity-details {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .activity-preview {
+        margin-top: 2px;
+        color: #cbd5f5;
+      }
+
+      @media (max-width: 1400px) {
+        .visual-panel {
+          grid-template-columns: 1fr;
+        }
+
+        .activity-item {
+          grid-template-columns: 64px 1fr;
+          grid-template-areas:
+            "time direction"
+            "details details";
+        }
+
+        .activity-time {
+          grid-area: time;
+        }
+
+        .activity-direction {
+          grid-area: direction;
+          justify-self: start;
+        }
+
+        .activity-details {
+          grid-area: details;
+        }
       }
 
       .flow-canvas svg {
@@ -703,6 +849,54 @@
               </div>
             </section>
 
+            <section class="card topology-card">
+              <div class="card-heading">
+                <div>
+                  <h2>Agent roster</h2>
+                  <p class="card-subtitle">
+                    Updated
+                    {{
+                      topology.timestamp ? formatTime(topology.timestamp) : "n/a"
+                    }}
+                  </p>
+                </div>
+                <span class="summary-chip">
+                  <span class="summary-label">Agents</span>
+                  <span class="summary-value">{{ topology.agents.length }}</span>
+                </span>
+              </div>
+              <div v-if="topologyMissing" class="empty-state">
+                No agents registered yet.
+              </div>
+              <template v-else>
+                <ul class="topology-list">
+                  <li
+                    v-for="agent in topologyPreview"
+                    :key="agent.id"
+                    class="topology-item"
+                  >
+                    <div class="agent-name">{{ agent.id }}</div>
+                    <div class="agent-topics">
+                      <span
+                        v-for="topic in agent.topics.slice(0, 3)"
+                        :key="`${agent.id}-${topic}`"
+                        class="topic-chip"
+                      >
+                        {{ topic }}
+                      </span>
+                    </div>
+                  </li>
+                </ul>
+                <p
+                  v-if="topology.agents.length > topologyPreview.length"
+                  class="more-indicator"
+                >
+                  +{{ topology.agents.length - topologyPreview.length }} more
+                  agents
+                </p>
+              </template>
+            </section>
+
             <section class="card filters-card">
               <div class="card-heading">
                 <h2>Filters</h2>
@@ -799,54 +993,6 @@
           </aside>
 
           <section class="visual-panel">
-            <section class="card topology-card">
-              <div class="card-heading">
-                <div>
-                  <h2>Agent roster</h2>
-                  <p class="card-subtitle">
-                    Updated
-                    {{
-                      topology.timestamp ? formatTime(topology.timestamp) : "n/a"
-                    }}
-                  </p>
-                </div>
-                <span class="summary-chip">
-                  <span class="summary-label">Agents</span>
-                  <span class="summary-value">{{ topology.agents.length }}</span>
-                </span>
-              </div>
-              <div v-if="topologyMissing" class="empty-state">
-                No agents registered yet.
-              </div>
-              <template v-else>
-                <ul class="topology-list">
-                  <li
-                    v-for="agent in topologyPreview"
-                    :key="agent.id"
-                    class="topology-item"
-                  >
-                    <div class="agent-name">{{ agent.id }}</div>
-                    <div class="agent-topics">
-                      <span
-                        v-for="topic in agent.topics.slice(0, 3)"
-                        :key="`${agent.id}-${topic}`"
-                        class="topic-chip"
-                      >
-                        {{ topic }}
-                      </span>
-                    </div>
-                  </li>
-                </ul>
-                <p
-                  v-if="topology.agents.length > topologyPreview.length"
-                  class="more-indicator"
-                >
-                  +{{ topology.agents.length - topologyPreview.length }} more
-                  agents
-                </p>
-              </template>
-            </section>
-
             <section class="card flow-card">
               <div class="flow-header">
                 <div>
@@ -902,6 +1048,62 @@
                   ><span class="legend-dot storage"></span>Storage</span
                 >
               </footer>
+            </section>
+            <section class="card activity-card">
+              <div class="card-heading">
+                <div>
+                  <h2>Agent activity</h2>
+                  <p class="card-subtitle">
+                    Recent in/out traffic grouped by agent
+                  </p>
+                </div>
+              </div>
+              <div v-if="agentActivity.length === 0" class="empty-state">
+                Activity appears here once events start flowing.
+              </div>
+              <div v-else class="activity-list">
+                <article
+                  v-for="agent in agentActivity"
+                  :key="agent.agent"
+                  class="agent-activity"
+                >
+                  <header>
+                    <div class="activity-headline">
+                      <span class="activity-agent">{{ agent.agent }}</span>
+                      <span class="activity-muted">
+                        {{ agent.events.length }} recent
+                        {{ agent.events.length === 1 ? "event" : "events" }}
+                      </span>
+                    </div>
+                    <span class="activity-relative">
+                      {{ formatRelativeTime(agent.lastTimestamp) }}
+                    </span>
+                  </header>
+                  <ul class="activity-timeline">
+                    <li
+                      v-for="item in agent.events"
+                      :key="item.event_id"
+                      class="activity-item"
+                    >
+                      <span class="activity-time">
+                        {{ formatTime(item.timestamp) }}
+                      </span>
+                      <span
+                        class="activity-direction"
+                        :class="`direction-${item.direction}`"
+                      >
+                        {{ item.directionLabel }}
+                      </span>
+                      <div class="activity-details">
+                        <div class="activity-topic">{{ item.topic }}</div>
+                        <div class="activity-preview">
+                          {{ item.preview }}
+                        </div>
+                      </div>
+                    </li>
+                  </ul>
+                </article>
+              </div>
             </section>
           </section>
         </main>
@@ -962,6 +1164,7 @@
           let linkGroup = null;
           let nodeGroup = null;
           let simulation = null;
+          const nodeState = new Map();
 
           const filteredEvents = computed(() =>
             allEvents.value.filter((evt) => {
@@ -1010,6 +1213,60 @@
               topics,
               activeLinks,
             };
+          });
+
+          const agentActivity = computed(() => {
+            const grouped = new Map();
+            for (let i = allEvents.value.length - 1; i >= 0; i -= 1) {
+              const evt = allEvents.value[i];
+              const agentId = evt.sender;
+              if (!agentId) {
+                continue;
+              }
+              if (!grouped.has(agentId)) {
+                grouped.set(agentId, []);
+              }
+              const bucket = grouped.get(agentId);
+              if (bucket.length >= 5) {
+                continue;
+              }
+              let direction = "system";
+              if (evt.event_type === "event_delivered") {
+                direction = "in";
+              } else if (evt.event_type === "event_published") {
+                direction = "out";
+              }
+              const directionLabel =
+                direction === "in"
+                  ? "In"
+                  : direction === "out"
+                  ? "Out"
+                  : "System";
+              const previewRaw = (evt.payload_preview || "").trim();
+              const preview =
+                previewRaw.length > 90
+                  ? `${previewRaw.slice(0, 87)}...`
+                  : previewRaw || "(no payload)";
+              bucket.push({
+                event_id: evt.event_id,
+                timestamp: evt.timestamp,
+                topic: evt.topic || "(no topic)",
+                preview,
+                direction,
+                directionLabel,
+              });
+            }
+            const entries = Array.from(grouped.entries()).map(([agent, events]) => ({
+              agent,
+              events,
+              lastTimestamp: events[0]?.timestamp ?? null,
+            }));
+            entries.sort((a, b) => {
+              const aTime = a.lastTimestamp ? Date.parse(a.lastTimestamp) : 0;
+              const bTime = b.lastTimestamp ? Date.parse(b.lastTimestamp) : 0;
+              return bTime - aTime;
+            });
+            return entries.slice(0, 6);
           });
 
           const formattedFlowUpdatedAt = computed(() => {
@@ -1153,6 +1410,7 @@
               nodeGroup = null;
               simulation = null;
             }
+            nodeState.clear();
           }
 
           function renderFlowGraph() {
@@ -1211,12 +1469,37 @@
               simulation.force("center", d3.forceCenter(width / 2, height / 2));
             }
 
-            const nodes = flowData.value.nodes.map((node) => ({
-              ...node,
-              topics: Array.isArray(node.topics)
+            const activeNodeIds = new Set();
+            const nodes = flowData.value.nodes.map((node) => {
+              const topics = Array.isArray(node.topics)
                 ? node.topics
-                : Array.from(node.topics || []),
-            }));
+                : Array.from(node.topics || []);
+              const cached = nodeState.get(node.id);
+              if (cached) {
+                cached.node_type = node.node_type;
+                cached.event_count = node.event_count;
+                cached.topics = topics;
+                activeNodeIds.add(node.id);
+                return cached;
+              }
+              const seed = {
+                ...node,
+                topics,
+                x: width / 2 + (Math.random() - 0.5) * 40,
+                y: height / 2 + (Math.random() - 0.5) * 40,
+                vx: 0,
+                vy: 0,
+              };
+              nodeState.set(node.id, seed);
+              activeNodeIds.add(node.id);
+              return seed;
+            });
+
+            nodeState.forEach((_, id) => {
+              if (!activeNodeIds.has(id)) {
+                nodeState.delete(id);
+              }
+            });
 
             const links = flowData.value.flows.map((flow) => ({
               ...flow,
@@ -1295,8 +1578,11 @@
               .attr("text-anchor", "middle")
               .text((d) => (d.event_count > 99 ? "99+" : d.event_count));
 
-            nodeSelection
+            const nodeMerged = nodeSelection
               .merge(nodeEnter)
+              .attr("class", (d) => `node node-${d.node_type}`);
+
+            nodeMerged
               .select(".badge-text")
               .text((d) => (d.event_count > 99 ? "99+" : d.event_count));
 
@@ -1327,7 +1613,7 @@
                 .attr("transform", (d) => `translate(${d.x},${d.y})`);
             });
 
-            simulation.alpha(0.25).restart();
+            simulation.alpha(0.12).restart();
           }
 
           function formatNumber(value) {
@@ -1337,6 +1623,34 @@
             return new Intl.NumberFormat("en-US", {
               maximumFractionDigits: value < 10 ? 2 : 0,
             }).format(value);
+          }
+
+          function formatRelativeTime(timestamp) {
+            if (!timestamp) {
+              return "n/a";
+            }
+            const parsed = Date.parse(timestamp);
+            if (Number.isNaN(parsed)) {
+              return "n/a";
+            }
+            const diffMs = Date.now() - parsed;
+            if (diffMs < 1_000) {
+              return "just now";
+            }
+            const diffSec = Math.round(diffMs / 1_000);
+            if (diffSec < 60) {
+              return `${diffSec}s ago`;
+            }
+            const diffMin = Math.round(diffSec / 60);
+            if (diffMin < 60) {
+              return `${diffMin}m ago`;
+            }
+            const diffHours = Math.round(diffMin / 60);
+            if (diffHours < 24) {
+              return `${diffHours}h ago`;
+            }
+            const diffDays = Math.round(diffHours / 24);
+            return `${diffDays}d ago`;
           }
 
           function formatTime(timestamp) {
@@ -1376,6 +1690,7 @@
 
           return {
             autoScroll,
+            agentActivity,
             clearEvents,
             connectionStatus,
             eventCount,
@@ -1386,6 +1701,7 @@
             flowSummary,
             formattedFlowUpdatedAt,
             formatNumber,
+            formatRelativeTime,
             formatTime,
             metrics,
             toggleAutoScroll,

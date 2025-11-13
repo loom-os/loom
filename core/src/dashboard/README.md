@@ -27,18 +27,19 @@ What you will see:
 - **Event Flow** - D3 force-directed map of recent routes (rolling 60 s window).
 - **Event Stream** - filtered log of the latest 500 events with auto-scroll toggle.
 - **Agent Roster** - active agents, their topics, and capability hints.
+- **Agent Activity** - per-agent timeline highlighting recent in/out traffic.
 - **Metrics** - request-rate placeholders ready for OpenTelemetry backends.
 
 ---
 
 ## Architecture Snapshot
 
-| Layer | Purpose |
-| ----- | ------- |
-| `EventBus` -> `EventBroadcaster` | Publishes trimmed event payloads over SSE. |
-| `FlowTracker` | Records `(source, target, topic)` edges, prunes after 60 s, caps each node to 20 topics. |
-| `TopologyBuilder` | Reads `AgentDirectory` to surface live roster data. |
-| Frontend (`static/index.html`) | Vue 3 SPA with D3 graph, tailored layout, resilient SSE client. |
+| Layer                            | Purpose                                                                                  |
+| -------------------------------- | ---------------------------------------------------------------------------------------- |
+| `EventBus` -> `EventBroadcaster` | Publishes trimmed event payloads over SSE.                                               |
+| `FlowTracker`                    | Records `(source, target, topic)` edges, prunes after 60 s, caps each node to 20 topics. |
+| `TopologyBuilder`                | Reads `AgentDirectory` to surface live roster data.                                      |
+| Frontend (`static/index.html`)   | Vue 3 SPA with D3 graph, tailored layout, resilient SSE client.                          |
 
 Event data stays on the server; the browser only renders JSON delivered via `/api/events/stream`, `/api/flow`, `/api/topology`, and `/api/metrics`.
 
@@ -69,11 +70,11 @@ Call `flow_tracker.record_flow("source", "target", "topic").await` whenever you 
 
 ## Configuration
 
-| Environment Variable | Default | Description |
-| -------------------- | ------- | ----------- |
-| `LOOM_DASHBOARD` | `false` | Enable/disable dashboard bootstrap. |
-| `LOOM_DASHBOARD_HOST` | `127.0.0.1` | Bind address for the HTTP server. |
-| `LOOM_DASHBOARD_PORT` | `3030` | Listening port. |
+| Environment Variable  | Default     | Description                         |
+| --------------------- | ----------- | ----------------------------------- |
+| `LOOM_DASHBOARD`      | `false`     | Enable/disable dashboard bootstrap. |
+| `LOOM_DASHBOARD_HOST` | `127.0.0.1` | Bind address for the HTTP server.   |
+| `LOOM_DASHBOARD_PORT` | `3030`      | Listening port.                     |
 
 Set `LOOM_DASHBOARD=true` in production or guard the server behind your own auth middleware.
 
