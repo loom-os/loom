@@ -1,72 +1,27 @@
-# Market Analyst Demo - Loom Configuration
-
+description = "Real-time multi-agent market analysis with DeepSeek LLM and async collaboration"
 name = "market-analyst"
 version = "0.1.0"
-description = "Real-time multi-agent market analysis with DeepSeek LLM and async collaboration"
 
-# Runtime configuration
+[agents]
+data-agent = "{'topics': ['market.price.BTC', 'market.price.ETH'], 'refresh_interval_sec': 1, 'exchange': 'binance', 'symbols': ['BTCUSDT', 'ETHUSDT']}"
+planner-agent = "{'topics': ['analysis.trend', 'analysis.risk', 'analysis.sentiment'], 'llm_provider': 'deepseek', 'timeout_sec': 30, 'aggregation_strategy': 'complete_or_timeout', 'timeout_ms': 3000}"
+risk-agent = "{'topics': ['market.price.*'], 'var_confidence': 0.95, 'max_drawdown': 0.15}"
+sentiment-agent = "{'topics': ['market.price.*'], 'llm_provider': 'deepseek', 'mcp_tools': ['web-search'], 'search_interval_sec': 60}"
+trend-agent = "{'topics': ['market.price.*'], 'window_size': 20, 'indicators': ['SMA', 'EMA', 'RSI']}"
+
 [bridge]
-address = "127.0.0.1:50051"
+address = "127.0.0.1:59359"
 mode = "full"
 version = "latest"
 
 [dashboard]
 enabled = true
-port = 3030
 host = "127.0.0.1"
+port = 3030
 
-# LLM Configuration - DeepSeek (default provider)
-[llm.deepseek]
-type = "http"
-api_key = "sk-73ba2abe6b4c4ad2a9d2694842d7fed0"  # Set via environment variable
-api_base = "https://api.deepseek.com"
-model = "deepseek-chat"
-max_tokens = 4096
-temperature = 0.7
-timeout_sec = 30
+[llm]
+deepseek = "{'type': 'http', 'api_key': 'sk-73ba2abe6b4c4ad2a9d2694842d7fed0', 'api_base': 'https://api.deepseek.com', 'model': 'deepseek-chat', 'max_tokens': 4096, 'temperature': 0.7, 'timeout_sec': 30}"
+local = "{'type': 'http', 'api_base': 'http://localhost:8000/v1', 'model': 'qwen2.5', 'max_tokens': 2048, 'temperature': 0.8}"
 
-# Optional: Local LLM for development/testing
-[llm.local]
-type = "http"
-api_base = "http://localhost:8000/v1"
-model = "qwen2.5"
-max_tokens = 2048
-temperature = 0.8
-
-# MCP Servers for external tools
-[mcp.web-search]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-brave-search"]
-
-[mcp.web-search.env]
-BRAVE_API_KEY = "${BRAVE_API_KEY}"  # Set via environment variable
-
-# Agent-specific configuration
-[agents.data-agent]
-topics = ["market.price.BTC", "market.price.ETH"]
-refresh_interval_sec = 1
-exchange = "binance"
-symbols = ["BTCUSDT", "ETHUSDT"]
-
-[agents.trend-agent]
-topics = ["market.price.*"]
-window_size = 20
-indicators = ["SMA", "EMA", "RSI"]
-
-[agents.risk-agent]
-topics = ["market.price.*"]
-var_confidence = 0.95
-max_drawdown = 0.15
-
-[agents.sentiment-agent]
-topics = ["market.price.*"]
-llm_provider = "deepseek"
-mcp_tools = ["web-search"]
-search_interval_sec = 60
-
-[agents.planner-agent]
-topics = ["analysis.trend", "analysis.risk", "analysis.sentiment"]
-llm_provider = "deepseek"
-timeout_sec = 30
-aggregation_strategy = "complete_or_timeout"
-timeout_ms = 3000
+[mcp]
+web-search = "{'command': 'npx', 'args': ['-y', '@modelcontextprotocol/server-brave-search'], 'env': {'BRAVE_API_KEY': '${BRAVE_API_KEY}'}}"
