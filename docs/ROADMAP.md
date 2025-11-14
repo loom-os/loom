@@ -14,7 +14,13 @@ Layered architecture (bottom‑up):
 
 ## P0 — Minimal viable multi‑language multi‑agent (highest priority)
 
-Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researcher/Writer) in Python/JS, collaborate via events to perform search and summarization, invoke web.search/weather.get; Dashboard shows basic event flow; single‑command run via CLI.
+Delivery target: Minimal Vertical Slice (MVS). From a fresh environment, a developer can:
+
+- `pip install loom`
+- `loom new market-analyst`
+- `loom run`
+
+This spins up Loom Core + Bridge + a set of Python agents for the Market Analyst demo (data, analysis, planner), powered by a configurable LLM (DeepSeek by default) and MCP tools, with a live Dashboard showing the end‑to‑end event flow.
 
 ### ✅ Completed in P0
 
@@ -116,10 +122,22 @@ Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researc
    - Similar API surface to loom-py for consistency
 
 9. **CLI basics** — 🚧 TODO
+
    - `loom new <template>` (multi-agent, voice-assistant, etc.)
-   - `loom dev` (hot-boot external agents, watch for changes)
-   - `loom list` (show registered agents/capabilities)
-   - `loom bench` (performance profiling)
+   - `loom dev`: hot-boot external agents (watch Python/JS files)
+   - `loom list`: show registered agents/capabilities
+   - `loom bench`: performance profiling for core and agents
+   - `loom logs`: structured log viewer with filtering by agent/thread/correlation
+   - `loom run <demo>`: one-command orchestration for Core + Bridge + SDK agents (e.g., `loom run market-analyst`), with clear logging and dashboard URL output.
+
+10. **Flagship Market Analyst Demo (async multi-agent, production-ready)** — 🎯 P0 HIGH
+
+- [P0] **DeepSeek-backed LLM provider**: integrate DeepSeek HTTP API as a first-class `LlmClient` backend, keeping the provider interface pluggable and allowing per-agent routing via `ModelRouter` / config (agents can choose DeepSeek vs other models).
+- [P0] **Runtime packaging & config**: ship prebuilt core/bridge binaries for major platforms and a simple config story (env/`loom.toml`) so that `pip install loom` + `loom new` + `loom run` does not require users to touch Rust or cargo.
+- [P0] **Python Market Analyst project template**: provide a cohesive Python demo (data, trend, risk, sentiment, planner/report agents) using real market data (e.g., exchange REST/WebSocket), MCP tools for web/sentiment, and LLM for planning — replacing the current toy random-based example.
+- [P0] **CLI orchestration (`loom run market-analyst`)**: wire the CLI to start Core + Bridge + the Python demo bundle in one command, propagate configuration (bridge address, LLM keys, symbols) and print friendly instructions and the Dashboard URL.
+- [P0] **Dashboard integration & UX**: ensure the Dashboard clearly visualizes this demo end-to-end (agents, topics, flows, tool calls, and `plan.ready` events), and add a focused doc with screenshots describing how to interpret the live view.
+- [P1] **Demo consolidation**: retire or deprecate incomplete demos/examples, positioning the Market Analyst demo as the primary public-facing example, with other scenarios treated as templates or follow-ups.
 
 ### Acceptance Criteria (P0 Complete)
 
@@ -131,7 +149,7 @@ Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researc
 - ✅ OpenTelemetry integration: traces to Jaeger, metrics to Prometheus (feat/otpl)
 - ✅ Basic Grafana dashboard with throughput, latency, routing (feat/otpl)
 - ✅ **Dashboard MVP**: Real-time event stream visualization (SSE, basic topology, filters) (feat/otpl)
-- 🚧 CLI provides quick-start templates (pending)
+- ✅ `pip install loom` + `loom new market-analyst` + `loom run` starts the Market Analyst demo end‑to‑end (Core + Bridge + Python agents) and opens/prints a working Dashboard URL.
 - 🚧 Auto-reconnect tested with network interruptions (needs formal test)
 - 🚧 P50/P99 latency benchmarks published (needs benchmark suite)
 
@@ -158,6 +176,7 @@ Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researc
    - `loom list`: show registered agents, topics, capabilities with filtering
    - `loom bench`: built-in performance profiling and latency reports
    - `loom logs`: structured log viewer with filtering by agent/thread/correlation
+   - `loom run <demo>`: one-command orchestration for Core + Bridge + SDK agents (e.g., `loom run market-analyst`), with clear logging and dashboard URL output.
 
 3. **Streaming and parallelism**
 
