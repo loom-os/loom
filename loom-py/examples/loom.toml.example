@@ -1,0 +1,84 @@
+# Loom Project Configuration Example
+# Copy this to loom.toml and customize for your project
+
+name = "market-analyst-demo"
+version = "0.1.0"
+description = "Real-time market analysis with multi-agent collaboration"
+
+# Bridge connection settings
+[bridge]
+address = "127.0.0.1:50051"
+mode = "full"  # "full" or "bridge-only"
+version = "latest"
+timeout_sec = 30
+
+# Dashboard configuration
+[dashboard]
+enabled = true
+port = 3030
+host = "127.0.0.1"
+
+# LLM Provider Configuration
+# Configure multiple providers and select per-agent
+
+[llm.deepseek]
+type = "http"
+api_key = "${DEEPSEEK_API_KEY}"  # Use environment variable
+api_base = "https://api.deepseek.com"
+model = "deepseek-chat"
+max_tokens = 4096
+temperature = 0.7
+timeout_sec = 30
+
+[llm.local]
+type = "http"
+api_base = "http://localhost:8000/v1"
+model = "qwen2.5"
+max_tokens = 2048
+temperature = 0.8
+
+# MCP Server Configuration
+# External tool servers following Model Context Protocol
+
+[mcp.web-search]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-brave-search"]
+
+[mcp.web-search.env]
+BRAVE_API_KEY = "${BRAVE_API_KEY}"
+
+[mcp.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+
+# Agent-specific configuration
+# These are passed to your Python agents via the config API
+
+[agents.data-agent]
+topics = ["market.price.BTC", "market.price.ETH"]
+refresh_interval_sec = 1
+exchange = "binance"
+symbols = ["BTCUSDT", "ETHUSDT"]
+
+[agents.trend-agent]
+topics = ["market.price.*"]
+window_size = 20
+indicators = ["SMA", "EMA", "RSI"]
+
+[agents.risk-agent]
+topics = ["market.price.*"]
+var_confidence = 0.95
+max_drawdown = 0.15
+
+[agents.sentiment-agent]
+topics = ["market.price.*"]
+llm_provider = "deepseek"
+mcp_tools = ["web-search"]
+search_interval_sec = 60
+
+[agents.planner-agent]
+topics = ["analysis.trend", "analysis.risk", "analysis.sentiment"]
+llm_provider = "deepseek"
+timeout_sec = 30
+aggregation_strategy = "complete_or_timeout"
+timeout_ms = 3000

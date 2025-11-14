@@ -158,19 +158,47 @@ def _write_project_bridge(start: Path, address: str, mode: str, version: str):
 
 
 def cmd_up(args):
-    """Start (or reuse) embedded core binary and export LOOM_BRIDGE_ADDR.
+    """Start (or reuse) embedded runtime and export LOOM_BRIDGE_ADDR.
 
-    Tries to start cached binary; if missing, attempts local dev build copy.
+    Modes:
+    - bridge-only: Start only the gRPC bridge server
+    - full: Start full Loom Core with Dashboard + Bridge
     """
     from . import embedded
 
     version = args.version
-    port = _pick_free_port()
-    address = f"127.0.0.1:{port}"
-    proc = embedded.start_core(address, version=version)
-    os.environ["LOOM_BRIDGE_ADDR"] = address
-    _write_project_bridge(Path("."), address, "embedded", version)
-    print(f"[loom] Embedded core started PID={proc.pid} at {address} (version {version})")
+    mode = args.mode
+    bridge_port = args.bridge_port or _pick_free_port()
+    bridge_addr = f"127.0.0.1:{bridge_port}"
+
+    if mode == "bridge-only":
+        proc = embedded.start_bridge(bridge_addr, version=version)
+        print(f"[loom] Bridge server started PID={proc.pid} at {bridge_addr}")
+        print(f"[loom] Python agents can connect via LOOM_BRIDGE_ADDR={bridge_addr}")
+    else:  # full mode
+        dashboard_port = args.dashboard_port or 3030
+        proc = embedded.start_core(
+            bridge_addr=bridge_addr,
+            dashboard_port=dashboard_port,
+            version=version,
+        )
+        print(f"[loom] Loom Core started PID={proc.pid}")
+        print(f"[loom] Bridge: {bridge_addr}")
+        print(f"[loom] Dashboard: http://localhost:{dashboard_port}")
+
+    os.environ["LOOM_BRIDGE_ADDR"] = bridge_addr
+    _write_project_bridge(Path("."), bridge_addr, mode, version)
+
+    # Keep process alive
+    print("[loom] Press Ctrl+C to stop.")
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
 
 def main():
@@ -200,8 +228,18 @@ def main():
     sr.add_argument("script")
     sr.set_defaults(func=cmd_run)
 
-    su = sub.add_parser("up", help="Start or connect to embedded core, set LOOM_BRIDGE_ADDR")
-    su.add_argument("--version", default="latest")
+    su = sub.add_parser("up", help="Start embedded runtime (bridge or full core with dashboard)")
+    su.add_argument("--version", default="latest", help="Runtime version (default: latest)")
+    su.add_argument(
+        "--mode",
+        choices=["bridge-only", "full"],
+        default="full",
+        help="Runtime mode: bridge-only or full (with dashboard)",
+    )
+    su.add_argument("--bridge-port", type=int, help="Bridge server port (default: auto)")
+    su.add_argument(
+        "--dashboard-port", type=int, default=3030, help="Dashboard port (default: 3030)"
+    )
     su.set_defaults(func=cmd_up)
 
     args = p.parse_args()
