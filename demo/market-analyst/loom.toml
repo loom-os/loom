@@ -3,7 +3,7 @@ name = "market-analyst"
 version = "0.1.0"
 
 [agents]
-data-agent = "{'topics': ['market.price.BTC', 'market.price.ETH'], 'refresh_interval_sec': 1, 'exchange': 'binance', 'symbols': ['BTCUSDT', 'ETHUSDT']}"
+data-agent = "{'topics': ['market.price.BTC', 'market.price.ETH'], 'refresh_interval_sec': 3, 'data_source': 'cryptocompare', 'exchange': 'cryptocompare', 'symbols': ['BTC', 'ETH']}"
 planner-agent = "{'topics': ['analysis.trend', 'analysis.risk', 'analysis.sentiment'], 'llm_provider': 'deepseek', 'timeout_sec': 30, 'aggregation_strategy': 'complete_or_timeout', 'timeout_ms': 3000}"
 risk-agent = "{'topics': ['market.price.*'], 'var_confidence': 0.95, 'max_drawdown': 0.15}"
 sentiment-agent = "{'topics': ['market.price.*'], 'llm_provider': 'deepseek', 'mcp_tools': ['web-search'], 'search_interval_sec': 60}"

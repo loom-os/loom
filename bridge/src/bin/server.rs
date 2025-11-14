@@ -58,8 +58,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()?;
 
     // Start bridge server (this will block)
-    let server_result =
-        start_server(addr, loom.event_bus.clone(), loom.action_broker.clone()).await;
+    let server_result = start_server(
+        addr,
+        loom.event_bus.clone(),
+        loom.action_broker.clone(),
+        loom.agent_directory.clone(),
+    )
+    .await;
 
     // If dashboard was started, wait for it to finish
     if let Some(handle) = dashboard_handle {

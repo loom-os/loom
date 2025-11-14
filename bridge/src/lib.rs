@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -6,7 +7,7 @@ use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tonic::{Request, Response, Status};
 use tracing::info;
 
-use loom_core::{ActionBroker, EventBus};
+use loom_core::{ActionBroker, AgentDirectory, AgentInfo, EventBus};
 use loom_proto::{
     bridge_server::{Bridge, BridgeServer},
     client_event, server_event, ActionCall, ActionResult, AgentRegisterRequest,
@@ -28,6 +29,7 @@ pub type Result<T> = std::result::Result<T, BridgeError>;
 pub struct BridgeState {
     pub event_bus: Arc<EventBus>,
     pub action_broker: Arc<ActionBroker>,
+    pub agent_directory: Arc<AgentDirectory>,
     // agent_id -> subscribed topics
     pub subscriptions: Arc<DashMap<String, Vec<String>>>,
     // agent_id -> capabilities
@@ -45,10 +47,15 @@ pub struct BridgeState {
 }
 
 impl BridgeState {
-    pub fn new(event_bus: Arc<EventBus>, action_broker: Arc<ActionBroker>) -> Self {
+    pub fn new(
+        event_bus: Arc<EventBus>,
+        action_broker: Arc<ActionBroker>,
+        agent_directory: Arc<AgentDirectory>,
+    ) -> Self {
         Self {
             event_bus,
             action_broker,
+            agent_directory,
             subscriptions: Arc::new(DashMap::new()),
             capabilities: Arc::new(DashMap::new()),
             streams: Arc::new(DashMap::new()),
@@ -114,6 +121,16 @@ impl Bridge for BridgeService {
         self.state
             .capabilities
             .insert(agent_id.clone(), req.capabilities.clone());
+
+        // Register agent in AgentDirectory for Dashboard visibility
+        let cap_names: Vec<String> = req.capabilities.iter().map(|c| c.name.clone()).collect();
+        self.state.agent_directory.register_agent(AgentInfo {
+            agent_id: agent_id.clone(),
+            subscribed_topics: req.subscribed_topics.clone(),
+            capabilities: cap_names,
+            metadata: std::collections::HashMap::new(),
+        });
+
         info!(agent_id=%agent_id, topics=?req.subscribed_topics, caps=req.capabilities.len(), "Agent registered via Bridge");
         Ok(Response::new(AgentRegisterResponse {
             success: true,
@@ -298,12 +315,14 @@ impl Bridge for BridgeService {
 }
 
 pub async fn start_server(
-    addr: std::net::SocketAddr,
+    addr: SocketAddr,
     event_bus: Arc<EventBus>,
     action_broker: Arc<ActionBroker>,
+    agent_directory: Arc<AgentDirectory>,
 ) -> Result<()> {
-    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker));
-    info!(%addr, "Starting Loom Bridge gRPC server");
+    info!(addr = %addr, "Starting Loom Bridge gRPC server");
+
+    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker, agent_directory));
     tonic::transport::Server::builder()
         .add_service(BridgeServer::new(svc))
         .serve(addr)
