@@ -8,7 +8,8 @@ use crate::proto::CapabilityDescriptor;
 /// Information about a registered agent including subscriptions and capabilities.
 ///
 /// `AgentInfo` describes an agent's identity, the topics it subscribes to,
-/// the capabilities it provides, and arbitrary metadata for filtering or routing.
+/// the capabilities it provides, arbitrary metadata for filtering or routing,
+/// and health status information including last heartbeat timestamp.
 #[derive(Debug, Clone, Default)]
 pub struct AgentInfo {
     /// Unique identifier for this agent
@@ -19,6 +20,24 @@ pub struct AgentInfo {
     pub capabilities: Vec<String>,
     /// Arbitrary key-value metadata (e.g., role, version, region)
     pub metadata: HashMap<String, String>,
+    /// Timestamp of last heartbeat (milliseconds since Unix epoch)
+    pub last_heartbeat: Option<i64>,
+    /// Current status of the agent
+    pub status: AgentStatus,
+}
+
+/// Agent health status
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum AgentStatus {
+    /// Agent is active and responsive
+    #[default]
+    Active,
+    /// Agent is registered but idle
+    Idle,
+    /// Agent has not sent heartbeat for some time
+    Inactive,
+    /// Agent has disconnected
+    Disconnected,
 }
 
 /// Thread-safe, in-memory directory for agent discovery and indexing.
@@ -321,6 +340,82 @@ impl AgentDirectory {
     /// ```
     pub fn all(&self) -> Vec<AgentInfo> {
         self.agents.iter().map(|e| e.clone()).collect()
+    }
+
+    /// Updates the heartbeat timestamp for an agent and sets status to Active.
+    ///
+    /// If the agent doesn't exist, this is a no-op.
+    ///
+    /// # Arguments
+    ///
+    /// * `agent_id` - The unique identifier of the agent
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use loom_core::{AgentDirectory, AgentInfo, AgentStatus};
+    /// use std::collections::HashMap;
+    ///
+    /// let dir = AgentDirectory::new();
+    ///
+    /// dir.register_agent(AgentInfo {
+    ///     agent_id: "agent-1".to_string(),
+    ///     subscribed_topics: vec![],
+    ///     capabilities: vec![],
+    ///     metadata: HashMap::new(),
+    ///     last_heartbeat: None,
+    ///     status: AgentStatus::Active,
+    /// });
+    ///
+    /// dir.update_heartbeat("agent-1");
+    ///
+    /// let agent = dir.get("agent-1").unwrap();
+    /// assert!(agent.last_heartbeat.is_some());
+    /// assert_eq!(agent.status, AgentStatus::Active);
+    /// ```
+    pub fn update_heartbeat(&self, agent_id: &str) {
+        if let Some(mut agent) = self.agents.get_mut(agent_id) {
+            let now = chrono::Utc::now().timestamp_millis();
+            agent.last_heartbeat = Some(now);
+            agent.status = AgentStatus::Active;
+        }
+    }
+
+    /// Updates the status of an agent.
+    ///
+    /// If the agent doesn't exist, this is a no-op.
+    ///
+    /// # Arguments
+    ///
+    /// * `agent_id` - The unique identifier of the agent
+    /// * `status` - The new status to set
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use loom_core::{AgentDirectory, AgentInfo, AgentStatus};
+    /// use std::collections::HashMap;
+    ///
+    /// let dir = AgentDirectory::new();
+    ///
+    /// dir.register_agent(AgentInfo {
+    ///     agent_id: "agent-1".to_string(),
+    ///     subscribed_topics: vec![],
+    ///     capabilities: vec![],
+    ///     metadata: HashMap::new(),
+    ///     last_heartbeat: None,
+    ///     status: AgentStatus::Active,
+    /// });
+    ///
+    /// dir.update_status("agent-1", AgentStatus::Idle);
+    ///
+    /// let agent = dir.get("agent-1").unwrap();
+    /// assert_eq!(agent.status, AgentStatus::Idle);
+    /// ```
+    pub fn update_status(&self, agent_id: &str, status: AgentStatus) {
+        if let Some(mut agent) = self.agents.get_mut(agent_id) {
+            agent.status = status;
+        }
     }
 }
 

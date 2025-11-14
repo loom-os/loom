@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing_subscriber::fmt;
 
-use loom_bridge::start_server;
+use loom_bridge::start_server_with_dashboard;
 use loom_core::dashboard::{DashboardConfig, DashboardServer, EventBroadcaster, FlowTracker};
 use loom_core::Loom;
 
@@ -14,6 +14,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check if Dashboard is enabled
     let dashboard_enabled = DashboardConfig::enabled();
+    let broadcaster_opt;
+    let flow_tracker_opt;
+
     let dashboard_handle = if dashboard_enabled {
         let config = DashboardConfig::from_env();
 
@@ -26,13 +29,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let event_bus_ptr = Arc::as_ptr(&loom.event_bus) as *mut loom_core::EventBus;
         unsafe {
             (*event_bus_ptr).set_dashboard_broadcaster(broadcaster.clone());
+            (*event_bus_ptr).set_flow_tracker(flow_tracker.clone());
         }
 
         // Get agent directory
         let agent_directory = loom.agent_directory.clone();
 
         // Create dashboard server
-        let dashboard = DashboardServer::new(config.clone(), broadcaster, agent_directory)
+        let dashboard = DashboardServer::new(config.clone(), broadcaster.clone(), agent_directory)
             .with_flow_tracker(flow_tracker.clone());
 
         tracing::info!(
@@ -41,6 +45,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.port
         );
 
+        // Store for later use
+        broadcaster_opt = Some(broadcaster);
+        flow_tracker_opt = Some(flow_tracker);
+
         // Spawn dashboard server
         Some(tokio::spawn(async move {
             if let Err(e) = dashboard.serve().await {
@@ -48,6 +56,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }))
     } else {
+        broadcaster_opt = None;
+        flow_tracker_opt = None;
         None
     };
 
@@ -57,12 +67,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "0.0.0.0:50051".into())
         .parse()?;
 
-    // Start bridge server (this will block)
-    let server_result = start_server(
+    // Start bridge server with dashboard integration (this will block)
+    let server_result = start_server_with_dashboard(
         addr,
         loom.event_bus.clone(),
         loom.action_broker.clone(),
         loom.agent_directory.clone(),
+        broadcaster_opt,
+        flow_tracker_opt,
     )
     .await;
 

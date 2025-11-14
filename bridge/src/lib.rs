@@ -30,6 +30,10 @@ pub struct BridgeState {
     pub event_bus: Arc<EventBus>,
     pub action_broker: Arc<ActionBroker>,
     pub agent_directory: Arc<AgentDirectory>,
+    // Optional dashboard broadcaster for event notifications
+    pub dashboard_broadcaster: Option<loom_core::dashboard::EventBroadcaster>,
+    // Optional flow tracker for event flow visualization
+    pub flow_tracker: Option<Arc<loom_core::dashboard::FlowTracker>>,
     // agent_id -> subscribed topics
     pub subscriptions: Arc<DashMap<String, Vec<String>>>,
     // agent_id -> capabilities
@@ -56,6 +60,8 @@ impl BridgeState {
             event_bus,
             action_broker,
             agent_directory,
+            dashboard_broadcaster: None,
+            flow_tracker: None,
             subscriptions: Arc::new(DashMap::new()),
             capabilities: Arc::new(DashMap::new()),
             streams: Arc::new(DashMap::new()),
@@ -64,6 +70,19 @@ impl BridgeState {
             forwarding_tasks: Arc::new(DashMap::new()),
             action_result_index: Arc::new(DashMap::new()),
         }
+    }
+
+    /// Set dashboard broadcaster for event notifications
+    pub fn set_dashboard_broadcaster(
+        &mut self,
+        broadcaster: loom_core::dashboard::EventBroadcaster,
+    ) {
+        self.dashboard_broadcaster = Some(broadcaster);
+    }
+
+    /// Set flow tracker for event flow visualization
+    pub fn set_flow_tracker(&mut self, flow_tracker: Arc<loom_core::dashboard::FlowTracker>) {
+        self.flow_tracker = Some(flow_tracker);
     }
 }
 
@@ -124,12 +143,34 @@ impl Bridge for BridgeService {
 
         // Register agent in AgentDirectory for Dashboard visibility
         let cap_names: Vec<String> = req.capabilities.iter().map(|c| c.name.clone()).collect();
+        let now = chrono::Utc::now().timestamp_millis();
         self.state.agent_directory.register_agent(AgentInfo {
             agent_id: agent_id.clone(),
             subscribed_topics: req.subscribed_topics.clone(),
             capabilities: cap_names,
             metadata: std::collections::HashMap::new(),
+            last_heartbeat: Some(now),
+            status: loom_core::directory::AgentStatus::Active,
         });
+
+        // Broadcast AgentRegistered event to Dashboard
+        if let Some(ref broadcaster) = self.state.dashboard_broadcaster {
+            broadcaster.broadcast(loom_core::dashboard::DashboardEvent {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                event_type: loom_core::dashboard::DashboardEventType::AgentRegistered,
+                event_id: format!("register_{}", agent_id),
+                topic: "system.agent.register".to_string(),
+                sender: Some(agent_id.clone()),
+                thread_id: None,
+                correlation_id: None,
+                payload_preview: format!(
+                    "Agent {} registered with {} topics, {} capabilities",
+                    agent_id,
+                    req.subscribed_topics.len(),
+                    req.capabilities.len()
+                ),
+            });
+        }
 
         info!(agent_id=%agent_id, topics=?req.subscribed_topics, caps=req.capabilities.len(), "Agent registered via Bridge");
         Ok(Response::new(AgentRegisterResponse {
@@ -173,6 +214,8 @@ impl Bridge for BridgeService {
             for topic in topics.iter() {
                 let topic_clone = topic.clone();
                 let event_bus_local = Arc::clone(&self.state.event_bus);
+                let flow_tracker = self.state.flow_tracker.clone();
+                let agent_id_for_flow = agent_id.clone();
                 // subscribe first to capture subscription id and receiver
                 if let Ok((sub_id, mut rx_bus)) = event_bus_local
                     .subscribe(
@@ -186,6 +229,13 @@ impl Bridge for BridgeService {
                     let tx_clone = tx.clone();
                     let handle: JoinHandle<()> = tokio::spawn(async move {
                         while let Some(ev) = rx_bus.recv().await {
+                            // Record flow: subscription -> agent
+                            if let Some(ref tracker) = flow_tracker {
+                                tracker
+                                    .record_flow(&sub_id, &agent_id_for_flow, &topic_clone)
+                                    .await;
+                            }
+
                             if tx_clone
                                 .send(ServerEvent {
                                     msg: Some(server_event::Msg::Delivery(Delivery {
@@ -222,6 +272,8 @@ impl Bridge for BridgeService {
         let subscription_ids = self.state.subscription_ids.clone();
         let forwarding_tasks = self.state.forwarding_tasks.clone();
         let action_result_index = self.state.action_result_index.clone();
+        let agent_directory = Arc::clone(&self.state.agent_directory);
+        let dashboard_broadcaster = self.state.dashboard_broadcaster.clone();
         tokio::spawn(async move {
             while let Some(Ok(msg)) = inbound.message().await.transpose() {
                 match msg.msg {
@@ -231,6 +283,9 @@ impl Bridge for BridgeService {
                         }
                     }
                     Some(client_event::Msg::Ping(_hb)) => {
+                        // Update heartbeat in AgentDirectory
+                        agent_directory.update_heartbeat(&agent_id_for_inbound);
+
                         let _ = tx_in
                             .send(ServerEvent {
                                 msg: Some(server_event::Msg::Pong(HeartbeatResponse {
@@ -254,8 +309,33 @@ impl Bridge for BridgeService {
                 }
             }
             info!(agent_id=%agent_id_for_inbound, "EventStream inbound ended");
+
+            // Update agent status to Disconnected
+            agent_directory.update_status(
+                &agent_id_for_inbound,
+                loom_core::directory::AgentStatus::Disconnected,
+            );
+
             // Cleanup stream sender on disconnect
             streams_map.remove(&agent_id_for_inbound);
+
+            // Unregister agent from directory
+            agent_directory.unregister_agent(&agent_id_for_inbound);
+
+            // Broadcast AgentUnregistered event to Dashboard
+            if let Some(ref broadcaster) = dashboard_broadcaster {
+                broadcaster.broadcast(loom_core::dashboard::DashboardEvent {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    event_type: loom_core::dashboard::DashboardEventType::AgentUnregistered,
+                    event_id: format!("unregister_{}", agent_id_for_inbound),
+                    topic: "system.agent.unregister".to_string(),
+                    sender: Some(agent_id_for_inbound.clone()),
+                    thread_id: None,
+                    correlation_id: None,
+                    payload_preview: format!("Agent {} disconnected", agent_id_for_inbound),
+                });
+            }
+
             // Unsubscribe all topic subscriptions for this agent
             if let Some(ids) = subscription_ids.remove(&agent_id_for_inbound) {
                 for sid in ids.1.iter() {
@@ -307,8 +387,14 @@ impl Bridge for BridgeService {
         &self,
         request: Request<HeartbeatRequest>,
     ) -> std::result::Result<Response<HeartbeatResponse>, Status> {
+        let req = request.into_inner();
+
+        // Update heartbeat in AgentDirectory if agent_id is provided in metadata
+        // Note: For a full implementation, we'd need agent_id in HeartbeatRequest
+        // For now, we'll just respond with the timestamp
+
         Ok(Response::new(HeartbeatResponse {
-            timestamp_ms: request.into_inner().timestamp_ms,
+            timestamp_ms: req.timestamp_ms,
             status: "ok".into(),
         }))
     }
@@ -323,6 +409,35 @@ pub async fn start_server(
     info!(addr = %addr, "Starting Loom Bridge gRPC server");
 
     let svc = BridgeService::new(BridgeState::new(event_bus, action_broker, agent_directory));
+    tonic::transport::Server::builder()
+        .add_service(BridgeServer::new(svc))
+        .serve(addr)
+        .await
+        .map_err(|e| BridgeError::Internal(e.to_string()))
+}
+
+/// Start server with dashboard integration
+pub async fn start_server_with_dashboard(
+    addr: SocketAddr,
+    event_bus: Arc<EventBus>,
+    action_broker: Arc<ActionBroker>,
+    agent_directory: Arc<AgentDirectory>,
+    dashboard_broadcaster: Option<loom_core::dashboard::EventBroadcaster>,
+    flow_tracker: Option<Arc<loom_core::dashboard::FlowTracker>>,
+) -> Result<()> {
+    info!(addr = %addr, "Starting Loom Bridge gRPC server with Dashboard integration");
+
+    let mut state = BridgeState::new(event_bus, action_broker, agent_directory);
+
+    if let Some(broadcaster) = dashboard_broadcaster {
+        state.set_dashboard_broadcaster(broadcaster);
+    }
+
+    if let Some(tracker) = flow_tracker {
+        state.set_flow_tracker(tracker);
+    }
+
+    let svc = BridgeService::new(state);
     tonic::transport::Server::builder()
         .add_service(BridgeServer::new(svc))
         .serve(addr)

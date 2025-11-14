@@ -22,7 +22,7 @@ pub use action_broker::{ActionBroker, CapabilityProvider};
 pub use agent::{Agent, AgentRuntime, AgentState};
 pub use collab::{types as collab_types, Collaborator};
 pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
-pub use directory::{AgentDirectory, AgentInfo, CapabilityDirectory};
+pub use directory::{AgentDirectory, AgentInfo, AgentStatus, CapabilityDirectory};
 pub use envelope::{agent_reply_topic, Envelope, ThreadTopicKind};
 pub use event::{Event, EventBus, EventExt, EventHandler, QoSLevel};
 pub use llm::{LlmClient, LlmClientConfig, LlmResponse};
