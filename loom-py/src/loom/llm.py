@@ -72,30 +72,11 @@ class LLMProvider:
 
         Args:
             ctx: Loom agent context
-            provider_name: One of "deepseek", "openai", "local" or a provider from loom.toml
+            provider_name: One of "deepseek", "openai", "local"
 
         Returns:
             Configured LLMProvider instance
         """
-        # First try to load from project config
-        from .config import load_project_config
-
-        project_config = load_project_config()
-
-        # Check if provider exists in project config
-        if provider_name in project_config.llm_providers:
-            provider_config = project_config.llm_providers[provider_name]
-            config = LLMConfig(
-                base_url=provider_config.api_base or "http://localhost:8000/v1",
-                model=provider_config.model or "default",
-                api_key=provider_config.api_key,
-                temperature=provider_config.temperature,
-                max_tokens=provider_config.max_tokens,
-                timeout_ms=provider_config.timeout_sec * 1000,
-            )
-            return cls(ctx, config)
-
-        # Fall back to hardcoded configs
         configs = {
             "deepseek": cls.DEEPSEEK,
             "openai": cls.OPENAI,

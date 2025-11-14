@@ -148,48 +148,55 @@ async def data_loop(ctx, interval_sec: float = 1.0, exchange_symbol: str = "BTCU
 
 async def main():
     """Main entry point."""
-    # Load configuration
-    config = load_project_config()
-    agent_config = config.agents.get("data-agent", {})
-
-    # Get settings
-    topics = agent_config.get("topics", [f"market.price.{SYMBOL}"])
-    interval = agent_config.get("refresh_interval_sec", 1.0)
-    exchange = agent_config.get("exchange", "binance")
-    symbols = agent_config.get("symbols", ["BTCUSDT"])
-    exchange_symbol = symbols[0] if symbols else "BTCUSDT"
-
-    # Create agent (data agent only emits, no subscriptions needed)
-    agent = Agent(
-        agent_id="data-agent",
-        topics=[],  # No subscriptions, only emits
-        on_event=None,
-    )
-
-    print(f"[data] Data Agent starting...")
-    print(f"[data] Will emit to: {topics}")
-    print(f"[data] Exchange: {exchange}")
-    print(f"[data] Symbols: {symbols}")
-
-    await agent.start()
-
-    # Start data loop
-    use_real_data = AIOHTTP_AVAILABLE and exchange.lower() == "binance"
-    asyncio.create_task(
-        data_loop(
-            agent._ctx,
-            interval_sec=interval,
-            exchange_symbol=exchange_symbol,
-            use_real_data=use_real_data,
-        )
-    )
-
-    # Keep running
     try:
-        await asyncio.Event().wait()
-    except KeyboardInterrupt:
-        print("[data] Shutting down...")
-        await agent.stop()
+        # Load configuration
+        config = load_project_config()
+        agent_config = config.agents.get("data-agent", {})
+
+        # Get settings
+        topics = agent_config.get("topics", [f"market.price.{SYMBOL}"])
+        interval = agent_config.get("refresh_interval_sec", 1.0)
+        exchange = agent_config.get("exchange", "binance")
+        symbols = agent_config.get("symbols", ["BTCUSDT"])
+        exchange_symbol = symbols[0] if symbols else "BTCUSDT"
+
+        # Create agent (data agent only emits, no subscriptions needed)
+        agent = Agent(
+            agent_id="data-agent",
+            topics=[],  # No subscriptions, only emits
+            on_event=None,
+        )
+
+        print(f"[data] Data Agent starting...")
+        print(f"[data] Will emit to: {topics}")
+        print(f"[data] Exchange: {exchange}")
+        print(f"[data] Symbols: {symbols}")
+
+        await agent.start()
+
+        # Start data loop
+        use_real_data = AIOHTTP_AVAILABLE and exchange.lower() == "binance"
+        asyncio.create_task(
+            data_loop(
+                agent._ctx,
+                interval_sec=interval,
+                exchange_symbol=exchange_symbol,
+                use_real_data=use_real_data,
+            )
+        )
+
+        # Keep running
+        try:
+            await asyncio.Event().wait()
+        except KeyboardInterrupt:
+            print("[data] Shutting down...")
+            await agent.stop()
+
+    except Exception as e:
+        print(f"[data] FATAL ERROR: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 if __name__ == "__main__":
