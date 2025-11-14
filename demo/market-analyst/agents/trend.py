@@ -39,7 +39,7 @@ async def trend_handler(ctx, topic: str, event) -> None:
 async def main():
     config = load_project_config()
     agent_config = config.agents.get("trend-agent", {})
-    topics = agent_config.get("topics", ["market.price.BTC"])
+    topics = agent_config.get("topics", ["market.price.*"])
 
     agent = Agent(
         agent_id="trend-agent",
@@ -47,8 +47,17 @@ async def main():
         on_event=trend_handler,
     )
 
-    print(f"[trend] Trend Agent starting, subscribed to: {topics}")
-    agent.run()
+    print(f"[trend] Trend Agent starting")
+    print(f"[trend] Subscribed to: {topics}")
+
+    await agent.start()
+
+    # Keep running
+    try:
+        await asyncio.Event().wait()
+    except KeyboardInterrupt:
+        print("[trend] Shutting down...")
+        await agent.stop()
 
 
 if __name__ == "__main__":

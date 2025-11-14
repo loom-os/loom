@@ -54,22 +54,34 @@ class Context:
         await self.emit(thread_topic, type=env.type, payload=env.payload, envelope=env)
 
     async def tool(
-        self, name: str, *, version: str = "1.0", payload: Any = None, timeout_ms: int = 5000
+        self,
+        name: str,
+        *,
+        version: str = "1.0",
+        payload: Any = None,
+        timeout_ms: int = 5000,
+        headers: Optional[Dict[str, str]] = None,
     ) -> bytes:
         data = payload
         if payload is not None and not isinstance(payload, (bytes, bytearray)):
             data = json.dumps(payload).encode("utf-8")
         call_id = str(uuid.uuid4())
         correlation_id = call_id
+
+        # Merge custom headers with default headers
+        call_headers = {
+            "x-correlation-id": correlation_id,
+            "x-agent-id": self.agent_id,
+        }
+        if headers:
+            call_headers.update(headers)
+
         call = pb_action.ActionCall(
             id=call_id,
             capability=name,
             version=version,
             payload=data or b"",
-            headers={
-                "x-correlation-id": correlation_id,
-                "x-agent-id": self.agent_id,
-            },
+            headers=call_headers,
             timeout_ms=timeout_ms,
             correlation_id=correlation_id,
             qos=0,

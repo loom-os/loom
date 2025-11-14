@@ -42,7 +42,7 @@ async def risk_handler(ctx, topic: str, event) -> None:
 async def main():
     config = load_project_config()
     agent_config = config.agents.get("risk-agent", {})
-    topics = agent_config.get("topics", ["market.price.BTC"])
+    topics = agent_config.get("topics", ["market.price.*"])
 
     agent = Agent(
         agent_id="risk-agent",
@@ -50,8 +50,17 @@ async def main():
         on_event=risk_handler,
     )
 
-    print(f"[risk] Risk Agent starting, subscribed to: {topics}")
-    agent.run()
+    print(f"[risk] Risk Agent starting")
+    print(f"[risk] Subscribed to: {topics}")
+
+    await agent.start()
+
+    # Keep running
+    try:
+        await asyncio.Event().wait()
+    except KeyboardInterrupt:
+        print("[risk] Shutting down...")
+        await agent.stop()
 
 
 if __name__ == "__main__":

@@ -33,11 +33,13 @@ data_agent (market prices)
 # Install Loom SDK
 pip install loom
 
-# Set API key
+# Set DeepSeek API key (required for LLM-based planning)
 export DEEPSEEK_API_KEY="sk-your-key-here"
 
-# Optional: For sentiment analysis
+# Optional: For sentiment analysis web search
 export BRAVE_API_KEY="your-brave-search-key"
+
+# Note: Real market data from Binance works out-of-the-box (no API key needed)
 ```
 
 ### 2. Run the Demo
@@ -48,17 +50,22 @@ loom run
 ```
 
 This single command will:
+
 - Download and start Loom Core + Dashboard
-- Start all 5 Python agents
+- Start all 5 Python agents (data, trend, risk, sentiment, planner)
+- Connect to Binance API for real market data
+- Use DeepSeek LLM for intelligent planning (if API key set)
 - Display Dashboard URL: http://localhost:3030
 
 ### 3. Watch It Work
 
 Open the Dashboard to see:
-- Real-time event stream
-- Agent network graph with message flows
-- Tool invocations (LLM calls, MCP tools)
-- Plan generation with reasoning
+
+- **Real-time event stream** with price updates from Binance
+- **Agent network graph** showing message flows between agents
+- **LLM tool invocations** (DeepSeek generating trading recommendations)
+- **Plan generation** with intelligent reasoning or rule-based fallback
+- **Market metrics**: live BTC price, 24h change, volume
 
 ## Project Structure
 
@@ -84,16 +91,32 @@ See `loom.toml` for full configuration. Key settings:
 
 ```toml
 [llm.deepseek]
+type = "http"
 api_key = "${DEEPSEEK_API_KEY}"
+api_base = "https://api.deepseek.com"
 model = "deepseek-chat"
 max_tokens = 4096
+temperature = 0.7
 ```
+
+**How it works**: The planner agent uses the Python SDK's `LLMProvider` class, which dynamically configures the Core's LLM client via headers. This allows agents to use different models/providers without restarting Core.
+
+### Market Data
+
+```toml
+[agents.data-agent]
+exchange = "binance"
+symbols = ["BTCUSDT"]
+refresh_interval_sec = 1
+```
+
+The data agent automatically connects to Binance's public API. No API key required! Falls back to simulation if the API is unavailable.
 
 ### Agent Behavior
 
 ```toml
 [agents.planner-agent]
-llm_provider = "deepseek"
+llm_provider = "deepseek"  # or "openai", "local"
 timeout_ms = 3000  # Wait up to 3s for all analysis
 ```
 
@@ -149,7 +172,7 @@ if __name__ == "__main__":
     agent.run()
 ```
 
-2. Run: `loom run` (auto-discovers agents/*.py)
+2. Run: `loom run` (auto-discovers agents/\*.py)
 
 ### Integrate New MCP Tools
 
@@ -173,7 +196,70 @@ result = await ctx.tool("weather:get", payload={"city": "Seattle"})
 - **Throughput**: 10+ price updates/sec with 3+ parallel analyses
 - **Scalability**: Add more agents without code changes
 
+## Features
+
+### Real Market Data from Binance
+
+The data agent fetches live cryptocurrency prices from Binance's public API:
+
+- **No API key required**: Uses public REST endpoints
+- **Real-time prices**: BTC/USDT ticker data
+- **Rich metrics**: 24h high/low, volume, price change %
+- **Automatic fallback**: Uses simulation if API unavailable
+
+Example output:
+
+```
+[data] BINANCE | BTC $45,234.56 | 24h: +3.42%
+```
+
+### LLM-Powered Planning
+
+The planner agent uses DeepSeek (or other LLMs) for intelligent trading decisions:
+
+- **Structured prompts**: Provides trend, risk, and sentiment analysis to LLM
+- **JSON output parsing**: Extracts action, confidence, reasoning
+- **Graceful fallback**: Falls back to rule-based logic if LLM fails
+- **Configurable**: Switch between DeepSeek, OpenAI, or local models
+
+Example LLM output:
+
+```json
+{
+  "action": "BUY",
+  "confidence": 0.82,
+  "reasoning": "Strong upward trend with low risk and bullish sentiment"
+}
+```
+
+### Multi-Agent Collaboration
+
+- **Fan-out**: Price updates broadcast to 3 analysis agents simultaneously
+- **Parallel processing**: Trend, risk, and sentiment analysis happen concurrently
+- **Smart aggregation**: Planner waits for all results or times out at 3 seconds
+- **Partial data handling**: Generates plan even if some agents are slow
+
 ## Troubleshooting
+
+### "LLM error" in planner output
+
+The planner will automatically fall back to rule-based logic. To use LLM:
+
+```bash
+# Set your DeepSeek API key
+export DEEPSEEK_API_KEY="sk-..."
+
+# Restart the demo
+loom run
+```
+
+### "Warning: aiohttp not installed"
+
+Install the required dependency:
+
+```bash
+pip install aiohttp
+```
 
 ### No API key error
 
@@ -195,6 +281,15 @@ Check logs:
 cat logs/planner-agent.log
 ```
 
+### Binance API rate limits
+
+If you see "429 Too Many Requests", increase the refresh interval:
+
+```toml
+[agents.data-agent]
+refresh_interval_sec = 2  # Slow down to 2 seconds
+```
+
 ## Development
 
 ### Using Local Core Build
@@ -212,6 +307,7 @@ loom run
 ```
 
 The SDK searches for binaries in this priority:
+
 1. **Cached** (`~/.cache/loom/bin/`)
 2. **Local build** (`target/debug/` or `target/release/`)
 3. **GitHub Releases** (auto-download)
@@ -236,11 +332,27 @@ python agents/planner.py
 
 ## Next Steps
 
-- Add more symbols (ETH, SOL, etc.)
-- Implement execution agent (paper trading)
-- Add memory/history for agents
-- Integrate more MCP tools
-- Deploy to production with Docker
+### Extend the System
+
+- **More symbols**: Add ETH, SOL, etc. in `loom.toml`
+- **Execution agent**: Implement paper trading with order tracking
+- **Memory system**: Add agent memory for historical context
+- **More MCP tools**: Integrate news APIs, social sentiment, on-chain data
+- **WebSocket streaming**: Upgrade to Binance WebSocket for real-time updates
+
+### Production Deployment
+
+- **Docker**: Use `infra/docker-compose.yml` for containerized deployment
+- **Monitoring**: Enable OpenTelemetry metrics (see `docs/observability/`)
+- **Rate limiting**: Configure request throttling for API calls
+- **High availability**: Run multiple Core instances with load balancing
+
+### Advanced LLM Usage
+
+- **Chain of thought**: Multi-step reasoning for complex decisions
+- **Tool use**: Let LLM decide when to call analysis agents
+- **Ensemble**: Combine multiple LLM providers for robust decisions
+- **Fine-tuning**: Train custom models on your trading strategy
 
 ## Learn More
 

@@ -119,25 +119,27 @@ This spins up Loom Core + Bridge + a set of Python agents for the Market Analyst
 8. **Runtime Packaging & Configuration** — ✅ COMPLETE
 
    - ✅ Automatic binary download from GitHub Releases
-   - ✅ Local build detection and caching
+   - ✅ Local build detection with repo root search (supports nested directories)
    - ✅ SHA256 checksum verification
    - ✅ Cross-platform support (Linux, macOS, Windows)
    - ✅ `loom.toml` configuration schema with Pydantic
-   - ✅ Environment variable substitution
+   - ✅ Environment variable substitution (`${VAR}` syntax)
    - ✅ Per-agent LLM/MCP configuration
    - ✅ `loom up` command for runtime management
    - ✅ Comprehensive tests and documentation
+   - ✅ Unified `loom-bridge-server` binary (includes Core + Bridge + Dashboard)
 
 9. **Project Orchestration** — ✅ COMPLETE
 
    - ✅ `loom run` command for one-command startup
-   - ✅ Multi-process lifecycle management
-   - ✅ Auto-discovery of agents from project structure
-   - ✅ Graceful shutdown with signal handling
+   - ✅ Multi-process lifecycle management (runtime + agents)
+   - ✅ Auto-discovery of agents from project structure (`agents/*.py`)
+   - ✅ Graceful shutdown with signal handling (Ctrl+C)
    - ✅ Process monitoring and health checks
    - ✅ Optional log file management
    - ✅ Configuration propagation via environment variables
    - ✅ Dashboard URL and status reporting
+   - ✅ **VALIDATED**: Successfully runs Market Analyst demo with 5 agents
 
 10. **Flagship Market Analyst Demo** — ✅ COMPLETE
 
@@ -148,11 +150,15 @@ This spins up Loom Core + Bridge + a set of Python agents for the Market Analyst
 - ✅ **Complete project template** (`demo/market-analyst/`)
   - Fully documented `loom.toml` with LLM and MCP configs
   - README with architecture diagrams and usage guide
-  - Ready for DeepSeek integration (config in place)
+  - DeepSeek LLM integration ready to use
 - ✅ **One-command execution**: `cd demo/market-analyst && loom run`
 - ✅ **Dashboard integration**: Real-time visualization of all agent interactions
-- 🚧 **Real market data**: Currently simulated (TODO: Exchange API integration)
-- 🚧 **DeepSeek LLM**: Config ready, needs Core provider implementation
+- ✅ **Real market data**: Binance API integration with automatic fallback to simulation
+- ✅ **DeepSeek LLM**: Full integration via LLMProvider helper class
+  - Python SDK includes `LLMProvider` for easy LLM integration
+  - Supports DeepSeek, OpenAI, and local models
+  - Planner agent uses LLM for intelligent trade recommendations
+  - Graceful fallback to rule-based logic if LLM unavailable
 
 11. **JS SDK MVP (loom‑js)** — 🚧 TODO
 
@@ -183,9 +189,16 @@ This spins up Loom Core + Bridge + a set of Python agents for the Market Analyst
 - ✅ Configuration system: `loom.toml` with LLM/MCP/agent configs, env var substitution
 - ✅ CLI orchestration: `loom up` (runtime) and `loom run` (full orchestration)
 - ✅ Market Analyst Demo: Production-ready 5-agent system with async fan-out/fan-in
-- ✅ One-command workflow: `cd demo/market-analyst && loom run` → Dashboard shows live system
-- 🚧 DeepSeek LLM provider in Core (config ready in demo, needs Core implementation)
-- 🚧 Real market data (currently simulated, needs exchange API)
+- ✅ **One-command workflow VALIDATED**: `cd demo/market-analyst && loom run` successfully starts Core + 5 agents, Dashboard accessible at http://localhost:3030
+- ✅ **Local build detection**: Automatically finds and uses locally built `loom-bridge-server` from repo root, even when running from nested directories
+- ✅ **DeepSeek LLM Integration**: Full support via Python SDK `LLMProvider` class
+  - Dynamic provider configuration (DeepSeek, OpenAI, local models)
+  - Headers-based configuration override in Core's LLM provider
+  - Planner agent uses LLM for intelligent reasoning with fallback
+- ✅ **Real market data**: Binance API integration in data agent
+  - Public REST API for ticker data (no API key required)
+  - Automatic fallback to simulation if API unavailable
+  - Enhanced payload with 24h stats (high, low, volume, price change %)
 - 🚧 Auto-reconnect tested with network interruptions (needs formal test)
 - 🚧 P50/P99 latency benchmarks published (needs benchmark suite)
 

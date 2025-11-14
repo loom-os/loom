@@ -44,7 +44,7 @@ async def sentiment_handler(ctx, topic: str, event) -> None:
 async def main():
     config = load_project_config()
     agent_config = config.agents.get("sentiment-agent", {})
-    topics = agent_config.get("topics", ["market.price.BTC"])
+    topics = agent_config.get("topics", ["market.price.*"])
 
     agent = Agent(
         agent_id="sentiment-agent",
@@ -52,8 +52,17 @@ async def main():
         on_event=sentiment_handler,
     )
 
-    print(f"[sentiment] Sentiment Agent starting, subscribed to: {topics}")
-    agent.run()
+    print(f"[sentiment] Sentiment Agent starting")
+    print(f"[sentiment] Subscribed to: {topics}")
+
+    await agent.start()
+
+    # Keep running
+    try:
+        await asyncio.Event().wait()
+    except KeyboardInterrupt:
+        print("[sentiment] Shutting down...")
+        await agent.stop()
 
 
 if __name__ == "__main__":

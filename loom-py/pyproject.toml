@@ -34,6 +34,7 @@ dependencies = [
   "jsonschema>=4.21.0",
   "platformdirs>=4.2.0",
   "tomli>=2.0.1; python_version < '3.11'",
+  "aiohttp>=3.9.0",
 ]
 
 [project.urls]

@@ -18,7 +18,7 @@ host = "127.0.0.1"
 # LLM Configuration - DeepSeek (default provider)
 [llm.deepseek]
 type = "http"
-api_key = "${DEEPSEEK_API_KEY}"  # Set via environment variable
+api_key = "sk-73ba2abe6b4c4ad2a9d2694842d7fed0"  # Set via environment variable
 api_base = "https://api.deepseek.com"
 model = "deepseek-chat"
 max_tokens = 4096
