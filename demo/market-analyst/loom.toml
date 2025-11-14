@@ -1,35 +1,31 @@
-# Loom Project Configuration Example
-# Copy this to loom.toml and customize for your project
+# Market Analyst Demo - Loom Configuration
 
-name = "market-analyst-demo"
+name = "market-analyst"
 version = "0.1.0"
-description = "Real-time market analysis with multi-agent collaboration"
+description = "Real-time multi-agent market analysis with DeepSeek LLM and async collaboration"
 
-# Bridge connection settings
+# Runtime configuration
 [bridge]
 address = "127.0.0.1:50051"
-mode = "full"  # "full" or "bridge-only"
+mode = "full"
 version = "latest"
-timeout_sec = 30
 
-# Dashboard configuration
 [dashboard]
 enabled = true
 port = 3030
 host = "127.0.0.1"
 
-# LLM Provider Configuration
-# Configure multiple providers and select per-agent
-
+# LLM Configuration - DeepSeek (default provider)
 [llm.deepseek]
 type = "http"
-api_key = "${DEEPSEEK_API_KEY}"  # Use environment variable
+api_key = "${DEEPSEEK_API_KEY}"  # Set via environment variable
 api_base = "https://api.deepseek.com"
 model = "deepseek-chat"
 max_tokens = 4096
 temperature = 0.7
 timeout_sec = 30
 
+# Optional: Local LLM for development/testing
 [llm.local]
 type = "http"
 api_base = "http://localhost:8000/v1"
@@ -37,23 +33,15 @@ model = "qwen2.5"
 max_tokens = 2048
 temperature = 0.8
 
-# MCP Server Configuration
-# External tool servers following Model Context Protocol
-
+# MCP Servers for external tools
 [mcp.web-search]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-brave-search"]
 
 [mcp.web-search.env]
-BRAVE_API_KEY = "${BRAVE_API_KEY}"
-
-[mcp.filesystem]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+BRAVE_API_KEY = "${BRAVE_API_KEY}"  # Set via environment variable
 
 # Agent-specific configuration
-# These are passed to your Python agents via the config API
-
 [agents.data-agent]
 topics = ["market.price.BTC", "market.price.ETH"]
 refresh_interval_sec = 1
