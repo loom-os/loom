@@ -181,11 +181,20 @@ Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researc
    - Middleware hooks for logging, tracing, auth
 
 6. **MCP enhancements**
+
    - SSE transport (HTTP-based) in addition to stdio
    - Resources API support (read/write/list resources)
    - Prompts API support (list/get prompts with arguments)
    - Sampling support for multi-turn tool use
    - Notifications support (server-initiated events)
+
+7. **Cognitive agent pattern & memory system** — 🧪 EXPERIMENTAL
+
+   - Define a `CognitiveLoop` interface (perceive/think/act) and a `CognitiveAgent` adapter that implements `AgentBehavior` on top of it (Rust core).
+   - Provide a reference planner-style agent that uses `ContextBuilder`, `MemoryReader/Writer`, `ModelRouter`, and `ActionBroker` to run a simple reasoning loop.
+   - Solidify `context::MemoryReader/Writer` as the primary memory extension point and document it as such.
+   - Add at least one persistent memory implementation (e.g., RocksDB-backed episodic memory) to complement the in-memory demo store.
+   - Document the design in `docs/core/cognitive_runtime.md` and `docs/core/memory.md`.
 
 ---
 
@@ -222,6 +231,7 @@ Delivery target: Minimal Vertical Slice (MVS). Spin up 3 agents (Planner/Researc
    - Time-travel debugging (replay from specific timestamp)
    - Long-run stability metrics (24h+ uptime tests)
    - Backup/restore tools for production deployments
+   - Standardized memory topics/events (e.g., `memory.update`, `memory.retrieve`) that bridge the event log with semantic/episodic memory providers.
 
 5. **WASI/external tool isolation**
    - Sandboxed tool execution (WASM runtime for untrusted tools)
