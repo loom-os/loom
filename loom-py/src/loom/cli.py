@@ -84,12 +84,64 @@ def cmd_init(args):
 
 
 def cmd_run(args):
-    """Run a user script with the current environment."""
-    script = args.script
-    if not Path(script).exists():
-        print(f"[loom] Script not found: {script}")
+    """Run a Loom project (orchestrate runtime + agents).
+
+    If no arguments provided, discovers project configuration and agents.
+    Otherwise runs a specific script.
+    """
+    import asyncio
+    from pathlib import Path
+
+    from .orchestrator import OrchestratorConfig, run_orchestrator
+
+    # If a script is provided and it's a file, just execute it directly (legacy behavior)
+    if args.script and Path(args.script).exists() and Path(args.script).is_file():
+        print(f"[loom] Running script: {args.script}")
+        os.execv(sys.executable, [sys.executable, args.script])
+        return
+
+    # Otherwise, orchestrate a full project
+    project_dir = Path(args.script) if args.script else Path.cwd()
+    if not project_dir.exists():
+        print(f"[loom] Project directory not found: {project_dir}")
         sys.exit(1)
-    os.execv(sys.executable, [sys.executable, script])
+
+    # Discover agent scripts
+    agent_scripts = []
+    agents_dir = project_dir / "agents"
+    if agents_dir.exists() and agents_dir.is_dir():
+        agent_scripts = sorted(agents_dir.glob("*.py"))
+        if agent_scripts:
+            print(f"[loom] Discovered {len(agent_scripts)} agent scripts in agents/")
+
+    # Check for main.py or run.py
+    for entry_point in ["main.py", "run.py", "app.py"]:
+        entry_file = project_dir / entry_point
+        if entry_file.exists():
+            agent_scripts.append(entry_file)
+            print(f"[loom] Found entry point: {entry_point}")
+            break
+
+    if not agent_scripts:
+        print("[loom] Warning: No agent scripts found")
+        print("[loom]   Looking for: agents/*.py, main.py, run.py, or app.py")
+
+    # Setup orchestrator config
+    logs_dir = project_dir / "logs" if args.logs else None
+
+    config = OrchestratorConfig(
+        project_dir=project_dir,
+        logs_dir=logs_dir,
+        runtime_mode=args.mode,
+        runtime_version=args.version,
+        bridge_port=args.bridge_port,
+        dashboard_port=args.dashboard_port,
+        startup_wait_sec=args.startup_wait,
+        agent_scripts=agent_scripts,
+    )
+
+    # Run orchestrator
+    asyncio.run(run_orchestrator(config))
 
 
 def _load_project_config(start: Path) -> dict:
@@ -224,8 +276,24 @@ def main():
     sc.add_argument("path", nargs="?", default=".")
     sc.set_defaults(func=cmd_init)
 
-    sr = sub.add_parser("run", help="Run a Python script in the current environment")
-    sr.add_argument("script")
+    sr = sub.add_parser(
+        "run",
+        help="Run a Loom project (orchestrate runtime + agents) or execute a single script",
+    )
+    sr.add_argument(
+        "script",
+        nargs="?",
+        default=None,
+        help="Project directory or script file (default: current directory)",
+    )
+    sr.add_argument("--mode", choices=["full", "bridge-only"], default="full", help="Runtime mode")
+    sr.add_argument("--version", default="latest", help="Runtime version")
+    sr.add_argument("--bridge-port", type=int, help="Bridge port (default: auto)")
+    sr.add_argument("--dashboard-port", type=int, default=3030, help="Dashboard port")
+    sr.add_argument(
+        "--startup-wait", type=float, default=2.0, help="Seconds to wait after runtime starts"
+    )
+    sr.add_argument("--logs", action="store_true", help="Save logs to project logs/ directory")
     sr.set_defaults(func=cmd_run)
 
     su = sub.add_parser("up", help="Start embedded runtime (bridge or full core with dashboard)")

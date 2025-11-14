@@ -195,6 +195,45 @@ Check logs:
 cat logs/planner-agent.log
 ```
 
+## Development
+
+### Using Local Core Build
+
+If you're developing on Loom Core, the SDK will automatically use your local build:
+
+```bash
+# Terminal 1: Build Core from source
+cd /path/to/loom/repo
+cargo build --release -p loom-core
+
+# Terminal 2: Run demo (will detect and use local build)
+cd /path/to/loom/demo/market-analyst
+loom run
+```
+
+The SDK searches for binaries in this priority:
+1. **Cached** (`~/.cache/loom/bin/`)
+2. **Local build** (`target/debug/` or `target/release/`)
+3. **GitHub Releases** (auto-download)
+
+See `../../docs/BUILD_LOCAL.md` for complete build instructions.
+
+### Running Individual Agents
+
+For debugging, you can run agents separately:
+
+```bash
+# Start runtime only
+loom up
+
+# In separate terminals
+python agents/data.py
+python agents/trend.py
+python agents/risk.py
+python agents/sentiment.py
+python agents/planner.py
+```
+
 ## Next Steps
 
 - Add more symbols (ETH, SOL, etc.)
@@ -206,5 +245,6 @@ cat logs/planner-agent.log
 ## Learn More
 
 - [Loom Documentation](../../docs/)
+- [Build from Source](../../docs/BUILD_LOCAL.md)
 - [ROADMAP](../../docs/ROADMAP.md)
 - [SDK Guide](../../loom-py/docs/SDK_GUIDE.md)

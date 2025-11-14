@@ -150,7 +150,26 @@ def download_from_github(binary_name: str, version: str) -> Path:
 
 
 def find_local_build(binary_name: str) -> Optional[Path]:
-    """Try to locate locally built binary (dev convenience)."""
+    """Try to locate locally built binary (dev convenience).
+
+    This function searches for binaries built from source using `cargo build`.
+    It's useful during development to avoid downloading binaries from GitHub.
+
+    Search paths (relative to current directory):
+    - target/debug/{binary_name}       # Root workspace debug build
+    - target/release/{binary_name}     # Root workspace release build
+    - bridge/target/debug/{binary_name}
+    - bridge/target/release/{binary_name}
+    - core/target/debug/{binary_name}
+    - core/target/release/{binary_name}
+
+    To build locally:
+        cd /path/to/loom/repo
+        cargo build --release -p loom-core
+        cargo build --release -p loom-bridge
+
+    See docs/BUILD_LOCAL.md for complete build instructions.
+    """
     candidates = [
         Path(f"target/debug/{binary_name}"),
         Path(f"target/release/{binary_name}"),
@@ -166,7 +185,29 @@ def find_local_build(binary_name: str) -> Optional[Path]:
 
 
 def get_binary(binary_name: str, version: str = "latest", allow_local: bool = True) -> Path:
-    """Get binary, downloading if necessary or using local build in dev mode."""
+    """Get binary, downloading if necessary or using local build in dev mode.
+
+    Priority order:
+    1. Cached binary (~/.cache/loom/bin/{version}/{platform}/{binary_name})
+    2. Local build (target/debug or target/release) - if allow_local=True
+    3. Download from GitHub Releases
+
+    Args:
+        binary_name: Name of binary (e.g., "loom-core", "loom-bridge-server")
+        version: Version to fetch (e.g., "latest", "0.1.0")
+        allow_local: If True, will use local builds from cargo (default: True)
+
+    Returns:
+        Path to the binary (always in cache directory for consistency)
+
+    Development workflow:
+        # Build from source
+        cd /path/to/loom
+        cargo build --release
+
+        # SDK will automatically detect and use local build
+        loom up
+    """
     # Check cache first
     cached = binary_path(binary_name, version)
     if cached.exists():
