@@ -3,12 +3,13 @@
 from pathlib import Path
 
 import pytest
+
 from loom.orchestrator import Orchestrator, OrchestratorConfig
 
 
 def test_orchestrator_config_defaults():
     """Test OrchestratorConfig defaults."""
-    config = OrchestratorConfig()
+    config = OrchestratorConfig(project_dir=Path.cwd())
     assert config.project_dir == Path.cwd()
     assert config.runtime_mode == "full"
     assert config.runtime_version == "latest"
@@ -46,12 +47,14 @@ def test_orchestrator_config_custom():
 
 def test_orchestrator_init():
     """Test Orchestrator initialization."""
-    config = OrchestratorConfig()
+    config = OrchestratorConfig(project_dir=Path.cwd())
     orch = Orchestrator(config)
 
     assert orch.config == config
-    assert orch.project_config is None
-    assert len(orch.processes) == 0
+    # project_config is loaded from loom.toml or defaults to a new ProjectConfig
+    assert orch.project_config is not None
+    assert orch.runtime_proc is None
+    assert len(orch.agent_procs) == 0
     assert not orch._shutdown_requested
 
 

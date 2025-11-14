@@ -155,32 +155,55 @@ def find_local_build(binary_name: str) -> Optional[Path]:
     This function searches for binaries built from source using `cargo build`.
     It's useful during development to avoid downloading binaries from GitHub.
 
-    Search paths (relative to current directory):
-    - target/debug/{binary_name}       # Root workspace debug build
-    - target/release/{binary_name}     # Root workspace release build
-    - bridge/target/debug/{binary_name}
-    - bridge/target/release/{binary_name}
-    - core/target/debug/{binary_name}
-    - core/target/release/{binary_name}
+    Search strategy:
+    1. Check current directory and parents for Cargo.toml (repo root)
+    2. Search in target/debug, target/release, bridge/target/*, core/target/*
 
     To build locally:
         cd /path/to/loom/repo
-        cargo build --release -p loom-core
         cargo build --release -p loom-bridge
 
     See docs/BUILD_LOCAL.md for complete build instructions.
     """
-    candidates = [
-        Path(f"target/debug/{binary_name}"),
-        Path(f"target/release/{binary_name}"),
-        Path(f"bridge/target/debug/{binary_name}"),
-        Path(f"bridge/target/release/{binary_name}"),
-        Path(f"core/target/debug/{binary_name}"),
-        Path(f"core/target/release/{binary_name}"),
-    ]
+    # Try to find repo root by looking for Cargo.toml with workspace members
+    current = Path.cwd()
+    repo_root = None
+
+    # Search up to 5 levels up for the repo root
+    for _ in range(5):
+        cargo_toml = current / "Cargo.toml"
+        if cargo_toml.exists():
+            try:
+                content = cargo_toml.read_text()
+                if "[workspace]" in content or "members" in content:
+                    repo_root = current
+                    break
+            except Exception:
+                pass
+        parent = current.parent
+        if parent == current:  # Reached filesystem root
+            break
+        current = parent
+
+    # If no repo root found, try relative paths from cwd
+    search_bases = [repo_root] if repo_root else [Path.cwd()]
+
+    candidates = []
+    for base in search_bases:
+        candidates.extend(
+            [
+                base / f"target/release/{binary_name}",
+                base / f"target/debug/{binary_name}",
+                base / f"bridge/target/release/{binary_name}",
+                base / f"bridge/target/debug/{binary_name}",
+                base / f"core/target/release/{binary_name}",
+                base / f"core/target/debug/{binary_name}",
+            ]
+        )
+
     for c in candidates:
-        if c.exists():
-            return c
+        if c.exists() and c.is_file():
+            return c.resolve()
     return None
 
 
@@ -258,9 +281,13 @@ def start_core(
     dashboard_port: int = 3030,
     version: str = "latest",
 ) -> subprocess.Popen:
-    """Start loom-core (full runtime with dashboard)."""
+    """Start loom-core (full runtime with dashboard).
+
+    Note: loom-core is embedded within loom-bridge-server, so this
+    actually starts loom-bridge-server with Dashboard enabled.
+    """
     return start_binary(
-        "loom-core",
+        "loom-bridge-server",
         env_vars={
             "LOOM_BRIDGE_ADDR": bridge_addr,
             "LOOM_DASHBOARD": "true",

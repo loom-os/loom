@@ -68,6 +68,72 @@ def test_find_local_build():
     assert result is None or isinstance(result, Path)
 
 
+def test_find_local_build_with_mock_repo(tmp_path, monkeypatch):
+    """Test find_local_build with a mock repository structure."""
+    # Create a mock Loom repository structure
+    repo_root = tmp_path / "loom"
+    repo_root.mkdir()
+
+    # Create Cargo.toml with workspace marker
+    (repo_root / "Cargo.toml").write_text(
+        """
+[workspace]
+members = ["core", "bridge"]
+"""
+    )
+
+    # Create target/release directory with binary
+    target_release = repo_root / "target" / "release"
+    target_release.mkdir(parents=True)
+    binary = target_release / "loom-bridge-server"
+    binary.write_text("mock binary")
+
+    # Change to a nested directory within the repo
+    nested_dir = repo_root / "demo" / "market-analyst"
+    nested_dir.mkdir(parents=True)
+    monkeypatch.chdir(nested_dir)
+
+    # Should find the binary by walking up to repo root
+    result = find_local_build("loom-bridge-server")
+    assert result is not None
+    assert result.name == "loom-bridge-server"
+    assert "target/release" in str(result)
+
+
+def test_find_local_build_no_repo(tmp_path, monkeypatch):
+    """Test find_local_build when not in a repo."""
+    # Change to a directory without Cargo.toml
+    monkeypatch.chdir(tmp_path)
+
+    # Should return None
+    result = find_local_build("loom-bridge-server")
+    assert result is None
+
+
+def test_find_local_build_prefers_release(tmp_path, monkeypatch):
+    """Test that find_local_build prefers release over debug builds."""
+    repo_root = tmp_path / "loom"
+    repo_root.mkdir()
+
+    (repo_root / "Cargo.toml").write_text("[workspace]\nmembers = []")
+
+    # Create both debug and release binaries
+    debug_dir = repo_root / "target" / "debug"
+    debug_dir.mkdir(parents=True)
+    (debug_dir / "loom-bridge-server").write_text("debug binary")
+
+    release_dir = repo_root / "target" / "release"
+    release_dir.mkdir(parents=True)
+    (release_dir / "loom-bridge-server").write_text("release binary")
+
+    monkeypatch.chdir(repo_root)
+
+    # Should find release build first (it's listed first in candidates)
+    result = find_local_build("loom-bridge-server")
+    assert result is not None
+    assert "release" in str(result)
+
+
 @pytest.mark.skip(reason="Requires actual GitHub release")
 def test_download_from_github():
     """Test downloading from GitHub releases (integration test)."""

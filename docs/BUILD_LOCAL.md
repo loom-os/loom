@@ -60,24 +60,25 @@ cargo build --release
 
 **Build Outputs**:
 
-- `target/debug/loom-core` (or `target/release/loom-core`)
 - `target/debug/loom-bridge-server` (or `target/release/loom-bridge-server`)
+  - This is the main Loom runtime binary, which includes the Core (EventBus, Agent Runtime, etc.) and the gRPC Bridge server
+  - When Dashboard is enabled, it also serves the Dashboard HTTP server
 
 ### 3. Build Specific Components
 
 ```bash
-# Build only Core
-cargo build -p loom-core
-
-# Build only Bridge
+# Build the main runtime (includes Core + Bridge)
 cargo build -p loom-bridge
+
+# Build the Core library (for development/testing)
+cargo build -p loom-core
 
 # Build with Dashboard frontend
 cd core/src/dashboard/frontend
 npm install
 npm run build
 cd ../../../..
-cargo build -p loom-core --features dashboard
+cargo build -p loom-bridge
 ```
 
 ## Using Local Builds with Python SDK
@@ -121,7 +122,8 @@ loom up  # Will use local build
 # Option 3: Use cargo directly
 export LOOM_BRIDGE_ADDR="127.0.0.1:50051"
 export LOOM_DASHBOARD_PORT="3030"
-cargo run -p loom-core
+export LOOM_DASHBOARD="true"
+cargo run -p loom-bridge --bin loom-bridge-server
 ```
 
 ## Development Workflow
@@ -130,7 +132,7 @@ cargo run -p loom-core
 
 ```bash
 # Terminal 1: Watch and rebuild on changes
-cargo watch -x 'build -p loom-core'
+cargo watch -x 'build -p loom-bridge'
 
 # Terminal 2: Run your Python agents
 cd demo/market-analyst
@@ -164,7 +166,8 @@ npm run dev
 
 # Terminal 2: Run Core with external frontend
 export LOOM_DASHBOARD_DEV=true
-cargo run -p loom-core
+export LOOM_DASHBOARD="true"
+cargo run -p loom-bridge --bin loom-bridge-server
 
 # Access at http://localhost:5173 (Vite dev server)
 ```
@@ -289,10 +292,12 @@ brew install openssl         # macOS
 
 The SDK looks for binaries in:
 
-- `target/debug/loom-core`
-- `target/release/loom-core`
 - `target/debug/loom-bridge-server`
 - `target/release/loom-bridge-server`
+- `bridge/target/debug/loom-bridge-server`
+- `bridge/target/release/loom-bridge-server`
+
+Note: `loom-core` is a library crate, not a binary. The main runtime binary is `loom-bridge-server`, which includes both the Core and Bridge components.
 
 Ensure you're running `loom up` from the repo root, or the binary exists in one of these paths.
 

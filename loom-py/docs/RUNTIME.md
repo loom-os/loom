@@ -38,6 +38,8 @@ Starts only the gRPC bridge server:
 loom up --mode bridge-only
 ```
 
+**Note**: Both modes use the same `loom-bridge-server` binary. The `full` mode enables the Dashboard, while `bridge-only` mode disables it. `loom-core` is a Rust library crate, not a standalone executable.
+
 ## Binary Management
 
 ### Download and Caching
