@@ -14,6 +14,11 @@ cargo run -p voice_agent
 
 The demo is designed to run locally on Linux/macOS (CPU‑only acceptable). It detects Piper first for TTS and falls back to espeak‑ng when Piper is not available.
 
+## Python multi-agent examples
+
+- **Trio (Planner / Researcher / Writer)** — see `loom-py/examples/trio.py` for a minimal multi-agent collaboration example using the Python SDK.
+- **Market Analyst Crew (async fan-out/aggregation)** — see `loom-py/examples/market_analyst_async.py` for a real-time market-style demo where one data agent feeds multiple analysis agents, and a planner agent aggregates partial results with timeouts.
+
 ## Planned / in-progress
 
 - Camera/vision demo (dependent on a forthcoming `loom-vision` crate)

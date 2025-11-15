@@ -1,23 +1,37 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import platform
 import shutil
 import stat
 import subprocess
 import sys
+import tarfile
+import tempfile
+import zipfile
 from pathlib import Path
+from typing import Optional
+from urllib.request import urlopen
 
 from platformdirs import user_cache_dir
 
-BIN_NAME = "loom-bridge-server"
 VENDOR = "loom-os"
 APP_NAME = "loom"
+GITHUB_REPO = "loom-os/loom"
+RELEASE_BASE_URL = f"https://github.com/{GITHUB_REPO}/releases/download"
 
 
 def platform_tag() -> str:
+    """Return platform tag for binary selection (e.g., linux-x86_64, macos-aarch64)."""
     sysname = sys.platform
     arch = platform.machine().lower()
+    # Normalize common arch names
+    if arch in ("x86_64", "amd64"):
+        arch = "x86_64"
+    elif arch in ("aarch64", "arm64"):
+        arch = "aarch64"
+
     if sysname.startswith("linux"):
         os_tag = "linux"
     elif sysname == "darwin":
@@ -30,50 +44,280 @@ def platform_tag() -> str:
 
 
 def cache_dir() -> Path:
+    """Return cache directory for downloaded binaries."""
     return Path(user_cache_dir(APP_NAME, VENDOR)) / "bin"
 
 
-def core_path(version: str = "latest") -> Path:
+def binary_path(binary_name: str, version: str = "latest") -> Path:
+    """Return path to cached binary for given version and platform."""
     tag = platform_tag()
-    name = BIN_NAME + (".exe" if sys.platform.startswith("win") else "")
-    return cache_dir() / f"{name}-{version}-{tag}"
+    name = binary_name + (".exe" if sys.platform.startswith("win") else "")
+    return cache_dir() / version / tag / name
 
 
 def ensure_executable(p: Path) -> None:
+    """Make file executable on Unix systems.
+
+    Sets read and execute permissions for owner, group, and others.
+    Does NOT set write permission for security (downloaded binaries should be read-only).
+    """
     if sys.platform.startswith("win"):
         return
     mode = p.stat().st_mode
-    p.chmod(mode | stat.S_IEXEC)
-
-
-def download_core(version: str = "latest") -> Path:
-    """Placeholder: in a future revision, download from Releases and verify checksum.
-
-    Today, we try to find a local build via cargo (debug bin) and copy it to cache as a stand-in.
-    """
-    # Try to locate cargo-built binary in repo (dev convenience)
-    candidates = [
-        Path("target/debug/" + BIN_NAME),
-        Path("bridge/target/debug/" + BIN_NAME),
-    ]
-    for c in candidates:
-        if c.exists():
-            dst = core_path(version)
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(c, dst)
-            ensure_executable(dst)
-            return dst
-    raise FileNotFoundError(
-        "Embedded core binary not found. Build it with `cargo build -p loom-bridge --bin loom-bridge-server` "
-        "or provide a downloadable URL in a future release."
+    # Set read and execute for owner, group, and others (0o555 = r-xr-xr-x)
+    p.chmod(
+        mode
+        | stat.S_IRUSR
+        | stat.S_IXUSR
+        | stat.S_IRGRP
+        | stat.S_IXGRP
+        | stat.S_IROTH
+        | stat.S_IXOTH
     )
 
 
-def start_core(address: str, version: str = "latest") -> subprocess.Popen:
-    p = core_path(version)
-    if not p.exists():
-        p = download_core(version)
+def verify_checksum(file_path: Path, expected_sha256: Optional[str]) -> bool:
+    """Verify SHA256 checksum of downloaded file."""
+    if not expected_sha256:
+        return True  # Skip verification if no checksum provided
+
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256.update(chunk)
+
+    actual = sha256.hexdigest()
+    return actual.lower() == expected_sha256.lower()
+
+
+def download_from_github(binary_name: str, version: str) -> Path:
+    """Download binary from GitHub Releases.
+
+    Expected release asset format:
+    - {binary_name}-{version}-{platform_tag}.tar.gz (Linux/macOS)
+    - {binary_name}-{version}-{platform_tag}.zip (Windows)
+
+    Optional checksum file: {asset_name}.sha256
+    """
+    tag = platform_tag()
+    is_windows = sys.platform.startswith("win")
+    ext = "zip" if is_windows else "tar.gz"
+    asset_name = f"{binary_name}-{version}-{tag}.{ext}"
+    asset_url = f"{RELEASE_BASE_URL}/v{version}/{asset_name}"
+    checksum_url = f"{asset_url}.sha256"
+
+    print(f"[loom] Downloading {binary_name} v{version} for {tag}...")
+    print(f"[loom] URL: {asset_url}")
+
+    # Download archive
+    try:
+        with urlopen(asset_url) as response:
+            archive_data = response.read()
+    except Exception as e:
+        raise RuntimeError(f"Failed to download {asset_name}: {e}") from e
+
+    # Download and verify checksum (optional)
+    expected_checksum = None
+    try:
+        with urlopen(checksum_url) as response:
+            checksum_text = response.read().decode("utf-8").strip()
+            # Format: "<hash>  <filename>" or just "<hash>"
+            expected_checksum = checksum_text.split()[0]
+    except Exception:
+        # Checksum file is optional; if it doesn't exist or fails to download, skip verification
+        print("[loom] Warning: Checksum file not found, skipping verification")
+
+    # Write archive to temp file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmp:
+        tmp.write(archive_data)
+        tmp_path = Path(tmp.name)
+
+    try:
+        # Verify checksum
+        if expected_checksum:
+            if not verify_checksum(tmp_path, expected_checksum):
+                raise RuntimeError(f"Checksum verification failed for {asset_name}")
+            print("[loom] Checksum verified")
+
+        # Extract binary
+        extract_dir = cache_dir() / version / tag
+        extract_dir.mkdir(parents=True, exist_ok=True)
+
+        if is_windows:
+            with zipfile.ZipFile(tmp_path, "r") as zf:
+                zf.extractall(extract_dir)
+        else:
+            with tarfile.open(tmp_path, "r:gz") as tf:
+                tf.extractall(extract_dir)
+
+        # Find and return binary path
+        binary_file = binary_path(binary_name, version)
+        if not binary_file.exists():
+            raise FileNotFoundError(f"Binary not found after extraction: {binary_file}")
+
+        ensure_executable(binary_file)
+        print(f"[loom] Downloaded and cached at {binary_file}")
+        return binary_file
+
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def find_local_build(binary_name: str) -> Optional[Path]:
+    """Try to locate locally built binary (dev convenience).
+
+    This function searches for binaries built from source using `cargo build`.
+    It's useful during development to avoid downloading binaries from GitHub.
+
+    Search strategy:
+    1. Check current directory and parents for Cargo.toml (repo root)
+    2. Search in target/debug, target/release, bridge/target/*, core/target/*
+
+    To build locally:
+        cd /path/to/loom/repo
+        cargo build --release -p loom-bridge
+
+    See docs/BUILD_LOCAL.md for complete build instructions.
+    """
+    # Try to find repo root by looking for Cargo.toml with workspace members
+    current = Path.cwd()
+    repo_root = None
+
+    # Search up to 5 levels up for the repo root
+    for _ in range(5):
+        cargo_toml = current / "Cargo.toml"
+        if cargo_toml.exists():
+            try:
+                content = cargo_toml.read_text()
+                if "[workspace]" in content or "members" in content:
+                    repo_root = current
+                    break
+            except Exception:
+                # Ignore read errors (permissions, encoding, etc.) and continue search
+                pass
+        parent = current.parent
+        if parent == current:  # Reached filesystem root
+            break
+        current = parent
+
+    # If no repo root found, try relative paths from cwd
+    search_bases = [repo_root] if repo_root else [Path.cwd()]
+
+    candidates = []
+    for base in search_bases:
+        candidates.extend(
+            [
+                base / f"target/release/{binary_name}",
+                base / f"target/debug/{binary_name}",
+                base / f"bridge/target/release/{binary_name}",
+                base / f"bridge/target/debug/{binary_name}",
+                base / f"core/target/release/{binary_name}",
+                base / f"core/target/debug/{binary_name}",
+            ]
+        )
+
+    for c in candidates:
+        if c.exists() and c.is_file():
+            return c.resolve()
+    return None
+
+
+def get_binary(binary_name: str, version: str = "latest", allow_local: bool = True) -> Path:
+    """Get binary, downloading if necessary or using local build in dev mode.
+
+    Priority order:
+    1. Cached binary (~/.cache/loom/bin/{version}/{platform}/{binary_name})
+    2. Local build (target/debug or target/release) - if allow_local=True
+    3. Download from GitHub Releases
+
+    Args:
+        binary_name: Name of binary (e.g., "loom-core", "loom-bridge-server")
+        version: Version to fetch (e.g., "latest", "0.1.0")
+        allow_local: If True, will use local builds from cargo (default: True)
+
+    Returns:
+        Path to the binary (always in cache directory for consistency)
+
+    Development workflow:
+        # Build from source
+        cd /path/to/loom
+        cargo build --release
+
+        # SDK will automatically detect and use local build
+        loom up
+    """
+    # Check cache first
+    cached = binary_path(binary_name, version)
+    if cached.exists():
+        return cached
+
+    # Try local build (dev convenience)
+    if allow_local:
+        local = find_local_build(binary_name)
+        if local:
+            print(f"[loom] Using local build: {local}")
+            # Copy to cache for consistency
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(local, cached)
+            ensure_executable(cached)
+            return cached
+
+    # Download from GitHub Releases
+    return download_from_github(binary_name, version)
+
+
+def start_binary(
+    binary_name: str,
+    env_vars: Optional[dict[str, str]] = None,
+    version: str = "latest",
+    allow_local: bool = True,
+) -> subprocess.Popen:
+    """Start a Loom runtime binary with given environment variables.
+
+    Note: stdout and stderr are redirected to DEVNULL to prevent buffer filling
+    and process hanging. For debugging, use direct binary execution or redirect
+    to files in calling code.
+    """
+    binary = get_binary(binary_name, version=version, allow_local=allow_local)
     env = os.environ.copy()
-    env["LOOM_BRIDGE_ADDR"] = address
-    proc = subprocess.Popen([str(p)], env=env)
+    if env_vars:
+        env.update(env_vars)
+    # Use DEVNULL to prevent pipe buffer filling and process hanging
+    proc = subprocess.Popen(
+        [str(binary)],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     return proc
+
+
+# Convenience functions for specific binaries
+def start_bridge(address: str, version: str = "latest") -> subprocess.Popen:
+    """Start loom-bridge-server."""
+    return start_binary(
+        "loom-bridge-server",
+        env_vars={"LOOM_BRIDGE_ADDR": address},
+        version=version,
+    )
+
+
+def start_core(
+    bridge_addr: str,
+    dashboard_port: int = 3030,
+    version: str = "latest",
+) -> subprocess.Popen:
+    """Start loom-core (full runtime with dashboard).
+
+    Note: loom-core is embedded within loom-bridge-server, so this
+    actually starts loom-bridge-server with Dashboard enabled.
+    """
+    return start_binary(
+        "loom-bridge-server",
+        env_vars={
+            "LOOM_BRIDGE_ADDR": bridge_addr,
+            "LOOM_DASHBOARD": "true",
+            "LOOM_DASHBOARD_PORT": str(dashboard_port),
+        },
+        version=version,
+    )

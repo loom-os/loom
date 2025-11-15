@@ -143,6 +143,9 @@ pub struct EventBus {
     // Dashboard event broadcaster (optional)
     dashboard_broadcaster: Option<crate::dashboard::EventBroadcaster>,
 
+    // Flow tracker for event flow visualization (optional)
+    flow_tracker: Option<Arc<crate::dashboard::FlowTracker>>,
+
     // OpenTelemetry metrics
     published_counter: Counter<u64>,
     delivered_counter: Counter<u64>,
@@ -194,6 +197,7 @@ impl EventBus {
             stats: Arc::new(DashMap::new()),
             backpressure_threshold: 10_000,
             dashboard_broadcaster: None,
+            flow_tracker: None,
             published_counter,
             delivered_counter,
             dropped_counter,
@@ -217,6 +221,11 @@ impl EventBus {
     /// Set dashboard broadcaster for real-time event streaming
     pub fn set_dashboard_broadcaster(&mut self, broadcaster: crate::dashboard::EventBroadcaster) {
         self.dashboard_broadcaster = Some(broadcaster);
+    }
+
+    /// Set flow tracker for event flow visualization
+    pub fn set_flow_tracker(&mut self, flow_tracker: Arc<crate::dashboard::FlowTracker>) {
+        self.flow_tracker = Some(flow_tracker);
     }
 
     /// Publish event to topic
@@ -302,6 +311,36 @@ impl EventBus {
                         }
                         if sub.sender.try_send(event.clone()).is_ok() {
                             delivered += 1;
+
+                            // Record flow in FlowTracker (EventBus -> subscriber)
+                            if let Some(ref flow_tracker) = self.flow_tracker {
+                                let flow_tracker_clone = Arc::clone(flow_tracker);
+                                let sub_id = sub.id.clone();
+                                let topic_clone = topic.to_string();
+                                tokio::spawn(async move {
+                                    flow_tracker_clone
+                                        .record_flow("EventBus", &sub_id, &topic_clone)
+                                        .await;
+                                });
+                            }
+
+                            // Broadcast EventDelivered to Dashboard
+                            if let Some(ref broadcaster) = self.dashboard_broadcaster {
+                                broadcaster.broadcast(crate::dashboard::DashboardEvent {
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    event_type:
+                                        crate::dashboard::DashboardEventType::EventDelivered,
+                                    event_id: event.id.clone(),
+                                    topic: topic.to_string(),
+                                    sender: event.sender().map(|s| s.to_string()),
+                                    thread_id: event.thread_id().map(|s| s.to_string()),
+                                    correlation_id: event.correlation_id().map(|s| s.to_string()),
+                                    payload_preview: String::from_utf8_lossy(&event.payload)
+                                        .chars()
+                                        .take(100)
+                                        .collect::<String>(),
+                                });
+                            }
                         } else {
                             dropped += 1;
                             warn!("Dropped realtime event for subscription {}", sub.id);
@@ -310,7 +349,41 @@ impl EventBus {
                     QoSLevel::QosBatched | QoSLevel::QosBackground => {
                         // Batch/background mode: queue (bounded mpsc); await if necessary
                         match sub.sender.send(event.clone()).await {
-                            Ok(_) => delivered += 1,
+                            Ok(_) => {
+                                delivered += 1;
+
+                                // Record flow in FlowTracker (EventBus -> subscriber)
+                                if let Some(ref flow_tracker) = self.flow_tracker {
+                                    let flow_tracker_clone = Arc::clone(flow_tracker);
+                                    let sub_id = sub.id.clone();
+                                    let topic_clone = topic.to_string();
+                                    tokio::spawn(async move {
+                                        flow_tracker_clone
+                                            .record_flow("EventBus", &sub_id, &topic_clone)
+                                            .await;
+                                    });
+                                }
+
+                                // Broadcast EventDelivered to Dashboard
+                                if let Some(ref broadcaster) = self.dashboard_broadcaster {
+                                    broadcaster.broadcast(crate::dashboard::DashboardEvent {
+                                        timestamp: chrono::Utc::now().to_rfc3339(),
+                                        event_type:
+                                            crate::dashboard::DashboardEventType::EventDelivered,
+                                        event_id: event.id.clone(),
+                                        topic: topic.to_string(),
+                                        sender: event.sender().map(|s| s.to_string()),
+                                        thread_id: event.thread_id().map(|s| s.to_string()),
+                                        correlation_id: event
+                                            .correlation_id()
+                                            .map(|s| s.to_string()),
+                                        payload_preview: String::from_utf8_lossy(&event.payload)
+                                            .chars()
+                                            .take(100)
+                                            .collect::<String>(),
+                                    });
+                                }
+                            }
                             Err(_) => {
                                 dropped += 1;
                                 warn!("Failed to send event to subscription {}", sub.id);

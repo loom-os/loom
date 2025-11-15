@@ -36,13 +36,35 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
-### 1. Start the Bridge Server
+### 1. Start the Loom Runtime
 
-Loom agents communicate through a Bridge server. Start one locally:
+Loom provides automated runtime management - no Rust required!
 
 ```bash
-# From the Loom repository root
-cargo run -p loom-bridge --bin loom-bridge-server
+# Start full runtime (Core + Dashboard + Bridge)
+loom up
+
+# Dashboard available at http://localhost:3030
+```
+
+The `loom up` command will:
+
+- Automatically download pre-built binaries (first time only)
+- Start Loom Core with Dashboard
+- Start the gRPC Bridge for agent communication
+- Cache binaries in `~/.cache/loom/bin/` for reuse
+
+For more control:
+
+```bash
+# Bridge-only mode (no dashboard)
+loom up --mode bridge-only
+
+# Custom ports
+loom up --bridge-port 9999 --dashboard-port 8080
+
+# Specific version
+loom up --version 0.2.0
 ```
 
 Or set `LOOM_BRIDGE_ADDR` to connect to a remote bridge:
@@ -50,6 +72,8 @@ Or set `LOOM_BRIDGE_ADDR` to connect to a remote bridge:
 ```bash
 export LOOM_BRIDGE_ADDR="bridge.example.com:50051"
 ```
+
+See [RUNTIME.md](RUNTIME.md) for detailed runtime management documentation.
 
 ### 2. Create Your First Agent
 
@@ -512,6 +536,54 @@ python -m loom.proto.generate
 4. Scale horizontally with multiple agent instances
 
 ## Advanced Topics
+
+### Project Configuration (`loom.toml`)
+
+Create a `loom.toml` file in your project root for centralized configuration:
+
+```toml
+name = "my-agent-project"
+version = "0.1.0"
+
+[bridge]
+address = "127.0.0.1:50051"
+mode = "full"
+
+[dashboard]
+enabled = true
+port = 3030
+
+[llm.deepseek]
+type = "http"
+api_key = "${DEEPSEEK_API_KEY}"  # Use environment variable
+api_base = "https://api.deepseek.com"
+model = "deepseek-chat"
+max_tokens = 4096
+
+[mcp.web-search]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-brave-search"]
+
+[agents.my-agent]
+topics = ["data.stream"]
+llm_provider = "deepseek"
+```
+
+Load configuration in your Python code:
+
+```python
+from loom import load_project_config
+
+config = load_project_config()
+print(f"Bridge: {config.bridge.address}")
+print(f"LLM Provider: {config.llm_providers['deepseek'].model}")
+
+# Access agent-specific config
+agent_config = config.agents.get("my-agent", {})
+topics = agent_config.get("topics", [])
+```
+
+See [RUNTIME.md](RUNTIME.md) for complete configuration reference.
 
 ### Custom Event Loop
 

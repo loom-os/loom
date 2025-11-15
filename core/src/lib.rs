@@ -22,7 +22,7 @@ pub use action_broker::{ActionBroker, CapabilityProvider};
 pub use agent::{Agent, AgentRuntime, AgentState};
 pub use collab::{types as collab_types, Collaborator};
 pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
-pub use directory::{AgentDirectory, AgentInfo, CapabilityDirectory};
+pub use directory::{AgentDirectory, AgentInfo, AgentStatus, CapabilityDirectory};
 pub use envelope::{agent_reply_topic, Envelope, ThreadTopicKind};
 pub use event::{Event, EventBus, EventExt, EventHandler, QoSLevel};
 pub use llm::{LlmClient, LlmClientConfig, LlmResponse};
@@ -73,6 +73,7 @@ pub struct Loom {
     pub plugin_manager: PluginManager,
     pub action_broker: std::sync::Arc<ActionBroker>,
     pub mcp_manager: std::sync::Arc<mcp::McpManager>,
+    pub agent_directory: std::sync::Arc<AgentDirectory>,
 }
 
 impl Loom {
@@ -83,6 +84,7 @@ impl Loom {
 
         let event_bus = std::sync::Arc::new(EventBus::new().await?);
         let action_broker = std::sync::Arc::new(ActionBroker::new());
+        let agent_directory = std::sync::Arc::new(AgentDirectory::new());
         // Initialize router first so we can pass a clone to the agent runtime
         let model_router = ModelRouter::new().await?;
         // Register built-in capability providers
@@ -118,6 +120,7 @@ impl Loom {
             event_bus,
             action_broker,
             mcp_manager,
+            agent_directory,
         })
     }
 

@@ -33,21 +33,28 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
-### 1. Start Bridge Server
+### 1. Start Loom Runtime
 
-The Bridge server enables communication between Python agents and Loom Core:
+Loom provides automated runtime management with `loom up`:
 
 ```bash
-# Option 1: Auto-download and run (coming soon)
+# Start full runtime (Core + Dashboard + Bridge)
 loom up
 
-# Option 2: Build from source
-git clone https://github.com/loom-os/loom.git
-cd loom
-cargo run -p loom-bridge --bin loom-bridge-server
+# Start bridge-only mode (no dashboard)
+loom up --mode bridge-only
+
+# Specify custom ports
+loom up --bridge-port 9999 --dashboard-port 8080
 ```
 
-Or connect to a remote bridge:
+The `loom up` command will:
+- Automatically download pre-built binaries (or use local builds in dev)
+- Start the runtime with proper configuration
+- Cache binaries in `~/.cache/loom/bin` for reuse
+- Display the Dashboard URL (in full mode): `http://localhost:3030`
+
+Or manually specify a remote bridge:
 
 ```bash
 export LOOM_BRIDGE_ADDR="bridge.example.com:50051"
