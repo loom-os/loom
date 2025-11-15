@@ -277,10 +277,18 @@ def search(query: str) -> dict:
     return {"results": [...]}
 
 # Create agent
-async def on_event(ctx: Context, topic: str, event):
-    thread = ctx.thread(event)  # Extract thread_id from Envelope
+async def on_event(ctx: Context, topic: str, envelope: Envelope):
+    # Envelope provides thread/correlation metadata
+    thread = envelope.thread_id
+    correlation = envelope.correlation_id
+
+    # Emit events
     await ctx.emit("target.topic", type="msg", payload=b"data")
+
+    # Request-reply with timeout
     results = await ctx.request(thread, "topic", payload, first_k=1, timeout_ms=2000)
+
+    # Reply in thread
     await ctx.reply(thread, {"done": True})
 
 agent = Agent("my-agent", topics=["topic.in"], capabilities=[search], on_event=on_event)
@@ -289,15 +297,37 @@ await agent.start()  # Connects to bridge, registers, starts streaming
 
 **Features**:
 
-- Agent/Context abstraction with Envelope support
-- @capability decorator with Pydantic schema auto-generation
-- BridgeClient with gRPC connection management
-- Automatic correlation_id handling for request/reply
-- Thread-aware operations (thread(), emit(), request(), reply())
+- **Agent/Context abstraction**: High-level API for event handling and capability invocation
+- **Envelope integration**: Automatic extraction from proto Event, exposes thread/correlation metadata
+- **@capability decorator**: Pydantic schema auto-generation for input validation
+- **BridgeClient**: gRPC connection with automatic reconnection and heartbeat
+- **Correlation tracking**: Request/reply correlation via correlation_id in headers
+- **Stream resilience**: Auto-reconnect with exponential backoff (0.5s → 10s)
 
-**Example**: `loom-py/examples/trio.py` — Planner/Researcher/Writer collaboration
+**Architecture**:
+
+```
+Python Agent
+  └─ Agent.start()
+      ├─ BridgeClient.connect() (gRPC channel)
+      ├─ BridgeClient.register_agent(id, topics, capabilities)
+      ├─ BridgeClient.event_stream() (bidirectional streaming)
+      │   ├─ Outbound: ctx.emit() → ClientEvent.Publish
+      │   └─ Inbound: ServerEvent.Delivery → on_event(ctx, topic, envelope)
+      └─ Heartbeat loop (15s interval)
+```
+
+**Example**: `loom-py/examples/trio.py` — Planner/Researcher/Writer collaboration with fanout/fanin
 
 **Packaging**: PyPI-ready with `pyproject.toml` (package name: `loom`)
+
+**Orchestration**: CLI provides `loom run` to start core + agents in a project:
+
+- Auto-discovers `agents/*.py` and `main.py`/`run.py`
+- Manages core/bridge lifecycle
+- Streams logs to `logs/` directory (optional)
+
+**Current Gap**: No OpenTelemetry trace integration — events crossing Python boundary lose trace context
 
 ### Collaboration & Directories
 
@@ -407,33 +437,100 @@ Hot (memory) → 5 min → Warm (RocksDB) → 1 day → Cold (Vector DB) → 30 
 
 ### Telemetry
 
-Built-in observability:
+Built-in observability with **OpenTelemetry integration** (✅ IMPLEMENTED):
 
-**Metrics**:
+**Metrics** (exported to Prometheus):
 
-- Throughput: events/sec
-- Latency: P50/P99/Max
-- Routing: local_rate, cloud_rate
-- Resources: CPU/GPU/Memory
-- Cost: Estimated cloud API usage
+- `loom.event_bus.published_total`: Total events published (by topic, event_type)
+- `loom.event_bus.delivered_total`: Total events delivered to subscribers
+- `loom.event_bus.dropped_total`: Dropped events (by reason: backpressure, queue_full)
+- `loom.event_bus.backlog_size`: Current backlog per topic
+- `loom.event_bus.active_subscriptions`: Active subscription count
+- `loom.event_bus.publish_latency_ms`: P50/P99/Max publish latency
 
-**Tracing** (OpenTelemetry):
+**Tracing** (exported to Jaeger):
+
+Core components instrumented with `#[tracing::instrument]`:
 
 ```
-Span: PublishEvent
-  └─ Span: RouteDecision
-      ├─ Span: LocalInference
-      └─ Span: CloudRequest
+Span: event_bus.publish (topic, event_id, event_type)
+  ├─ Span: dashboard.broadcast (event delivered to Dashboard SSE)
+  └─ Span: subscription.forward (event forwarded to subscriber)
+
+Span: agent_runtime.dispatch_event (agent_id, event_id)
+  └─ Span: agent_instance.handle_event (agent_id, event_id)
+
+Span: action_broker.invoke (capability, version, call_id)
+  └─ Span: provider.execute (provider_type, timeout_ms)
+
+Span: router.route (event_id, event_type, route, confidence)
 ```
 
-**Logging**: Structured JSON logs (DEBUG/INFO/WARN/ERROR) with sensitive data masking
+**Current Gap**: Trace context **not yet propagated** across Bridge (gRPC) or into Python SDK.
+Events crossing process boundaries lose trace continuity. See ROADMAP for cross-process tracing plans.
+
+**Logging**: Structured logs via `tracing` crate (DEBUG/INFO/WARN/ERROR) with:
+
+- Event/agent/capability metadata
+- Performance metrics (latency, throughput)
+- Error details with context
+- No sensitive data in default log level
 
 ### Dashboard (React UI)
 
-- Vite-built React + shadcn frontend embedded into `loom-core` via `include_dir`.
-- Consumes `/api/events/stream` (SSE), `/api/flow`, `/api/topology`, and `/api/metrics`.
-- Provides event timeline, agent communications feed, animated agent network graph, and metrics cards.
-- Frontend assets live under `core/src/dashboard/static/` and refresh via `npm run build` in `core/src/dashboard/frontend/`.
+**✅ IMPLEMENTED** — Real-time event visualization and system observability:
+
+**Architecture**:
+
+- Vite-built React + shadcn/ui frontend embedded into `loom-core` via `include_dir`
+- Backend: Axum HTTP server serving static assets + REST/SSE APIs
+- Build artifacts: `core/src/dashboard/static/` (auto-generated via `npm run build`)
+
+**API Endpoints**:
+
+- `GET /api/events/stream` (SSE): Real-time event stream broadcast
+  - Events: EventPublished, EventDelivered, AgentRegistered, AgentUnregistered
+  - Filters: by agent_id, topic, event_type
+- `GET /api/flow`: Event flow graph (nodes + edges, 60s retention)
+- `GET /api/topology`: Agent topology (agents + subscriptions + capabilities)
+- `GET /api/metrics`: System metrics (throughput, latency, backlog, errors)
+- `GET /api/agents`: Registered agents with heartbeat status
+
+**UI Components**:
+
+- **Event Timeline**: Chronological event feed with filtering and search
+- **Agent Network Graph**: Animated D3.js force-directed graph showing agent communication
+- **Metrics Cards**: Real-time throughput, latency, active agents, error rate
+- **Agent Details**: Per-agent view with subscriptions, capabilities, and health
+
+**FlowTracker** (core component):
+
+- Records event flows: (source, target, topic) → count + last_event_ms
+- Tracks nodes: agents, EventBus, Router, LLM, Tool, Storage
+- Cleanup: Flows older than 60s purged, nodes older than 120s removed
+- **Gap**: No trace_id correlation — flows are aggregated counts, not linked to specific traces
+
+**Integration Points**:
+
+- EventBus broadcasts to Dashboard via `EventBroadcaster` (tokio broadcast channel)
+- Bridge registers/unregisters agents → Dashboard updates topology
+- FlowTracker records publish/deliver/subscription flows
+
+**Development Workflow**:
+
+```bash
+cd core/src/dashboard/frontend
+npm install
+npm run dev        # Hot reload dev server
+npm run build      # Production build → ../static/
+```
+
+**Limitations**:
+
+- No historical playback (events retained for 60s only)
+- No trace timeline view (requires trace_id in Envelope)
+- No per-event drill-down (need trace_id → span correlation)
+- Metrics not yet connected to Prometheus/Grafana
 
 ## Data Flow Examples
 
