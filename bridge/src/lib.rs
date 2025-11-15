@@ -303,10 +303,8 @@ impl Bridge for BridgeService {
                                     "trace_id",
                                     &tracing::field::display(&envelope.trace_id),
                                 );
-                                tracing::Span::current().record(
-                                    "span_id",
-                                    &tracing::field::display(&envelope.span_id),
-                                );
+                                tracing::Span::current()
+                                    .record("span_id", &tracing::field::display(&envelope.span_id));
                             }
 
                             let _ = event_bus.publish(&topic, ev).await;
