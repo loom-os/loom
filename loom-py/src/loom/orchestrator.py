@@ -11,6 +11,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -65,9 +66,10 @@ class Orchestrator:
             suffix = ".err" if stderr else ".log"
             return self.config.logs_dir / f"{name}{suffix}"
         else:
-            # Fallback to /tmp
+            # Use system temp directory (cross-platform)
             suffix = ".err" if stderr else ".log"
-            return Path(f"/tmp/loom-{name}{suffix}")
+            temp_dir = Path(tempfile.gettempdir())
+            return temp_dir / f"loom-{name}{suffix}"
 
     async def start_runtime(self) -> ProcessInfo:
         """Start Loom Core or Bridge."""
