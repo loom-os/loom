@@ -5,6 +5,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from opentelemetry.trace import SpanContext, TraceFlags, TraceState, get_current_span
+
 META_PREFIX = "loom"
 
 
@@ -24,6 +26,10 @@ class Envelope:
     sender: Optional[str] = None
     reply_to: Optional[str] = None
     ttl_ms: Optional[int] = None
+    # OpenTelemetry trace context for distributed tracing
+    trace_id: Optional[str] = None
+    span_id: Optional[str] = None
+    trace_flags: Optional[str] = None
 
     @classmethod
     def new(
@@ -71,7 +77,7 @@ class Envelope:
         meta = dict(ev.metadata)
 
         def get_opt(key: str) -> Optional[str]:
-            return meta.get(f"{META_PREFIX}.{key}")
+            return meta.get(key)
 
         return cls(
             id=ev.id,
@@ -86,7 +92,10 @@ class Envelope:
             correlation_id=get_opt("correlation_id"),
             sender=get_opt("sender"),
             reply_to=get_opt("reply_to"),
-            ttl_ms=int(get_opt("ttl_ms")) if get_opt("ttl_ms") is not None else None,
+            ttl_ms=int(get_opt("ttl")) if get_opt("ttl") is not None else None,
+            trace_id=get_opt("trace_id"),
+            span_id=get_opt("span_id"),
+            trace_flags=get_opt("trace_flags"),
         )
 
     def to_proto(self, pb_event_cls) -> Any:
@@ -103,3 +112,47 @@ class Envelope:
             priority=self.priority,
         )
         return ev
+
+    def inject_trace_context(self) -> None:
+        """Inject current OpenTelemetry trace context into envelope metadata.
+
+        Extracts trace_id, span_id, and trace_flags from the current span
+        and stores them in the envelope for propagation across process boundaries.
+        """
+        span = get_current_span()
+        if span and span.get_span_context().is_valid:
+            ctx = span.get_span_context()
+            self.trace_id = format(ctx.trace_id, "032x")
+            self.span_id = format(ctx.span_id, "016x")
+            self.trace_flags = format(ctx.trace_flags, "02x")
+            # Also store in metadata for Rust side
+            self.metadata["trace_id"] = self.trace_id
+            self.metadata["span_id"] = self.span_id
+            self.metadata["trace_flags"] = self.trace_flags
+
+    def extract_trace_context(self) -> Optional[SpanContext]:
+        """Extract OpenTelemetry trace context from envelope metadata.
+
+        Parses trace_id, span_id, and trace_flags from the envelope and creates
+        a remote parent span context. This enables distributed tracing across
+        process boundaries.
+
+        Returns the SpanContext if valid, otherwise None.
+        """
+        if not self.trace_id or not self.span_id:
+            return None
+
+        try:
+            trace_id = int(self.trace_id, 16)
+            span_id = int(self.span_id, 16)
+            trace_flags_int = int(self.trace_flags or "00", 16)
+
+            return SpanContext(
+                trace_id=trace_id,
+                span_id=span_id,
+                is_remote=True,
+                trace_flags=TraceFlags(trace_flags_int),
+                trace_state=TraceState(),
+            )
+        except (ValueError, TypeError):
+            return None

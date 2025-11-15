@@ -1,0 +1,18 @@
+[runtime]
+log_level = "info"
+
+[bridge]
+port = 50051
+host = "127.0.0.1"
+
+[agents.sensor]
+command = "python"
+args = ["agents/sensor.py"]
+
+[agents.processor]
+command = "python"
+args = ["agents/processor.py"]
+
+[agents.output]
+command = "python"
+args = ["agents/output.py"]

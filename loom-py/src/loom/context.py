@@ -22,6 +22,8 @@ class Context:
         self, topic: str, *, type: str, payload: bytes = b"", envelope: Optional[Envelope] = None
     ) -> None:
         env = envelope or Envelope.new(type=type, payload=payload, sender=self.agent_id)
+        # Inject trace context from current span before sending
+        env.inject_trace_context()
         ev = env.to_proto(pb_event.Event)
         msg = pb_bridge.ClientEvent(publish=pb_bridge.Publish(topic=topic, event=ev))
         # Send via stream producer (in Agent)

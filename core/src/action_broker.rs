@@ -127,8 +127,9 @@ impl ActionBroker {
         let version = call.version.clone();
         let call_id = call.id.clone();
 
-        // Ensure envelope metadata present in headers
-        let env = Envelope::from_metadata(&call.headers, &call_id);
+        // Ensure envelope metadata present in headers and inject trace context
+        let mut env = Envelope::from_metadata(&call.headers, &call_id);
+        env.inject_trace_context();
         env.apply_to_action_call(&mut call);
 
         // Idempotency shortcut

@@ -182,6 +182,8 @@ impl Bridge for BridgeService {
     type EventStreamStream = std::pin::Pin<
         Box<dyn futures_core::Stream<Item = std::result::Result<ServerEvent, Status>> + Send>,
     >;
+
+    #[tracing::instrument(skip(self, request), fields(agent_id = tracing::field::Empty))]
     async fn event_stream(
         &self,
         request: Request<tonic::Streaming<ClientEvent>>,
@@ -201,6 +203,9 @@ impl Bridge for BridgeService {
         } else {
             return Err(Status::invalid_argument("no first message"));
         };
+
+        // Record agent_id in span
+        tracing::Span::current().record("agent_id", &agent_id);
 
         // Create outbound channel
         let (tx, rx) = mpsc::channel::<ServerEvent>(512);
@@ -279,6 +284,32 @@ impl Bridge for BridgeService {
                 match msg.msg {
                     Some(client_event::Msg::Publish(p)) => {
                         if let (Some(ev), topic) = (p.event, p.topic) {
+                            // Extract trace context from event to continue distributed trace
+                            let envelope = loom_core::Envelope::from_event(&ev);
+                            let extracted = envelope.extract_trace_context();
+
+                            // Create a span for this publish operation with remote parent
+                            let span = if extracted {
+                                // Successfully extracted trace context, span will inherit it
+                                tracing::info_span!(
+                                    "bridge.publish",
+                                    agent_id = %agent_id_for_inbound,
+                                    topic = %topic,
+                                    event_id = %ev.id,
+                                    trace_id = %envelope.trace_id,
+                                    span_id = %envelope.span_id
+                                )
+                            } else {
+                                // No trace context, create new span
+                                tracing::info_span!(
+                                    "bridge.publish",
+                                    agent_id = %agent_id_for_inbound,
+                                    topic = %topic,
+                                    event_id = %ev.id,
+                                )
+                            };
+
+                            let _guard = span.enter();
                             let _ = event_bus.publish(&topic, ev).await;
                         }
                     }

@@ -23,6 +23,12 @@ pub mod keys {
     pub const HOP_COUNT: &str = "hop";
     /// Timestamp in milliseconds since epoch
     pub const TIMESTAMP_MS: &str = "ts";
+    /// OpenTelemetry trace identifier (128-bit hex string)
+    pub const TRACE_ID: &str = "trace_id";
+    /// OpenTelemetry span identifier (64-bit hex string)
+    pub const SPAN_ID: &str = "span_id";
+    /// OpenTelemetry trace flags (8-bit hex string, typically "01" for sampled)
+    pub const TRACE_FLAGS: &str = "trace_flags";
 }
 
 /// Topic conventions for thread-scoped communication.
@@ -104,6 +110,9 @@ impl ThreadTopicKind {
 /// * `ttl` - Time-to-live: remaining hops before message expires (prevents infinite loops)
 /// * `hop` - Current hop count (incremented each forwarding)
 /// * `timestamp_ms` - Creation timestamp in milliseconds since epoch
+/// * `trace_id` - OpenTelemetry trace ID (128-bit hex string) for distributed tracing
+/// * `span_id` - OpenTelemetry span ID (64-bit hex string) for distributed tracing
+/// * `trace_flags` - OpenTelemetry trace flags (8-bit hex string, typically "01" for sampled)
 ///
 /// # Thread Lifecycle
 ///
@@ -168,6 +177,15 @@ pub struct Envelope {
     pub hop: u32,
     /// Creation timestamp in milliseconds since epoch
     pub timestamp_ms: i64,
+    /// OpenTelemetry trace ID (128-bit hex string) for distributed tracing
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub trace_id: String,
+    /// OpenTelemetry span ID (64-bit hex string) for distributed tracing
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub span_id: String,
+    /// OpenTelemetry trace flags (8-bit hex string, typically "01" for sampled)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub trace_flags: String,
 }
 
 impl Envelope {
@@ -205,6 +223,9 @@ impl Envelope {
             ttl: 16,
             hop: 0,
             timestamp_ms: chrono::Utc::now().timestamp_millis(),
+            trace_id: String::new(),
+            span_id: String::new(),
+            trace_flags: String::new(),
         }
     }
 
@@ -258,6 +279,9 @@ impl Envelope {
             .get(keys::TIMESTAMP_MS)
             .and_then(|s| s.parse::<i64>().ok())
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let trace_id = meta.get(keys::TRACE_ID).cloned().unwrap_or_default();
+        let span_id = meta.get(keys::SPAN_ID).cloned().unwrap_or_default();
+        let trace_flags = meta.get(keys::TRACE_FLAGS).cloned().unwrap_or_default();
         Self {
             thread_id,
             correlation_id,
@@ -266,6 +290,9 @@ impl Envelope {
             ttl,
             hop,
             timestamp_ms,
+            trace_id,
+            span_id,
+            trace_flags,
         }
     }
 
@@ -299,6 +326,16 @@ impl Envelope {
         meta.insert(keys::TTL.into(), self.ttl.to_string());
         meta.insert(keys::HOP_COUNT.into(), self.hop.to_string());
         meta.insert(keys::TIMESTAMP_MS.into(), self.timestamp_ms.to_string());
+        // Only insert trace context if non-empty (for backward compatibility)
+        if !self.trace_id.is_empty() {
+            meta.insert(keys::TRACE_ID.into(), self.trace_id.clone());
+        }
+        if !self.span_id.is_empty() {
+            meta.insert(keys::SPAN_ID.into(), self.span_id.clone());
+        }
+        if !self.trace_flags.is_empty() {
+            meta.insert(keys::TRACE_FLAGS.into(), self.trace_flags.clone());
+        }
     }
 
     /// Extracts envelope from an Event with fallback to event ID.
@@ -547,6 +584,111 @@ impl Envelope {
             ttl: 16,
             hop: 0,
             timestamp_ms: chrono::Utc::now().timestamp_millis(),
+            trace_id: String::new(),
+            span_id: String::new(),
+            trace_flags: String::new(),
         }
+    }
+
+    /// Inject current OpenTelemetry trace context into the envelope.
+    ///
+    /// Extracts trace_id, span_id, and trace_flags from the current tracing span
+    /// and stores them in the envelope for propagation across process boundaries.
+    ///
+    /// This should be called when creating events/actions that will cross the Bridge.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use loom_core::Envelope;
+    ///
+    /// let mut env = Envelope::new("thread-1", "agent.sender");
+    /// env.inject_trace_context();
+    /// // env now contains trace_id, span_id, trace_flags from current span
+    /// ```
+    pub fn inject_trace_context(&mut self) {
+        use opentelemetry::trace::TraceContextExt;
+
+        // Get the OpenTelemetry context from current tracing span
+        let otel_context = opentelemetry::Context::current();
+        let span_ref = otel_context.span();
+        let span_context = span_ref.span_context();
+
+        if span_context.is_valid() {
+            self.trace_id = span_context.trace_id().to_string();
+            self.span_id = span_context.span_id().to_string();
+            self.trace_flags = format!("{:02x}", span_context.trace_flags().to_u8());
+        }
+    }
+
+    /// Extract and set the current tracing span's parent from this envelope's trace context.
+    ///
+    /// Parses trace_id, span_id, and trace_flags from the envelope and creates
+    /// a remote parent span context. This enables distributed tracing across
+    /// process boundaries.
+    ///
+    /// Returns true if trace context was successfully extracted and set.
+    ///
+    /// This should be called when receiving events/actions from the Bridge.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use loom_core::Envelope;
+    /// use loom_core::proto::Event;
+    ///
+    /// let event = Event::default(); // From Bridge
+    /// let env = Envelope::from_event(&event);
+    /// env.extract_trace_context(); // Sets current span's parent
+    /// ```
+    pub fn extract_trace_context(&self) -> bool {
+        use opentelemetry::trace::{
+            SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState,
+        };
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+        if self.trace_id.is_empty() || self.span_id.is_empty() {
+            return false;
+        }
+
+        // Parse trace_id (128-bit hex)
+        let trace_id = match TraceId::from_hex(&self.trace_id) {
+            Ok(id) => id,
+            Err(_) => return false,
+        };
+
+        // Parse span_id (64-bit hex)
+        let span_id = match SpanId::from_hex(&self.span_id) {
+            Ok(id) => id,
+            Err(_) => return false,
+        };
+
+        // Parse trace_flags (8-bit hex, typically "01" for sampled)
+        let trace_flags = if !self.trace_flags.is_empty() {
+            match u8::from_str_radix(&self.trace_flags, 16) {
+                Ok(flags) => TraceFlags::new(flags),
+                Err(_) => TraceFlags::default(),
+            }
+        } else {
+            TraceFlags::default()
+        };
+
+        // Create remote span context
+        let span_context = SpanContext::new(
+            trace_id,
+            span_id,
+            trace_flags,
+            true, // is_remote
+            TraceState::default(),
+        );
+
+        // Create context with remote parent
+        let context = opentelemetry::Context::current().with_remote_span_context(span_context);
+
+        // Set as parent of current span
+        let span = tracing::Span::current();
+        span.set_parent(context);
+
+        true
     }
 }

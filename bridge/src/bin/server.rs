@@ -10,6 +10,13 @@ use loom_core::Loom;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     fmt().compact().init();
 
+    // Initialize OpenTelemetry for distributed tracing
+    if let Err(e) = loom_core::telemetry::init_telemetry() {
+        tracing::warn!("Failed to initialize telemetry: {}", e);
+    } else {
+        tracing::info!("OpenTelemetry initialized for bridge server");
+    }
+
     let mut loom = Loom::new().await?;
 
     // Check if Dashboard is enabled
