@@ -15,17 +15,16 @@ try:
     AIOHTTP_AVAILABLE = True
 except ImportError:
     AIOHTTP_AVAILABLE = False
-    print("[data] Warning: aiohttp not installed, using simulated data")
 
 try:
     import requests
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
-    print("[data] Warning: requests not installed")
 
 from loom import Agent, load_project_config
 
+# Default cryptocurrency symbol to track
 SYMBOL = "BTC"
 
 
@@ -269,8 +268,6 @@ class CryptoCompareClient:
             "lowPrice": str(usd_data.get("LOW24HOUR", 0)),
         }
 
-
-SYMBOL = "BTC"
 
 # Realistic baseline prices (updated periodically for reasonable simulation)
 REALISTIC_PRICES = {
