@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing_subscriber::fmt;
 
 use loom_bridge::start_server_with_dashboard;
 use loom_core::dashboard::{DashboardConfig, DashboardServer, EventBroadcaster, FlowTracker};
@@ -8,7 +7,12 @@ use loom_core::Loom;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    fmt().compact().init();
+    // Initialize OpenTelemetry for distributed tracing
+    if let Err(e) = loom_core::telemetry::init_telemetry() {
+        tracing::warn!("Failed to initialize telemetry: {}", e);
+    } else {
+        tracing::info!("OpenTelemetry initialized for bridge server");
+    }
 
     let mut loom = Loom::new().await?;
 

@@ -3,16 +3,24 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import signal
 from collections.abc import Awaitable, Iterable
 from typing import Any, Callable, Optional
+
+from opentelemetry import trace
+from opentelemetry.trace import set_span_in_context
 
 from .capability import Capability
 from .client import BridgeClient, pb_action, pb_bridge
 from .context import Context
 from .envelope import Envelope
+from .tracing import init_telemetry
 
 EventHandler = Callable[[Context, str, Envelope], Awaitable[None]]
+
+# Get tracer for agent spans
+tracer = trace.get_tracer(__name__)
 
 
 class Agent:
@@ -24,6 +32,19 @@ class Agent:
         address: Optional[str] = None,
         on_event: Optional[EventHandler] = None,
     ):
+        # Auto-initialize telemetry unless explicitly disabled
+        if os.getenv("LOOM_TELEMETRY_AUTO", "1") != "0":
+            # Derive a sensible default service name per agent process
+            svc = os.getenv("OTEL_SERVICE_NAME") or f"agent-{agent_id}"
+            try:
+                init_telemetry(service_name=svc)
+            except Exception as e:
+                logging.warning(
+                    "Failed to initialize telemetry for agent %s: %s. Continuing without tracing.",
+                    agent_id,
+                    e,
+                )
+
         self.agent_id = agent_id
         self.topics = list(topics)
         self._cap_decls: list[Capability] = []
@@ -84,7 +105,28 @@ class Agent:
                     # Convert proto Event -> Envelope before calling user handler for type safety
                     if self._on_event and delivery.event is not None:
                         env = Envelope.from_proto(delivery.event)
-                        await self._on_event(self._ctx, delivery.topic, env)
+
+                        # Extract trace context and create child span for event handling
+                        parent_ctx = env.extract_trace_context()
+                        if parent_ctx:
+                            ctx = set_span_in_context(trace.NonRecordingSpan(parent_ctx))
+                        else:
+                            ctx = None
+
+                        # Create span for event handling with proper parent
+                        with tracer.start_as_current_span(
+                            "agent.on_event",
+                            context=ctx,
+                            attributes={
+                                "agent.id": self.agent_id,
+                                "event.id": env.id,
+                                "event.type": env.type,
+                                "topic": delivery.topic,
+                                "thread_id": env.thread_id or "",
+                                "correlation_id": env.correlation_id or "",
+                            },
+                        ):
+                            await self._on_event(self._ctx, delivery.topic, env)
                 elif which == "action_call":
                     await self._handle_action_call(server_msg.action_call)
                 elif which == "pong":

@@ -5,6 +5,12 @@
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
+/// Helper function for serde skip_serializing_if
+#[allow(dead_code)]
+fn is_empty_string(s: &str) -> bool {
+    s.is_empty()
+}
+
 /// Event sent to Dashboard clients
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DashboardEvent {
@@ -24,6 +30,9 @@ pub struct DashboardEvent {
     pub correlation_id: Option<String>,
     /// Payload preview (first 100 chars)
     pub payload_preview: String,
+    /// OpenTelemetry trace ID (if available)
+    #[serde(default, skip_serializing_if = "is_empty_string")]
+    pub trace_id: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

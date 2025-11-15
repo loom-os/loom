@@ -57,3 +57,7 @@ piper/
 coverage.xml
 htmlcov/
 .tox/
+
+# env
+.env
+.env.*

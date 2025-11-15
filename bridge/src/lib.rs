@@ -169,6 +169,7 @@ impl Bridge for BridgeService {
                     req.subscribed_topics.len(),
                     req.capabilities.len()
                 ),
+                trace_id: String::new(),
             });
         }
 
@@ -182,6 +183,8 @@ impl Bridge for BridgeService {
     type EventStreamStream = std::pin::Pin<
         Box<dyn futures_core::Stream<Item = std::result::Result<ServerEvent, Status>> + Send>,
     >;
+
+    #[tracing::instrument(skip(self, request), fields(agent_id = tracing::field::Empty))]
     async fn event_stream(
         &self,
         request: Request<tonic::Streaming<ClientEvent>>,
@@ -201,6 +204,9 @@ impl Bridge for BridgeService {
         } else {
             return Err(Status::invalid_argument("no first message"));
         };
+
+        // Record agent_id in span
+        tracing::Span::current().record("agent_id", &agent_id);
 
         // Create outbound channel
         let (tx, rx) = mpsc::channel::<ServerEvent>(512);
@@ -234,6 +240,26 @@ impl Bridge for BridgeService {
                                 tracker
                                     .record_flow(&sub_id, &agent_id_for_flow, &topic_clone)
                                     .await;
+                            }
+
+                            // Create a span for forwarding this event to the agent stream
+                            let fwd_span = tracing::info_span!(
+                                "bridge.forward",
+                                topic = %topic_clone,
+                                agent_id = %agent_id_for_flow,
+                                event_id = %ev.id,
+                                trace_id = tracing::field::Empty,
+                                span_id = tracing::field::Empty
+                            );
+                            let _fwd_guard = fwd_span.enter();
+
+                            // Apply remote parent if present
+                            let env = loom_core::Envelope::from_event(&ev);
+                            if env.extract_trace_context() {
+                                tracing::Span::current()
+                                    .record("trace_id", &tracing::field::display(&env.trace_id));
+                                tracing::Span::current()
+                                    .record("span_id", &tracing::field::display(&env.span_id));
                             }
 
                             if tx_clone
@@ -279,6 +305,29 @@ impl Bridge for BridgeService {
                 match msg.msg {
                     Some(client_event::Msg::Publish(p)) => {
                         if let (Some(ev), topic) = (p.event, p.topic) {
+                            // Build span first, then enter and set remote parent on THIS span
+                            let span = tracing::info_span!(
+                                "bridge.publish",
+                                agent_id = %agent_id_for_inbound,
+                                topic = %topic,
+                                event_id = %ev.id,
+                                trace_id = tracing::field::Empty,
+                                span_id = tracing::field::Empty
+                            );
+                            let _guard = span.enter();
+
+                            // Extract trace context from event and set as parent of current span
+                            let envelope = loom_core::Envelope::from_event(&ev);
+                            if envelope.extract_trace_context() {
+                                // Record extracted identifiers on the span for debugging/visibility
+                                tracing::Span::current().record(
+                                    "trace_id",
+                                    &tracing::field::display(&envelope.trace_id),
+                                );
+                                tracing::Span::current()
+                                    .record("span_id", &tracing::field::display(&envelope.span_id));
+                            }
+
                             let _ = event_bus.publish(&topic, ev).await;
                         }
                     }
@@ -333,6 +382,7 @@ impl Bridge for BridgeService {
                     thread_id: None,
                     correlation_id: None,
                     payload_preview: format!("Agent {} disconnected", agent_id_for_inbound),
+                    trace_id: String::new(),
                 });
             }
 

@@ -230,8 +230,13 @@ impl EventBus {
 
     /// Publish event to topic
     #[tracing::instrument(skip(self, event), fields(topic = %topic, event_id = %event.id, event_type = %event.r#type, qos_level = "unknown"))]
-    pub async fn publish(&self, topic: &str, event: Event) -> Result<u64> {
+    pub async fn publish(&self, topic: &str, mut event: Event) -> Result<u64> {
         let start_time = Instant::now();
+
+        // Inject trace context into event metadata for distributed tracing
+        let mut envelope = crate::Envelope::from_event(&event);
+        envelope.inject_trace_context();
+        envelope.attach_to_event(&mut event);
 
         debug!("Publishing event {} to topic {}", event.id, topic);
 
@@ -251,6 +256,7 @@ impl EventBus {
                 thread_id: event.thread_id().map(|s| s.to_string()),
                 correlation_id: event.correlation_id().map(|s| s.to_string()),
                 payload_preview,
+                trace_id: envelope.trace_id.clone(),
             });
         }
 
@@ -339,6 +345,7 @@ impl EventBus {
                                         .chars()
                                         .take(100)
                                         .collect::<String>(),
+                                    trace_id: envelope.trace_id.clone(),
                                 });
                             }
                         } else {
@@ -381,6 +388,7 @@ impl EventBus {
                                             .chars()
                                             .take(100)
                                             .collect::<String>(),
+                                        trace_id: envelope.trace_id.clone(),
                                     });
                                 }
                             }
