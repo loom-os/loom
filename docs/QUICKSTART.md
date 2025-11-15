@@ -66,7 +66,7 @@ cargo run -p voice_agent
 
 Tips:
 
-- The demo prefers Piper for TTS; if Piper isn't installed, it falls back to espeak‑ng.
+- The demo prefers Piper for TTS; if Piper isn't installed, it falls back to espeak-ng.
 - vLLM (or any OpenAI‑compatible server) is optional; see `demo/voice_agent/README.md` to point the LLM client to your backend.
 - On Linux, install `libasound2-dev` and `pkg-config` for audio.
 

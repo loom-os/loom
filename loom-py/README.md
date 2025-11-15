@@ -123,7 +123,8 @@ python my_agent.py
 - Context API (emit, reply, tool invocation)
 - Envelope for correlation and threading
 - Request/reply with timeout
-  🚧 **Coming Soon**:
+
+🚧 **Coming Soon**:
 - Memory backends
 - Dynamic subscriptions
 - Streaming responses
