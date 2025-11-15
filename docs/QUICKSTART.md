@@ -47,6 +47,9 @@ loom run --force-download
 
 # Custom ports
 loom up --bridge-port 9999 --dashboard-port 8080
+
+# Shutdown all Loom processes (cleanup after interrupted runs)
+loom down
 ```
 
 See `loom-py/README.md` for Python agent development guide.

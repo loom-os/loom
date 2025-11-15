@@ -105,6 +105,9 @@ loom run --use-debug
 
 # Force fresh download from GitHub releases
 loom run --force-download
+
+# Shutdown all Loom processes (useful after interrupted runs)
+loom down
 ```
 
 ### Option B: Voice Agent Demo (fastest way to see Loom in action)

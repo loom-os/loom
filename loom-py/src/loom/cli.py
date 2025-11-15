@@ -265,6 +265,62 @@ def cmd_up(args):
             proc.kill()
 
 
+def cmd_down(args):
+    """Shutdown all Loom processes (bridge, core, dashboard, agents)."""
+    try:
+        import psutil
+    except ImportError:
+        print("[loom] ERROR: psutil is required for 'loom down'")
+        print("[loom] Install with: pip install psutil")
+        sys.exit(1)
+
+    killed_count = 0
+
+    print("[loom] Scanning for Loom processes...")
+
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            cmdline = proc.info.get("cmdline", [])
+            if not cmdline:
+                continue
+
+            cmdline_str = " ".join(cmdline)
+
+            # Check if it's a Loom runtime process
+            if "loom-bridge-server" in cmdline_str:
+                print(f"[loom] Killing loom-bridge-server (PID {proc.pid})")
+                proc.terminate()
+                killed_count += 1
+                try:
+                    proc.wait(timeout=3)
+                except psutil.TimeoutExpired:
+                    print(f"[loom] Force killing (PID {proc.pid})")
+                    proc.kill()
+
+            # Check if it's a Loom agent process (Python scripts in agents/ directory)
+            elif "python" in proc.info["name"] and any(
+                "loom" in arg.lower() or "/agents/" in arg for arg in cmdline
+            ):
+                # More specific check: look for loom SDK imports or agents directory
+                if any(kw in cmdline_str for kw in ["from loom import", "agents/", "loom.agent"]):
+                    print(f"[loom] Killing agent process (PID {proc.pid})")
+                    proc.terminate()
+                    killed_count += 1
+                    try:
+                        proc.wait(timeout=3)
+                    except psutil.TimeoutExpired:
+                        print(f"[loom] Force killing (PID {proc.pid})")
+                        proc.kill()
+
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+
+    if killed_count == 0:
+        print("[loom] No Loom processes found")
+    else:
+        print(f"[loom] Shutdown complete ({killed_count} processes killed)")
+
+
 def main():
     p = argparse.ArgumentParser(prog="loom", description="Loom Python SDK CLI")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -341,6 +397,9 @@ def main():
         help="Force download binary from GitHub, skip cache and local builds",
     )
     su.set_defaults(func=cmd_up)
+
+    sdown = sub.add_parser("down", help="Shutdown all Loom processes (runtime + agents)")
+    sdown.set_defaults(func=cmd_down)
 
     args = p.parse_args()
     args.func(args)

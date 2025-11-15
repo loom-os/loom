@@ -10,7 +10,7 @@ sentiment-agent = "{'topics': ['market.price.*'], 'llm_provider': 'deepseek', 'm
 trend-agent = "{'topics': ['market.price.*'], 'window_size': 20, 'indicators': ['SMA', 'EMA', 'RSI']}"
 
 [bridge]
-address = "127.0.0.1:36463"
+address = "127.0.0.1:50051"
 mode = "full"
 version = "latest"
 

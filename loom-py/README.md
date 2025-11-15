@@ -52,6 +52,9 @@ loom up --use-debug
 
 # Force download from GitHub (skip cache and local builds)
 loom up --force-download
+
+# Shutdown all Loom processes (runtime + agents)
+loom down
 ```
 
 The `loom up` command will:
@@ -60,6 +63,13 @@ The `loom up` command will:
 - Start the runtime with proper configuration
 - Cache binaries in `~/.cache/loom/bin` for reuse
 - Display the Dashboard URL (in full mode): `http://localhost:3030`
+
+The `loom down` command will:
+
+- Scan for all Loom-related processes (runtime + agents)
+- Gracefully terminate them with SIGTERM (3s timeout)
+- Force kill with SIGKILL if needed
+- Clean up residual processes after interrupted runs
 
 **Binary Selection Priority**:
 
