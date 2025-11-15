@@ -120,7 +120,8 @@ async def test_data_agent_startup():
 
     try:
         # Import data agent module
-        sys.path.insert(0, "/home/jared/loom/demo/market-analyst")
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent.resolve()))
         from agents import data
         print("✓ Data agent module imported")
 

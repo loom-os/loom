@@ -3,8 +3,9 @@
 
 import asyncio
 import sys
-sys.path.insert(0, '/home/jared/loom/demo/market-analyst')
+from pathlib import Path
 from agents.data import CryptoCompareClient, CoinGeckoClient
+sys.path.insert(0, str(Path(__file__).parent.resolve()))
 
 
 async def test_cryptocompare():

@@ -20,7 +20,7 @@ host = "127.0.0.1"
 port = 3030
 
 [llm]
-deepseek = "{'type': 'http', 'api_key': 'sk-73ba2abe6b4c4ad2a9d2694842d7fed0', 'api_base': 'https://api.deepseek.com', 'model': 'deepseek-chat', 'max_tokens': 4096, 'temperature': 0.7, 'timeout_sec': 30}"
+deepseek = "{'type': 'http', 'api_key': '${DEEPSEEK_API_KEY}', 'api_base': 'https://api.deepseek.com', 'model': 'deepseek-chat', 'max_tokens': 4096, 'temperature': 0.7, 'timeout_sec': 30}"
 local = "{'type': 'http', 'api_base': 'http://localhost:8000/v1', 'model': 'qwen2.5', 'max_tokens': 2048, 'temperature': 0.8}"
 
 [mcp]
