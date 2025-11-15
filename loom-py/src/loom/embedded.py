@@ -56,11 +56,24 @@ def binary_path(binary_name: str, version: str = "latest") -> Path:
 
 
 def ensure_executable(p: Path) -> None:
-    """Make file executable on Unix systems."""
+    """Make file executable on Unix systems.
+
+    Sets read and execute permissions for owner, group, and others.
+    Does NOT set write permission for security (downloaded binaries should be read-only).
+    """
     if sys.platform.startswith("win"):
         return
     mode = p.stat().st_mode
-    p.chmod(mode | stat.S_IEXEC | stat.S_IREAD | stat.S_IWRITE)
+    # Set read and execute for owner, group, and others (0o555 = r-xr-xr-x)
+    p.chmod(
+        mode
+        | stat.S_IRUSR
+        | stat.S_IXUSR
+        | stat.S_IRGRP
+        | stat.S_IXGRP
+        | stat.S_IROTH
+        | stat.S_IXOTH
+    )
 
 
 def verify_checksum(file_path: Path, expected_sha256: Optional[str]) -> bool:
@@ -111,6 +124,7 @@ def download_from_github(binary_name: str, version: str) -> Path:
             # Format: "<hash>  <filename>" or just "<hash>"
             expected_checksum = checksum_text.split()[0]
     except Exception:
+        # Checksum file is optional; if it doesn't exist or fails to download, skip verification
         print("[loom] Warning: Checksum file not found, skipping verification")
 
     # Write archive to temp file
@@ -179,6 +193,7 @@ def find_local_build(binary_name: str) -> Optional[Path]:
                     repo_root = current
                     break
             except Exception:
+                # Ignore read errors (permissions, encoding, etc.) and continue search
                 pass
         parent = current.parent
         if parent == current:  # Reached filesystem root
@@ -257,12 +272,23 @@ def start_binary(
     version: str = "latest",
     allow_local: bool = True,
 ) -> subprocess.Popen:
-    """Start a Loom runtime binary with given environment variables."""
+    """Start a Loom runtime binary with given environment variables.
+
+    Note: stdout and stderr are redirected to DEVNULL to prevent buffer filling
+    and process hanging. For debugging, use direct binary execution or redirect
+    to files in calling code.
+    """
     binary = get_binary(binary_name, version=version, allow_local=allow_local)
     env = os.environ.copy()
     if env_vars:
         env.update(env_vars)
-    proc = subprocess.Popen([str(binary)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # Use DEVNULL to prevent pipe buffer filling and process hanging
+    proc = subprocess.Popen(
+        [str(binary)],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
     return proc
 
 
