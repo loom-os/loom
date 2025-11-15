@@ -327,7 +327,7 @@ Python Agent
 - Manages core/bridge lifecycle
 - Streams logs to `logs/` directory (optional)
 
-**Current Gap**: No OpenTelemetry trace integration — events crossing Python boundary lose trace context
+**Observability**: Full OpenTelemetry integration for traces and metrics. Events sent and received by Python agents automatically participate in the distributed trace.
 
 ### Collaboration & Directories
 
@@ -466,8 +466,7 @@ Span: action_broker.invoke (capability, version, call_id)
 Span: router.route (event_id, event_type, route, confidence)
 ```
 
-**Current Gap**: Trace context **not yet propagated** across Bridge (gRPC) or into Python SDK.
-Events crossing process boundaries lose trace continuity. See ROADMAP for cross-process tracing plans.
+**Trace Propagation**: Trace context is now fully propagated across the gRPC Bridge and through the Python SDK, enabling end-to-end distributed tracing. The `Envelope` carries W3C Trace Context headers (`traceparent`), which are automatically injected and extracted at each process boundary.
 
 **Logging**: Structured logs via `tracing` crate (DEBUG/INFO/WARN/ERROR) with:
 
@@ -508,7 +507,7 @@ Events crossing process boundaries lose trace continuity. See ROADMAP for cross-
 - Records event flows: (source, target, topic) → count + last_event_ms
 - Tracks nodes: agents, EventBus, Router, LLM, Tool, Storage
 - Cleanup: Flows older than 60s purged, nodes older than 120s removed
-- **Gap**: No trace_id correlation — flows are aggregated counts, not linked to specific traces
+- **Gap**: The dashboard UI does not yet visualize the `trace_id`. While the backend `FlowTracker` and `DashboardEvent` now include the `trace_id`, the frontend needs to be updated to display it and link to a tracing backend like Jaeger.
 
 **Integration Points**:
 

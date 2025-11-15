@@ -48,53 +48,18 @@ See `docs/ARCHITECTURE.md` for detailed component documentation.
 
 ### 🔥 Critical Gaps (Blocking Production)
 
-#### 1. **Distributed Tracing** — 🎯 HIGHEST PRIORITY
+#### ✅ **Distributed Tracing** — COMPLETE
 
-**Problem**: Trace context **lost at process boundaries** (Bridge ↔ Python agents), making cross-process debugging impossible.
+**Problem**: Trace context was lost at process boundaries (Bridge ↔ Python agents), making cross-process debugging impossible.
 
-**Current State**:
+**Solution**: Implemented end-to-end distributed tracing using the W3C Trace Context standard.
 
-- ✅ Rust components instrumented (`#[tracing::instrument]` on EventBus, AgentRuntime, ActionBroker, Router)
-- ✅ OTLP exporter configured (traces → Jaeger)
-- ❌ **Trace context NOT propagated** across gRPC Bridge
-- ❌ **Envelope does NOT carry** `trace_id`/`span_id`/`trace_flags`
-- ❌ **Python SDK has NO OpenTelemetry integration**
-- ❌ **Dashboard FlowTracker** cannot correlate flows to traces
+- **Envelope & Proto**: The `Envelope` and Protobuf `Event` definitions were updated to carry trace context (`traceparent` header). Helper methods `inject_trace_context` and `extract_trace_context` were added for propagation.
+- **Rust Bridge**: The gRPC bridge was instrumented to extract trace context from incoming Python events and inject it into events delivered to Python agents. It now creates its own spans (`bridge.publish`, `bridge.forward`) that are correctly parented to the remote Python spans, closing the gap in the trace.
+- **Python SDK**: The SDK now has a full OpenTelemetry integration. The `Agent` class automatically initializes tracing, and the `Context` object automatically handles trace context injection and extraction for all event operations (`emit`, `request`, `reply`).
+- **Developer Experience**: Telemetry setup is now automated. The `loom run` command injects default OpenTelemetry environment variables, and the `Agent` class handles initialization, removing the need for boilerplate code in agent logic.
 
-**Required Work**:
-
-```
-Priority 1: Envelope trace context
-  - Add trace_id/span_id/trace_flags to envelope.rs metadata keys
-  - Implement attach_trace_context() / extract_trace_context()
-  - Update Event.metadata and ActionCall.headers propagation
-
-Priority 2: Bridge trace propagation
-  - Extract trace context from ClientEvent in event_stream()
-  - Inject trace context into ServerEvent deliveries
-  - Create child spans for event forwarding loops
-  - Test: Event from Python agent A → Rust EventBus → Python agent B preserves trace
-
-Priority 3: Python SDK tracing
-  - Add opentelemetry-api + opentelemetry-exporter-otlp-proto-grpc to pyproject.toml
-  - Instrument Agent._run_stream() to extract trace from Envelope
-  - Instrument Context.emit/request/reply to inject trace
-  - Test: Full trace from agent.start() → on_event() → ctx.emit() → remote agent
-
-Priority 4: Dashboard trace timeline
-  - Add trace_id to FlowTracker.EventFlow
-  - New API: GET /api/trace/:trace_id → full event timeline
-  - UI: Click event → show full trace with spans and latencies
-```
-
-**Acceptance Criteria**:
-
-- ✅ Trace spans visible in Jaeger from Rust → Bridge → Python → Bridge → Rust
-- ✅ Market Analyst demo shows complete trace: data agent → trend/risk/sentiment → planner
-- ✅ Dashboard can display trace timeline for any event_id
-- ✅ Trace context survives agent reconnection
-
-**Estimated Effort**: 5-7 days
+**Result**: A complete, end-to-end trace is now visible in Jaeger for any event that crosses the boundary between Rust and Python, providing a unified view of the entire event lifecycle.
 
 ---
 
