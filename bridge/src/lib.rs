@@ -284,32 +284,31 @@ impl Bridge for BridgeService {
                 match msg.msg {
                     Some(client_event::Msg::Publish(p)) => {
                         if let (Some(ev), topic) = (p.event, p.topic) {
-                            // Extract trace context from event to continue distributed trace
-                            let envelope = loom_core::Envelope::from_event(&ev);
-                            let extracted = envelope.extract_trace_context();
-
-                            // Create a span for this publish operation with remote parent
-                            let span = if extracted {
-                                // Successfully extracted trace context, span will inherit it
-                                tracing::info_span!(
-                                    "bridge.publish",
-                                    agent_id = %agent_id_for_inbound,
-                                    topic = %topic,
-                                    event_id = %ev.id,
-                                    trace_id = %envelope.trace_id,
-                                    span_id = %envelope.span_id
-                                )
-                            } else {
-                                // No trace context, create new span
-                                tracing::info_span!(
-                                    "bridge.publish",
-                                    agent_id = %agent_id_for_inbound,
-                                    topic = %topic,
-                                    event_id = %ev.id,
-                                )
-                            };
-
+                            // Build span first, then enter and set remote parent on THIS span
+                            let span = tracing::info_span!(
+                                "bridge.publish",
+                                agent_id = %agent_id_for_inbound,
+                                topic = %topic,
+                                event_id = %ev.id,
+                                trace_id = tracing::field::Empty,
+                                span_id = tracing::field::Empty
+                            );
                             let _guard = span.enter();
+
+                            // Extract trace context from event and set as parent of current span
+                            let envelope = loom_core::Envelope::from_event(&ev);
+                            if envelope.extract_trace_context() {
+                                // Record extracted identifiers on the span for debugging/visibility
+                                tracing::Span::current().record(
+                                    "trace_id",
+                                    &tracing::field::display(&envelope.trace_id),
+                                );
+                                tracing::Span::current().record(
+                                    "span_id",
+                                    &tracing::field::display(&envelope.span_id),
+                                );
+                            }
+
                             let _ = event_bus.publish(&topic, ev).await;
                         }
                     }
