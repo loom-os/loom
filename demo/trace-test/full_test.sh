@@ -1,5 +1,5 @@
 #!/bin/bash
-# 完整的trace测试脚本，确保环境变量正确传递给Rust和Python
+# End-to-end trace test script to ensure OTEL env is passed to Rust and Python
 
 set -e
 
@@ -10,42 +10,42 @@ echo "🔍 Loom Distributed Trace Test"
 echo "==================================="
 echo ""
 
-# 1. 检查observability stack
-echo "[1/5] 检查Jaeger..."
+# 1. Check observability stack
+echo "[1/5] Checking Jaeger..."
 if ! docker ps | grep -q jaeger; then
-    echo "⚠️  Jaeger未运行，正在启动..."
+    echo "⚠️  Jaeger is not running, starting it..."
     cd ../../observability
     docker compose -f docker-compose.observability.yaml up -d
-    echo "⏳ 等待10秒..."
+    echo "⏳ Waiting 10 seconds..."
     sleep 10
     cd -
 else
-    echo "✅ Jaeger运行中"
+    echo "✅ Jaeger is running"
 fi
 
-# 2. 停止旧进程
+# 2. Stop previous processes
 echo ""
-echo "[2/5] 清理旧进程..."
+echo "[2/5] Cleaning up previous Loom processes..."
 conda run -n loom loom down || true
 sleep 2
 
-# 3. 设置环境变量 (关键！)
+# 3. Set environment variables (important)
 echo ""
-echo "[3/5] 配置环境变量..."
+echo "[3/5] Configuring environment..."
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 export OTEL_SERVICE_NAME=loom-trace-test
 export RUST_LOG=info,loom_core=debug,loom_bridge=debug
 
-echo "✅ 环境配置："
+echo "✅ Environment configured:"
 echo "   OTEL_EXPORTER_OTLP_ENDPOINT: $OTEL_EXPORTER_OTLP_ENDPOINT"
 echo "   OTEL_SERVICE_NAME: $OTEL_SERVICE_NAME"
 echo "   RUST_LOG: $RUST_LOG"
 
-# 4. 启动loom (带环境变量)
+# 4. Start Loom (with env vars)
 echo ""
-echo "[4/5] 启动Loom..."
-echo "📝 将运行30秒生成traces..."
-echo "   查看日志: tail -f logs/*.log"
+echo "[4/5] Starting Loom..."
+echo "📝 Running for 30 seconds to generate traces..."
+echo "   View logs: tail -f logs/*.log"
 echo ""
 
 # 使用timeout并保持环境变量
@@ -57,25 +57,25 @@ timeout 30 conda run -n loom bash -c "
 " || true
 
 echo ""
-echo "[5/5] 测试完成!"
+echo "[5/5] Test complete!"
 echo ""
 
-# 5. 显示结果
+# 5. Show results
 echo "==================================="
-echo "📊 查看Traces"
+echo "📊 View Traces"
 echo "==================================="
 echo ""
 echo "🌐 Jaeger UI: http://localhost:16686"
 echo ""
-echo "🔍 查找traces："
-echo "   1. Service: 选择 'loom-trace-test' 或 'trace-test-sensor'"
-echo "   2. 点击 'Find Traces'"
-echo "   3. 选择一个trace查看详情"
+echo "🔍 Find traces:"
+echo "   1. Service: select 'loom-trace-test' or 'trace-test-sensor'"
+echo "   2. Click 'Find Traces'"
+echo "   3. Open a trace to view details"
 echo ""
-echo "✅ 预期结果："
-echo "   - 看到 3个services (sensor/processor/output)"
-echo "   - 每个trace有 5-7个spans"
-echo "   - spans无缝连接，无大量空白"
-echo "   - 包含: sensor.emit → bridge.publish → event_bus.publish → processor → ..."
+echo "✅ Expected results:"
+echo "   - See 3 services (sensor/processor/output)"
+echo "   - Each trace has 5–7 spans"
+echo "   - Spans connect seamlessly with no large gaps"
+echo "   - Includes: sensor.emit → bridge.publish → event_bus.publish → processor → ..."
 echo ""
 echo "==================================="
