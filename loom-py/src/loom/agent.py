@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import signal
 from collections.abc import Awaitable, Iterable
 from typing import Any, Callable, Optional
@@ -14,6 +15,7 @@ from .capability import Capability
 from .client import BridgeClient, pb_action, pb_bridge
 from .context import Context
 from .envelope import Envelope
+from .tracing import init_telemetry
 
 EventHandler = Callable[[Context, str, Envelope], Awaitable[None]]
 
@@ -30,6 +32,12 @@ class Agent:
         address: Optional[str] = None,
         on_event: Optional[EventHandler] = None,
     ):
+        # Auto-initialize telemetry unless explicitly disabled
+        if os.getenv("LOOM_TELEMETRY_AUTO", "1") != "0":
+            # Derive a sensible default service name per agent process
+            svc = os.getenv("OTEL_SERVICE_NAME") or f"agent-{agent_id}"
+            init_telemetry(service_name=svc)
+
         self.agent_id = agent_id
         self.topics = list(topics)
         self._cap_decls: list[Capability] = []

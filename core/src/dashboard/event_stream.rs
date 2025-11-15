@@ -24,6 +24,9 @@ pub struct DashboardEvent {
     pub correlation_id: Option<String>,
     /// Payload preview (first 100 chars)
     pub payload_preview: String,
+    /// OpenTelemetry trace ID (if available)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub trace_id: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

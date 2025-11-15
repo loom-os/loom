@@ -1,10 +1,15 @@
-"""Sensor Agent - Generates test data every 2 seconds."""
+"""Sensor Agent - Generates test data every 2 seconds.
+
+Telemetry is auto-initialized inside Agent now; explicit init_telemetry() removed.
+If you want a custom service name, set OTEL_SERVICE_NAME before running (e.g.,
+`OTEL_SERVICE_NAME=trace-test-sensor loom run`).
+"""
 
 import asyncio
 import json
 import time
 
-from loom import Agent, init_telemetry, shutdown_telemetry
+from loom import Agent, shutdown_telemetry
 from opentelemetry import trace
 
 # Get tracer for creating root spans
@@ -12,9 +17,6 @@ tracer = trace.get_tracer(__name__)
 
 
 async def main():
-    # Initialize telemetry BEFORE creating agent
-    init_telemetry(service_name="trace-test-sensor")
-
     agent = Agent(
         agent_id="sensor-agent",
         topics=[],  # No subscriptions, only emits

@@ -83,6 +83,11 @@ class Orchestrator:
         bridge_port = self.config.bridge_port or 50051
         bridge_addr = f"127.0.0.1:{bridge_port}"
 
+        # Apply default telemetry envs to current process to reduce user friction
+        os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+        os.environ.setdefault("OTEL_TRACE_SAMPLER", "always_on")
+        os.environ.setdefault("OTEL_SERVICE_NAME", "loom-runtime")
+
         # Set environment variables from project config
         env_vars = self.project_config.to_env_vars()
         env_vars["LOOM_BRIDGE_ADDR"] = bridge_addr
@@ -128,6 +133,9 @@ class Orchestrator:
 
         env_vars = os.environ.copy()
         env_vars.update(self.project_config.to_env_vars())
+        # Ensure telemetry defaults for agents if not provided
+        env_vars.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+        env_vars.setdefault("OTEL_TRACE_SAMPLER", "always_on")
 
         agent_procs = []
         for script_path in self.config.agent_scripts:
@@ -137,10 +145,14 @@ class Orchestrator:
             stdout_log = self._get_log_file(agent_name, stderr=False)
             stderr_log = self._get_log_file(agent_name, stderr=True)
 
+            # Per-agent env: derive service name if not set
+            env_agent = env_vars.copy()
+            env_agent.setdefault("OTEL_SERVICE_NAME", f"agent-{agent_name}")
+
             with open(stdout_log, "w") as out_f, open(stderr_log, "w") as err_f:
                 proc = subprocess.Popen(
                     [sys.executable, str(script_path)],
-                    env=env_vars,
+                    env=env_agent,
                     stdout=out_f,
                     stderr=err_f,
                     cwd=self.config.project_dir,

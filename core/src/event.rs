@@ -256,6 +256,7 @@ impl EventBus {
                 thread_id: event.thread_id().map(|s| s.to_string()),
                 correlation_id: event.correlation_id().map(|s| s.to_string()),
                 payload_preview,
+                trace_id: envelope.trace_id.clone(),
             });
         }
 
@@ -344,6 +345,7 @@ impl EventBus {
                                         .chars()
                                         .take(100)
                                         .collect::<String>(),
+                                    trace_id: envelope.trace_id.clone(),
                                 });
                             }
                         } else {
@@ -386,6 +388,7 @@ impl EventBus {
                                             .chars()
                                             .take(100)
                                             .collect::<String>(),
+                                        trace_id: envelope.trace_id.clone(),
                                     });
                                 }
                             }

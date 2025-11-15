@@ -169,6 +169,7 @@ impl Bridge for BridgeService {
                     req.subscribed_topics.len(),
                     req.capabilities.len()
                 ),
+                trace_id: String::new(),
             });
         }
 
@@ -239,6 +240,26 @@ impl Bridge for BridgeService {
                                 tracker
                                     .record_flow(&sub_id, &agent_id_for_flow, &topic_clone)
                                     .await;
+                            }
+
+                            // Create a span for forwarding this event to the agent stream
+                            let fwd_span = tracing::info_span!(
+                                "bridge.forward",
+                                topic = %topic_clone,
+                                agent_id = %agent_id_for_flow,
+                                event_id = %ev.id,
+                                trace_id = tracing::field::Empty,
+                                span_id = tracing::field::Empty
+                            );
+                            let _fwd_guard = fwd_span.enter();
+
+                            // Apply remote parent if present
+                            let env = loom_core::Envelope::from_event(&ev);
+                            if env.extract_trace_context() {
+                                tracing::Span::current()
+                                    .record("trace_id", &tracing::field::display(&env.trace_id));
+                                tracing::Span::current()
+                                    .record("span_id", &tracing::field::display(&env.span_id));
                             }
 
                             if tx_clone
@@ -361,6 +382,7 @@ impl Bridge for BridgeService {
                     thread_id: None,
                     correlation_id: None,
                     payload_preview: format!("Agent {} disconnected", agent_id_for_inbound),
+                    trace_id: String::new(),
                 });
             }
 
