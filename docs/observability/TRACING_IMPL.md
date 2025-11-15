@@ -31,10 +31,10 @@ pub fn extract_trace_context(&self) -> bool
 **event_stream handling**:
 
 - Extracts trace context from inbound events via `Envelope::from_event`.
-- Calls `envelope.extract_trace_context()` *after* creating and entering the `bridge.publish` span so the span gets the correct remote parent.
+- Calls `envelope.extract_trace_context()` _after_ creating and entering the `bridge.publish` span so the span gets the correct remote parent.
 - Emits spans:
-    - `bridge.publish` – Python → Bridge → EventBus path
-    - `bridge.forward` – EventBus → Bridge → Python agent delivery path
+  - `bridge.publish` – Python → Bridge → EventBus path
+  - `bridge.forward` – EventBus → Bridge → Python agent delivery path
 - Span attributes include: `agent_id`, `topic`, `event_id`, `trace_id`, `span_id`.
 
 ### 3. Python SDK – OpenTelemetry integration
@@ -62,10 +62,10 @@ opentelemetry-exporter-otlp-proto-grpc>=1.22.0
 - `_run_stream()` – before invoking user `on_event`, extracts trace context from the envelope and creates an `agent.on_event` child span.
 - Span attributes: `agent.id`, `event.id`, `event.type`, `topic`, `thread_id`, `correlation_id`.
 - Agents now auto-initialize telemetry on construction, with defaults:
-    - `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` (if not set)
-    - `OTEL_TRACE_SAMPLER=always_on` (if not set)
-    - `OTEL_SERVICE_NAME=agent-{agent_id}` unless overridden
-    - This can be disabled with `LOOM_TELEMETRY_AUTO=0`.
+  - `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` (if not set)
+  - `OTEL_TRACE_SAMPLER=always_on` (if not set)
+  - `OTEL_SERVICE_NAME=agent-{agent_id}` unless overridden
+  - This can be disabled with `LOOM_TELEMETRY_AUTO=0`.
 
 **tracing.py**:
 
@@ -106,9 +106,9 @@ sensor-agent → sensor.data → processor-agent → processed.data → output-a
 
 - Ensure all agents (data/trend/risk/sentiment/planner) run with telemetry enabled.
 - Validate fan‑out/fan‑in trace topology:
-    - One root span at request entry.
-    - Parallel spans for each analysis agent.
-    - A planner span that either parents or links to all upstream spans.
+  - One root span at request entry.
+  - Parallel spans for each analysis agent.
+  - A planner span that either parents or links to all upstream spans.
 - Confirm LLM spans are visible and correctly attributed.
 
 ### Priority 3: E2E tests and docs (Roadmap TODO #7)
@@ -229,6 +229,7 @@ with tracer.start_as_current_span("agent.on_event", context=ctx):
 - [W3C Trace Context](https://www.w3.org/TR/trace-context/)
 - [Jaeger UI Guide](https://www.jaegertracing.io/docs/latest/frontend-ui/)
 - [ROADMAP.md](../../docs/ROADMAP.md) - P0 Critical Gap #1
+
 ---
 
 **Status**: ✅ Core implementation (Rust + Bridge + Python SDK) is complete and validated with the `trace-test` demo.
