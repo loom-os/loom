@@ -123,11 +123,11 @@ class Envelope:
         and stores them in the envelope for propagation across process boundaries.
         """
         span = get_current_span()
-        if span and span.get_span_context().is_valid():
-            ctx = span.get_span_context()
-            self.trace_id = format(ctx.trace_id, "032x")
-            self.span_id = format(ctx.span_id, "016x")
-            self.trace_flags = format(ctx.trace_flags, "02x")
+        span_context = span.get_span_context()
+        if span and span_context.is_valid:
+            self.trace_id = format(span_context.trace_id, "032x")
+            self.span_id = format(span_context.span_id, "016x")
+            self.trace_flags = format(span_context.trace_flags, "02x")
             # Also store in metadata for Rust side
             self.metadata["trace_id"] = self.trace_id
             self.metadata["span_id"] = self.span_id
