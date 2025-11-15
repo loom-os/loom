@@ -1,382 +1,408 @@
 # Roadmap (Loom OS 1.0)
 
-Goal: Enable developers to build a long-running, observable, and extensible event‑driven Multi‑Agent System in Python/JS within 10 minutes. The system can act on the outside world via MCP/function‑call tools, while the Rust Core provides performance and reliability.
+**Goal**: Enable developers to build a long-running, observable, and extensible event‑driven Multi‑Agent System in Python/JS within 10 minutes.
 
-Layered architecture (bottom‑up):
+**Current Status** (as of 2025-11): Core runtime, Bridge, Python SDK, MCP client, Dashboard MVP, and OpenTelemetry metrics are **production-ready**. Focus shifting to **observability completion** (distributed tracing) and **testing hardening**.
 
-- Core (Rust): EventBus (QoS/backpressure/stats), ActionBroker (capability registry/invocation/timeouts), ToolOrchestrator (unified tool parsing/refine/stats), Router (policies for privacy/latency/cost/quality).
-- Bridge (protocol): gRPC or WebSocket for Agent registration, event streaming, capability invocation, heartbeat and backpressure signals.
-- SDK (Python/JS): Agent abstraction (on_event), Context (emit/request/reply/tool/memory/join_thread), @capability declaration, collaboration primitives (fanout/fanin/barrier/contract‑net).
-- Ecosystem: MCP client (ingest tools → capability directory → invoke), optional MCP server (expose Loom capabilities externally).
-- UX: CLI (loom new/dev/bench/list), Dashboard (topology, swimlanes, latency, backpressure, routing, tool calls).
+## Architecture Overview
 
----
+See `docs/ARCHITECTURE.md` for detailed component documentation.
 
-## P0 — Minimal viable multi‑language multi‑agent (highest priority)
-
-Delivery target: Minimal Vertical Slice (MVS). From a fresh environment, a developer can:
-
-- `pip install loom`
-- `loom new market-analyst`
-- `loom run`
-
-This spins up Loom Core + Bridge + a set of Python agents for the Market Analyst demo (data, analysis, planner), powered by a configurable LLM (DeepSeek by default) and MCP tools, with a live Dashboard showing the end‑to‑end event flow.
-
-### ✅ Completed in P0
-
-1. **Bridge (gRPC)** — ✅ COMPLETE
-   - AgentRegister (topics, capabilities), bidirectional EventStream (publish/delivery)
-   - Client-initiated ForwardAction, server-initiated ActionCall (internal push API + result correlation map)
-   - Heartbeat, stateless reconnection
-   - Integration tests: registration, event roundtrip, forward action, heartbeat
-2. **Python SDK (loom‑py)** — ✅ COMPLETE
-
-   - Core Agent/Context API: emit/reply/tool/request (with correlation_id)
-   - @capability decorator with auto Pydantic input/output schema
-   - Unified Envelope (thread_id/correlation_id/sender/reply_to/ttl/hop via metadata)
-   - gRPC BridgeClient with RegisterAgent/EventStream/ForwardAction/Heartbeat
-   - Agent orchestration: stream loop, capability invocation, action_result correlation
-   - Packaging: `pyproject.toml` ready for PyPI (`0.1.0a1`)
-   - Example: trio.py (Planner/Researcher/Writer collaboration)
-
-3. **Collaboration primitives** — ✅ COMPLETE
-
-   - request/reply with first_k/timeout strategies
-   - fanout/fanin (any/first-k/majority)
-   - barrier (wait for N replies or timeout)
-   - contract-net (call for proposals/bids/award/execute)
-   - Thread broadcast topic: `thread.{thread_id}.broadcast`
-   - Reply topic: `thread.{thread_id}.reply`
-
-4. **MCP Client** — ✅ COMPLETE
-
-   - Connect to MCP servers via stdio → fetch tool JSON Schema → register as CapabilityDescriptor
-   - McpClient (JSON-RPC 2.0 over stdio), McpToolAdapter (implements CapabilityProvider)
-   - McpManager for multiple server lifecycle
-   - Invoke MCP tools via ActionBroker with unified error codes (INVALID_PARAMS/TIMEOUT/TOOL_ERROR/...)
-   - Configurable protocol version with validation
-   - Auto-discovery and qualified tool naming (server:tool)
-   - Comprehensive tests and documentation
-
-5. **Directories** — ✅ COMPLETE
-   - AgentDirectory: discover agents by id/topics/capabilities
-   - CapabilityDirectory: snapshot providers from ActionBroker
-   - Integration with Agent Runtime for auto-registration
-
-### 🚧 In Progress / Pending in P0
-
-6. **OpenTelemetry Integration** — ✅ COMPLETE (feat/otpl branch)
-
-   - OTLP gRPC exporter (traces + metrics) → Jaeger + Prometheus
-   - One-command Observability Stack (docker-compose)
-   - Core instrumentation: EventBus, ActionBroker, Router, ToolOrchestrator, Agent Runtime, MCP Manager
-   - Comprehensive metrics (60+ metrics exported)
-   - Basic Grafana dashboard with throughput, latency, routing, tool invocations
-   - Complete documentation (QUICKSTART, METRICS reference)
-   - **Validated**: Jaeger shows full trace chains, Prometheus collects all metrics
-
-7. **Dashboard MVP (Event Flow Focus)** — ✅ React bundle integrated (feat/dashboard branch)
-
-   **Goal**: Visualize real-time event flow across multi-agent systems, regardless of application design
-
-   **Implemented (React bundle v0.2)**:
-
-   - ✅ **Real-time Event Stream (SSE)**
-     - Rich payload preview, QoS badges, sender/topic/thread filters
-   - ✅ **Agent Communications Feed**
-     - Messages, tool calls, outputs with timestamps and results
-   - ✅ **Agent Network Graph**
-     - Canvas animation showing recent flows between agents/tools/EventBus
-   - ✅ **Metrics Overview**
-     - Cards for events/sec (client-side rate), active agents, routing decisions, latency, QoS distribution
-   - ✅ **React + shadcn Frontend**
-     - Vite-built assets embedded via `include_dir`, available from the `core` binary
-   - ✅ **Docs & Demo**
-     - Updated quick-start docs and `dashboard_demo.rs` showcase
-
-   **Still TODO for full MVP**:
-
-   - 🚧 Server-side metrics aggregator (replace `/api/metrics` placeholders)
-   - 🚧 Thread timeline / swimlane view
-   - 🚧 Prometheus metrics integration
-   - 🚧 Event detail modal and advanced search
-   - 🚧 Export event log / flow history
-
-   **Quick Start**:
-
-   ```bash
-   cd core/src/dashboard/frontend
-   npm install
-   npm run build
-   cd ../../..
-   export LOOM_DASHBOARD_PORT=3030
-   cargo run --example dashboard_demo
-   # Open http://localhost:3030 in browser
-   ```
-
-   **Next steps**: Ship server-side metrics, add timeline view, expand filtering/search
-
-8. **Runtime Packaging & Configuration** — ✅ COMPLETE
-
-   - ✅ Automatic binary download from GitHub Releases
-   - ✅ Local build detection with repo root search (supports nested directories)
-   - ✅ SHA256 checksum verification
-   - ✅ Cross-platform support (Linux, macOS, Windows)
-   - ✅ `loom.toml` configuration schema with Pydantic
-   - ✅ Environment variable substitution (`${VAR}` syntax)
-   - ✅ Per-agent LLM/MCP configuration
-   - ✅ `loom up` command for runtime management
-   - ✅ Comprehensive tests and documentation
-   - ✅ Unified `loom-bridge-server` binary (includes Core + Bridge + Dashboard)
-
-9. **Project Orchestration** — ✅ COMPLETE
-
-   - ✅ `loom run` command for one-command startup
-   - ✅ Multi-process lifecycle management (runtime + agents)
-   - ✅ Auto-discovery of agents from project structure (`agents/*.py`)
-   - ✅ Graceful shutdown with signal handling (Ctrl+C)
-   - ✅ Process monitoring and health checks
-   - ✅ Optional log file management
-   - ✅ Configuration propagation via environment variables
-   - ✅ Dashboard URL and status reporting
-   - ✅ **VALIDATED**: Successfully runs Market Analyst demo with 5 agents
-
-10. **Flagship Market Analyst Demo** — ✅ COMPLETE
-
-- ✅ **Production-ready async multi-agent architecture**
-  - 5 specialized agents (data, trend, risk, sentiment, planner)
-  - Fan-out/fan-in pattern with timeout handling
-  - Smart aggregation with partial data support
-- ✅ **Complete project template** (`demo/market-analyst/`)
-  - Fully documented `loom.toml` with LLM and MCP configs
-  - README with architecture diagrams and usage guide
-  - DeepSeek LLM integration ready to use
-- ✅ **One-command execution**: `cd demo/market-analyst && loom run`
-- ✅ **Dashboard integration**: Real-time visualization of all agent interactions
-- ✅ **Real market data**: Binance API integration with automatic fallback to simulation
-- ✅ **DeepSeek LLM**: Full integration via LLMProvider helper class
-  - Python SDK includes `LLMProvider` for easy LLM integration
-  - Supports DeepSeek, OpenAI, and local models
-  - Planner agent uses LLM for intelligent trade recommendations
-  - Graceful fallback to rule-based logic if LLM unavailable
-
-11. **JS SDK MVP (loom‑js)** — 🚧 TODO
-
-- defineAgent(handler), ctx.emit/request/reply/tool
-- Similar API surface to loom-py for consistency
-
-12. **CLI basics (remaining features)** — 🚧 TODO
-
-- ✅ `loom new/init`: Create new agent projects
-- ✅ `loom up`: Start runtime (bridge or full core)
-- ✅ `loom run`: Orchestrate runtime + agents
-- 🚧 `loom dev`: hot-boot external agents (watch Python/JS files)
-- 🚧 `loom list`: show registered agents/capabilities
-- 🚧 `loom bench`: performance profiling for core and agents
-- 🚧 `loom logs`: structured log viewer with filtering by agent/thread/correlation
-
-### Acceptance Criteria (P0 Complete)
-
-- ✅ Core runtime stable: EventBus, Agent Runtime, Router, ActionBroker, ToolOrchestrator
-- ✅ Python agents can register, emit/receive events, invoke capabilities
-- ✅ Multi-agent collaboration works (trio example functional)
-- ✅ MCP tools can be ingested and invoked via ActionBroker
-- ✅ Bridge supports gRPC with full lifecycle management
-- ✅ OpenTelemetry integration: traces to Jaeger, metrics to Prometheus (feat/otpl)
-- ✅ Basic Grafana dashboard with throughput, latency, routing (feat/otpl)
-- ✅ Dashboard MVP: Real-time event stream visualization (SSE, basic topology, filters)
-- ✅ Runtime packaging: Automatic binary download, local build detection, cross-platform
-- ✅ Configuration system: `loom.toml` with LLM/MCP/agent configs, env var substitution
-- ✅ CLI orchestration: `loom up` (runtime) and `loom run` (full orchestration)
-- ✅ Market Analyst Demo: Production-ready 5-agent system with async fan-out/fan-in
-- ✅ **One-command workflow VALIDATED**: `cd demo/market-analyst && loom run` successfully starts Core + 5 agents, Dashboard accessible at http://localhost:3030
-- ✅ **Local build detection**: Automatically finds and uses locally built `loom-bridge-server` from repo root, even when running from nested directories
-- ✅ **DeepSeek LLM Integration**: Full support via Python SDK `LLMProvider` class
-  - Dynamic provider configuration (DeepSeek, OpenAI, local models)
-  - Headers-based configuration override in Core's LLM provider
-  - Planner agent uses LLM for intelligent reasoning with fallback
-- ✅ **Real market data**: Binance API integration in data agent
-  - Public REST API for ticker data (no API key required)
-  - Automatic fallback to simulation if API unavailable
-  - Enhanced payload with 24h stats (high, low, volume, price change %)
-- 🚧 Auto-reconnect tested with network interruptions (needs formal test)
-- 🚧 P50/P99 latency benchmarks published (needs benchmark suite)
+- **Core** (Rust): EventBus, ActionBroker, ToolOrchestrator, Router, Agent Runtime, Directories
+- **Bridge** (gRPC): Cross-process event/action forwarding with reconnection support
+- **SDK** (Python): Agent/Context API with @capability decorator and collaboration primitives
+- **Ecosystem**: MCP client (✅ stdio), Dashboard (✅ React SSE), OpenTelemetry (✅ metrics, 🚧 tracing)
+- **CLI**: `loom run` orchestration, binary management, config system
 
 ---
 
-## P1 — Observable, iterative collaboration system
+## P0 — Production Readiness ✅ MOSTLY COMPLETE
 
-### Focus: Enhanced observability, streaming, error handling, and developer ergonomics
+**Delivery target**: `pip install loom && loom run` works reliably with observable multi-agent systems.
 
-1. **Dashboard enhancements** — 🎯 PRIORITY
+### ✅ Completed
 
-   - Technology selection: Web (React/Vue + WebSocket) vs Terminal UI (Ratatui)
-   - Real-time topology graph with auto-layout
-   - Event swimlanes with thread_id grouping and filtering
-   - Latency histograms (P50/P90/P99) per agent/capability
-   - Backpressure gauges and QoS insights per topic
-   - Error heatmaps and per-topic failure rates
-   - Tool invocation timeline and success/failure breakdown
+**Core Components** (see `docs/core/overview.md` for details):
 
-2. **CLI and templates** — 🎯 PRIORITY
+- EventBus with QoS/backpressure, AgentRuntime, Router, ActionBroker, ToolOrchestrator
+- Envelope (thread/correlation/TTL), Collaboration primitives, Directories
+- MCP Client (JSON-RPC over stdio, qualified naming, error handling)
 
-   - `loom new <template>`: multi-agent, voice-assistant, home-automation, vision-camera, system-helper
-   - `loom dev`: hot-reload for external agents (watch Python/JS files)
-   - `loom list`: show registered agents, topics, capabilities with filtering
-   - `loom bench`: built-in performance profiling and latency reports
-   - `loom logs`: structured log viewer with filtering by agent/thread/correlation
-   - `loom run <demo>`: one-command orchestration for Core + Bridge + SDK agents (e.g., `loom run market-analyst`), with clear logging and dashboard URL output.
+**Bridge & SDK** (see `docs/BRIDGE.md`, `loom-py/docs/SDK_GUIDE.md`):
 
-3. **Streaming and parallelism**
+- gRPC Bridge with RegisterAgent/EventStream/ForwardAction/Heartbeat
+- Python SDK with Agent/Context API, @capability decorator, reconnection logic
+- Example: `trio.py` (Planner/Researcher/Writer collaboration)
 
-   - SSE partial answers (LLM token streaming via ActionBroker)
-   - Parallel tool invocation with semaphore/circuit breaker
-   - Stream backpressure propagation to LLM providers
-   - Chunked event payloads for large data (e.g., video frames)
+**Observability** (see `docs/observability/QUICKSTART.md`):
 
-4. **Error taxonomy and unified error_event**
+- OpenTelemetry metrics (60+ metrics → Prometheus)
+- Grafana dashboards (throughput, latency, routing, tool invocations)
+- Dashboard MVP (React SSE): event stream, agent topology, flow graph
 
-   - Standardize error codes: MODEL_FALLBACK / TOOL_PARSE_ERROR / INVALID_PARAMS / CAPABILITY_ERROR / TIMEOUT / PROVIDER_UNAVAILABLE
-   - Publish error_event on dedicated topic for monitoring
-   - Prometheus labels for error classification
-   - Error recovery strategies (retry with exponential backoff, fallback provider)
+**Developer Experience**:
 
-5. **SDK ergonomics**
+- `loom run` orchestration (binary management, process lifecycle, config propagation)
+- `loom.toml` configuration with env var substitution
+- Market Analyst demo (5-agent async fan-out/fan-in with DeepSeek LLM)
 
-   - Memory plugins (pluggable KV backends: Redis, PostgreSQL, in-memory)
-   - Better type hints and runtime validation (Pydantic v2 for Python)
-   - Streaming API for long-running tasks (async generators)
-   - Middleware hooks for logging, tracing, auth
+### 🔥 Critical Gaps (Blocking Production)
 
-6. **MCP enhancements**
+#### 1. **Distributed Tracing** — 🎯 HIGHEST PRIORITY
 
-   - SSE transport (HTTP-based) in addition to stdio
-   - Resources API support (read/write/list resources)
-   - Prompts API support (list/get prompts with arguments)
-   - Sampling support for multi-turn tool use
-   - Notifications support (server-initiated events)
+**Problem**: Trace context **lost at process boundaries** (Bridge ↔ Python agents), making cross-process debugging impossible.
 
-7. **Cognitive agent pattern & memory system** — 🧪 EXPERIMENTAL
+**Current State**:
 
-   - Define a `CognitiveLoop` interface (perceive/think/act) and a `CognitiveAgent` adapter that implements `AgentBehavior` on top of it (Rust core).
-   - Provide a reference planner-style agent that uses `ContextBuilder`, `MemoryReader/Writer`, `ModelRouter`, and `ActionBroker` to run a simple reasoning loop.
-   - Solidify `context::MemoryReader/Writer` as the primary memory extension point and document it as such.
-   - Add at least one persistent memory implementation (e.g., RocksDB-backed episodic memory) to complement the in-memory demo store.
-   - Document the design in `docs/core/cognitive_runtime.md` and `docs/core/memory.md`.
+- ✅ Rust components instrumented (`#[tracing::instrument]` on EventBus, AgentRuntime, ActionBroker, Router)
+- ✅ OTLP exporter configured (traces → Jaeger)
+- ❌ **Trace context NOT propagated** across gRPC Bridge
+- ❌ **Envelope does NOT carry** `trace_id`/`span_id`/`trace_flags`
+- ❌ **Python SDK has NO OpenTelemetry integration**
+- ❌ **Dashboard FlowTracker** cannot correlate flows to traces
 
----
+**Required Work**:
 
-## P2 — Ecosystem and policy advancement
+```
+Priority 1: Envelope trace context
+  - Add trace_id/span_id/trace_flags to envelope.rs metadata keys
+  - Implement attach_trace_context() / extract_trace_context()
+  - Update Event.metadata and ActionCall.headers propagation
 
-### Focus: MCP server mode, intelligent routing, security, and persistence
+Priority 2: Bridge trace propagation
+  - Extract trace context from ClientEvent in event_stream()
+  - Inject trace context into ServerEvent deliveries
+  - Create child spans for event forwarding loops
+  - Test: Event from Python agent A → Rust EventBus → Python agent B preserves trace
 
-1. **MCP server mode**
+Priority 3: Python SDK tracing
+  - Add opentelemetry-api + opentelemetry-exporter-otlp-proto-grpc to pyproject.toml
+  - Instrument Agent._run_stream() to extract trace from Envelope
+  - Instrument Context.emit/request/reply to inject trace
+  - Test: Full trace from agent.start() → on_event() → ctx.emit() → remote agent
 
-   - Expose Loom's internal capabilities as MCP tools to external systems
-   - Bidirectional MCP integration (client ✅ + server)
-   - Cross-ecosystem interop (n8n, Make, Zapier, custom MCP clients)
+Priority 4: Dashboard trace timeline
+  - Add trace_id to FlowTracker.EventFlow
+  - New API: GET /api/trace/:trace_id → full event timeline
+  - UI: Click event → show full trace with spans and latencies
+```
 
-2. **Router as a policy engine**
+**Acceptance Criteria**:
 
-   - Learning-based routing with historical success/latency/cost metrics
-   - Bandit/RL algorithms for adaptive model selection
-   - Tunable routing policies via Dashboard UI
-   - A/B testing support for routing strategies
-   - Cost optimization with provider pricing models
+- ✅ Trace spans visible in Jaeger from Rust → Bridge → Python → Bridge → Rust
+- ✅ Market Analyst demo shows complete trace: data agent → trend/risk/sentiment → planner
+- ✅ Dashboard can display trace timeline for any event_id
+- ✅ Trace context survives agent reconnection
 
-3. **Security and multi-tenancy**
-
-   - Namespaces/ACLs for agent isolation
-   - Token-based authentication for Bridge connections
-   - MCP endpoint allowlist (security policies for external tools)
-   - Audit logs for all agent actions and capability invocations
-   - Rate limiting per agent/namespace
-
-4. **Event persistence and replay**
-
-   - Write-Ahead Log (WAL) for event durability
-   - Event snapshots for recovery and replay
-   - Time-travel debugging (replay from specific timestamp)
-   - Long-run stability metrics (24h+ uptime tests)
-   - Backup/restore tools for production deployments
-   - Standardized memory topics/events (e.g., `memory.update`, `memory.retrieve`) that bridge the event log with semantic/episodic memory providers.
-
-5. **WASI/external tool isolation**
-   - Sandboxed tool execution (WASM runtime for untrusted tools)
-   - Resource limits (CPU/memory/network) per tool
-   - AOT compilation for edge/mobile deployment
-   - Plugin security policies and capability allowlists
+**Estimated Effort**: 5-7 days
 
 ---
 
-## P3 — Performance and mobile
+#### 2. **Testing & Validation** — 🎯 HIGH PRIORITY
 
-### Focus: Edge deployment, deep optimization, and production hardening
+**Problem**: Complex multi-process async system lacks systematic testing, leading to regression risks and difficult debugging.
 
-1. **Mobile/edge packaging**
+**Current State**:
 
-   - iOS/Android POC (xcframework/AAR for Rust core)
-   - Lightweight wrappers with minimal dependencies
-   - On-device model inference (CoreML, TensorFlow Lite)
-   - Background task management and power optimization
-   - Push notification integration for event delivery
+- ✅ Core unit tests: event_bus, agent_runtime, router, action_broker
+- ✅ Integration tests: e2e_basic, e2e_collab, e2e_tool_use
+- ✅ Bridge tests: registration, heartbeat, forward_action
+- ❌ **NO end-to-end tests** for full Rust + Bridge + Python stack
+- ❌ **NO tests** for Market Analyst demo workflow
+- ❌ **NO stress tests** for concurrent agents or high-frequency events
+- ❌ **NO tests** for error scenarios (timeout, reconnection, partial failures)
 
-2. **Deep performance work**
+**Required Work**:
 
-   - EventBus throughput/latency optimization (lock-free data structures)
-   - Tool execution parallelism and smart scheduling
-   - Memory footprint reduction (arena allocators, zero-copy)
-   - Power consumption profiling and optimization
-   - GPU/NPU acceleration for local models
+```
+Priority 1: Market Analyst E2E tests
+  Location: demo/market-analyst/tests/
 
-3. **Production hardening**
-   - Graceful degradation under load (adaptive QoS)
-   - Circuit breakers for external dependencies
-   - Health checks and readiness probes
-   - Blue-green deployment support
-   - Canary releases for agents and capabilities
+  - test_simple_flow.py
+    • Start loom-bridge-server
+    • Mock data agent: emit BTC price event
+    • Mock trend agent: receive, analyze, reply
+    • Mock planner agent: receive analysis, emit plan
+    • Verify: event ordering, payload correctness, timing
+
+  - test_fanout_aggregation.py
+    • Start all 5 agents
+    • Emit market.price.BTC
+    • Verify: planner receives 3 analyses within timeout
+    • Verify: planner handles partial data (2/3 analyses)
+    • Verify: planner timeout logic (no responses)
+
+  - test_llm_integration.py
+    • Mock DeepSeek API responses
+    • Verify: planner uses LLM reasoning
+    • Verify: fallback to rule-based on LLM error
+
+Priority 2: Bridge stress tests
+  Location: bridge/tests/stress/
+
+  - test_concurrent_agents.rs
+    • 20 agents register simultaneously
+    • Each subscribes to 10 topics
+    • High-frequency event publishing (1000 events/sec)
+    • Verify: no dropped events, no deadlocks
+
+  - test_reconnection.rs
+    • Agent disconnects mid-stream
+    • Verify: graceful cleanup (subscriptions, flows)
+    • Agent reconnects with same agent_id
+    • Verify: re-registration, topic re-subscription
+
+Priority 3: Python SDK integration tests
+  Location: loom-py/tests/integration/
+
+  - test_bridge_roundtrip.py
+    • Python agent A emits event
+    • Python agent B receives via Bridge
+    • Verify: Envelope metadata preserved
+
+  - test_capability_invocation.py
+    • Python agent registers capability
+    • Rust ActionBroker invokes via Bridge
+    • Verify: timeout handling, error propagation
+
+Priority 4: Chaos engineering tests
+  Location: tests/chaos/
+
+  - Simulate: Bridge crash, EventBus backpressure, slow agents
+  - Verify: system recovers, no data loss, metrics accurate
+```
+
+**Acceptance Criteria**:
+
+- ✅ CI runs Market Analyst E2E tests on every commit
+- ✅ Code coverage > 70% for core, bridge, loom-py
+- ✅ Stress tests pass: 20 agents, 10k events/min, 1 hour runtime
+- ✅ Chaos tests demonstrate graceful degradation
+
+**Estimated Effort**: 7-10 days
 
 ---
 
-## Current Status Summary (as of MCP completion)
+#### 3. **Binary Selection & Caching** — ✅ FIXED (2025-11-15)
 
-### ✅ Fully Implemented
+**Problem**: `loom run` used stale cached binaries after local rebuild, causing confusion during development.
 
-- **Core Runtime**: EventBus (QoS/backpressure), Agent Runtime (stateful actors), Router (policy-based), ActionBroker (capability registry), ToolOrchestrator
-- **Envelope**: Thread/correlation metadata with TTL/hop, reply topics
-- **Collaboration**: request/reply, fanout/fanin (any/first-k/majority/timeout), barrier, contract-net
-- **Directories**: AgentDirectory (discover by id/topics/capabilities), CapabilityDirectory (provider snapshot)
-- **MCP Client**: JSON-RPC 2.0 over stdio, auto-discovery, qualified naming (server:tool), configurable protocol version, comprehensive error handling
-- **Bridge**: gRPC with RegisterAgent/EventStream/ForwardAction/Heartbeat, integration tests
-- **Python SDK**: Agent/Context API, @capability decorator, Envelope support, trio example
-- **OpenTelemetry** (feat/otpl): OTLP exporter, Jaeger + Prometheus + Grafana stack, 60+ metrics, core component instrumentation, comprehensive docs
+**Solution** (`loom-py/src/loom/embedded.py`):
 
-### 🚧 In Progress
+- ✅ **Version validation**: Calls `binary --version` to validate cached binaries before use
+- ✅ **Cache invalidation**: Automatically invalidates cache on version mismatch
+- ✅ **Priority order**: local builds → cached → download (developer-friendly)
+- ✅ **Release preference**: Prefers release over debug by default (`prefer_release=True`)
+- ✅ **CLI flags**: Added `--use-debug` and `--force-download` to `loom run` and `loom up`
+- ✅ **Visibility**: Logs which binary is being used (path + version)
 
-- **Dashboard MVP**: Event stream API (WebSocket/SSE), swimlane visualization, agent topology graph
-- **CLI**: Template scaffolding and dev workflow tools
-- **JS SDK**: API design and initial implementation
+**Remaining Work** (moved to P1):
 
-### 📋 Next Up (P1 Focus)
-
-1. Dashboard MVP (web or terminal UI)
-2. CLI basics (new/dev/list/bench)
-3. JS SDK parity with Python
-4. Streaming APIs and error taxonomy
-5. MCP SSE transport and additional APIs
+- 🚧 Add `--clear-cache` command to CLI
+- 🚧 Search from current directory upwards (not just repo root)
 
 ---
 
-## Metrics and quality gates
+## P1 — Developer Experience & Ecosystem
 
-- TTFM: ≤ 10 minutes (Python/JS).
-- Stability: reconnect on drop; 24h longevity without memory blow‑ups.
-- Performance: P99 event latency target < 200ms under mixed QoS (realtime path); tool invocation error rate < 2%.
-- Observability: Prometheus/OTel metrics present; Dashboard first paint < 2s.
+**Focus**: Polish DX, complete Dashboard features, expand SDK language support.
+
+### 1. Dashboard Enhancements
+
+**Current State**: Basic event stream + topology graph (see `docs/dashboard/FLOW_VISUALIZATION_GUIDE.md`)
+
+**Required**:
+
+- 🚧 **Trace Timeline View**: Swimlane visualization with span hierarchy (requires P0 tracing)
+- 🚧 **Prometheus Integration**: Replace placeholder `/api/metrics` with real Prometheus queries
+- 🚧 **Thread Inspector**: Filter/group events by thread_id, show collaboration patterns
+- 🚧 **Tool Call Timeline**: Success/failure breakdown, latency distribution per capability
+- 🚧 **Event Playback**: Time-travel debugging with event replay from Jaeger traces
+
+### 2. CLI Tooling
+
+**Required**:
+
+- 🚧 `loom dev`: Watch Python/JS files, hot-reload agents on change
+- 🚧 `loom list`: Show registered agents/capabilities with filtering
+- 🚧 `loom bench`: Run predefined performance tests (latency, throughput, concurrency)
+- 🚧 `loom logs`: Structured log viewer with grep-like filtering by agent/thread/correlation
+- 🚧 `loom trace <trace_id>`: Fetch and display full trace from Jaeger CLI
+
+### 3. JavaScript SDK (loom-js)
+
+**Goal**: Feature parity with loom-py
+
+**Required**:
+
+- `defineAgent()` with TypeScript types
+- `ctx.emit/request/reply/tool()` API
+- gRPC Bridge client with reconnection
+- Envelope extraction and metadata helpers
+- OpenTelemetry trace propagation (from day 1)
+
+### 4. SDK Improvements
+
+**Python**:
+
+- Streaming API for long-running tasks (async generators)
+- Memory plugin interface (Redis, PostgreSQL, in-memory backends)
+- Better type hints and Pydantic v2 validation
+- Middleware hooks (logging, tracing, auth)
+
+### 5. MCP Protocol Extensions
+
+**Current**: stdio transport only (see `docs/MCP.md`)
+
+**Required**:
+
+- SSE transport (HTTP-based for web integration)
+- Resources API (read/write/list)
+- Prompts API (list/get with arguments)
+- Sampling support (multi-turn tool use)
+- Notifications (server-initiated events)
 
 ---
 
-## Notes
+## P2 — Enterprise & Production Hardening
 
-- The Core already provides EventBus/ActionBroker/Router/ToolOrchestrator with pressure tests; on top of this, prioritize the minimal viable path for Bridge + SDK + Dashboard + MCP.
-- The Voice Agent remains one of the showcase templates (available in the P1 template library).
+**Focus**: Security, scalability, advanced routing, persistence.
+
+### 1. MCP Server Mode
+
+**Goal**: Expose Loom capabilities to external systems (n8n, Make, Zapier, custom MCP clients)
+
+**Required**:
+
+- Implement MCP server protocol (bidirectional: client ✅ + server)
+- Register Loom ActionBroker capabilities as MCP tools
+- Support SSE transport for web integration
+- Authentication and rate limiting
+
+### 2. Router Evolution
+
+**Current**: Rule-based routing (privacy/latency/cost/quality policies)
+
+**Required**:
+
+- Historical metrics collection (success rate, latency, cost per route)
+- Learning-based routing (bandit/RL algorithms)
+- A/B testing framework for routing strategies
+- Cost optimization with provider pricing models
+- Dashboard UI for tuning routing policies
+
+### 3. Security & Multi-tenancy
+
+**Required**:
+
+- Namespaces/ACLs for agent isolation
+- Token-based authentication for Bridge connections
+- MCP endpoint allowlist (security policies)
+- Audit logs for all actions and capability invocations
+- Rate limiting per agent/namespace
+
+### 4. Event Persistence & Replay
+
+**Goal**: Durability, time-travel debugging, disaster recovery
+
+**Required**:
+
+- Write-Ahead Log (WAL) for EventBus
+- Event snapshots for recovery
+- Time-travel debugging (replay from timestamp)
+- Backup/restore tools
+- Standardized memory topics: `memory.update`, `memory.retrieve`
+
+### 5. WASI Plugin Isolation
+
+**Goal**: Sandboxed execution for untrusted tools/plugins
+
+**Required**:
+
+- WASM runtime integration (wasmtime/wasmer)
+- Resource limits (CPU/memory/network) per plugin
+- AOT compilation for edge/mobile
+- Plugin security policies and capability allowlists
+
+---
+
+## P3 — Edge & Mobile
+
+**Focus**: On-device deployment, deep optimization.
+
+### 1. Mobile Packaging
+
+**Required**:
+
+- iOS/Android POC (xcframework/AAR for Rust core)
+- Lightweight wrappers with minimal dependencies
+- On-device model inference (CoreML, TensorFlow Lite)
+- Background task management and power optimization
+- Push notification integration for event delivery
+
+### 2. Performance Optimization
+
+**Required**:
+
+- EventBus lock-free data structures
+- Tool execution parallelism and scheduling
+- Memory footprint reduction (arena allocators, zero-copy)
+- Power consumption profiling
+- GPU/NPU acceleration for local models
+
+### 3. Production SRE
+
+**Required**:
+
+- Graceful degradation under load (adaptive QoS)
+- Circuit breakers for external dependencies
+- Health checks and readiness probes
+- Blue-green deployment support
+- Canary releases for agents and capabilities
+
+---
+
+## Quality Gates
+
+**Metrics** (baseline targets for P0 completion):
+
+- **Time to First Message (TTFM)**: ≤ 10 minutes (Python SDK, fresh environment)
+- **Stability**: 24-hour continuous run without memory leaks or crashes
+- **Latency**: P99 event latency < 200ms under mixed QoS (realtime events)
+- **Throughput**: 1000+ events/sec per EventBus instance
+- **Tool Invocation**: Error rate < 2% (excludes external API failures)
+- **Observability**: Dashboard first paint < 2s, all traces visible in Jaeger
+- **Testing**: Code coverage > 70% (core + bridge + loom-py)
+
+**Before declaring P0 complete**:
+
+- ✅ All P0 critical gaps resolved (tracing, testing, binary selection)
+- ✅ Market Analyst demo runs reliably with full observability
+- ✅ CI/CD pipeline includes E2E tests and chaos engineering
+- ✅ Documentation complete (quickstart, architecture, troubleshooting)
+- ✅ PyPI package published (`loom` v0.1.0)
+
+---
+
+## Implementation Notes
+
+**Tracing Strategy** (P0 Critical Gap #1):
+
+1. Start with Envelope modifications (lowest risk, highest value)
+2. Bridge trace propagation (critical path for cross-process debugging)
+3. Python SDK integration (completes the loop)
+4. Dashboard timeline (user-visible impact)
+
+**Testing Strategy** (P0 Critical Gap #2):
+
+1. Market Analyst E2E tests first (validates core workflows)
+2. Bridge stress tests (validates scalability assumptions)
+3. Python SDK integration tests (validates SDK robustness)
+4. Chaos tests last (validates fault tolerance)
+
+**Focus Principle**:
+
+- Don't add new features until P0 critical gaps are closed
+- Distributed tracing is blocking for production debugging
+- Testing validates reliability claims
+- Everything else is polish or nice-to-have

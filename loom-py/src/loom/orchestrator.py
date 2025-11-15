@@ -42,6 +42,8 @@ class OrchestratorConfig:
     dashboard_port: int = 3030
     startup_wait_sec: float = 2.0
     agent_scripts: list[Path] = field(default_factory=list)
+    prefer_release: bool = True  # Prefer release over debug builds
+    force_download: bool = False  # Force download from GitHub
 
 
 class Orchestrator:
@@ -86,7 +88,12 @@ class Orchestrator:
         env_vars["LOOM_BRIDGE_ADDR"] = bridge_addr
 
         if self.config.runtime_mode == "bridge-only":
-            proc = embedded.start_bridge(bridge_addr, version=self.config.runtime_version)
+            proc = embedded.start_bridge(
+                bridge_addr,
+                version=self.config.runtime_version,
+                prefer_release=self.config.prefer_release,
+                force_download=self.config.force_download,
+            )
             print(f"[loom] ✓ Bridge started (PID {proc.pid})")
             print(f"[loom]   Address: {bridge_addr}")
         else:  # full mode
@@ -98,6 +105,8 @@ class Orchestrator:
                 bridge_addr=bridge_addr,
                 dashboard_port=dashboard_port,
                 version=self.config.runtime_version,
+                prefer_release=self.config.prefer_release,
+                force_download=self.config.force_download,
             )
             print(f"[loom] ✓ Core started (PID {proc.pid})")
             print(f"[loom]   Dashboard: http://localhost:{dashboard_port}")

@@ -2,6 +2,16 @@
 
 ## Prerequisites
 
+### For Python Development (Recommended)
+
+```bash
+pip install loom
+```
+
+That's it! The `loom` CLI will automatically download and manage the Rust runtime binaries.
+
+### For Rust Development
+
 1. Rust toolchain (1.70+)
 
    ```bash
@@ -10,7 +20,41 @@
 
 2. Protocol Buffers compiler — not required on your system. We vendor `protoc` in `loom-proto` via `protoc-bin-vendored`.
 
-## Option A — Run the Voice Agent demo (recommended)
+## Option A — Python Agent with Auto-managed Runtime (recommended)
+
+The easiest way to get started is with the Python SDK and `loom` CLI:
+
+```bash
+# Install the SDK
+pip install loom
+
+# Start the runtime (auto-downloads binaries)
+loom up
+
+# Or start with your Python agents using loom.toml config
+cd demo/market-analyst
+loom run
+```
+
+**CLI Options**:
+
+```bash
+# Development: Use debug builds (faster compile, more logs)
+loom run --use-debug
+
+# Force fresh download from GitHub releases
+loom run --force-download
+
+# Custom ports
+loom up --bridge-port 9999 --dashboard-port 8080
+
+# Shutdown all Loom processes (cleanup after interrupted runs)
+loom down
+```
+
+See `loom-py/README.md` for Python agent development guide.
+
+## Option B — Run the Voice Agent demo
 
 From the repository root:
 
@@ -22,11 +66,11 @@ cargo run -p voice_agent
 
 Tips:
 
-- The demo prefers Piper for TTS; if Piper isn’t installed, it falls back to espeak‑ng.
+- The demo prefers Piper for TTS; if Piper isn't installed, it falls back to espeak-ng.
 - vLLM (or any OpenAI‑compatible server) is optional; see `demo/voice_agent/README.md` to point the LLM client to your backend.
 - On Linux, install `libasound2-dev` and `pkg-config` for audio.
 
-## Option B — Minimal `loom-core` pub/sub
+## Option C — Minimal `loom-core` pub/sub
 
 Create a new Rust binary project and add `loom-core` as a dependency (or use a workspace member). Paste this into `main.rs`:
 

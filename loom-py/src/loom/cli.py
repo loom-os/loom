@@ -138,6 +138,8 @@ def cmd_run(args):
         dashboard_port=args.dashboard_port,
         startup_wait_sec=args.startup_wait,
         agent_scripts=agent_scripts,
+        prefer_release=not args.use_debug,
+        force_download=args.force_download,
     )
 
     # Run orchestrator
@@ -223,8 +225,16 @@ def cmd_up(args):
     bridge_port = args.bridge_port or _pick_free_port()
     bridge_addr = f"127.0.0.1:{bridge_port}"
 
+    prefer_release = not args.use_debug
+    force_download = args.force_download
+
     if mode == "bridge-only":
-        proc = embedded.start_bridge(bridge_addr, version=version)
+        proc = embedded.start_bridge(
+            bridge_addr,
+            version=version,
+            prefer_release=prefer_release,
+            force_download=force_download,
+        )
         print(f"[loom] Bridge server started PID={proc.pid} at {bridge_addr}")
         print(f"[loom] Python agents can connect via LOOM_BRIDGE_ADDR={bridge_addr}")
     else:  # full mode
@@ -233,6 +243,8 @@ def cmd_up(args):
             bridge_addr=bridge_addr,
             dashboard_port=dashboard_port,
             version=version,
+            prefer_release=prefer_release,
+            force_download=force_download,
         )
         print(f"[loom] Loom Core started PID={proc.pid}")
         print(f"[loom] Bridge: {bridge_addr}")
@@ -251,6 +263,62 @@ def cmd_up(args):
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+
+
+def cmd_down(args):
+    """Shutdown all Loom processes (bridge, core, dashboard, agents)."""
+    try:
+        import psutil
+    except ImportError:
+        print("[loom] ERROR: psutil is required for 'loom down'")
+        print("[loom] Install with: pip install psutil")
+        sys.exit(1)
+
+    killed_count = 0
+
+    print("[loom] Scanning for Loom processes...")
+
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            cmdline = proc.info.get("cmdline", [])
+            if not cmdline:
+                continue
+
+            cmdline_str = " ".join(cmdline)
+
+            # Check if it's a Loom runtime process
+            if "loom-bridge-server" in cmdline_str:
+                print(f"[loom] Killing loom-bridge-server (PID {proc.pid})")
+                proc.terminate()
+                killed_count += 1
+                try:
+                    proc.wait(timeout=3)
+                except psutil.TimeoutExpired:
+                    print(f"[loom] Force killing (PID {proc.pid})")
+                    proc.kill()
+
+            # Check if it's a Loom agent process (Python scripts in agents/ directory)
+            elif "python" in proc.info["name"] and any(
+                "loom" in arg.lower() or "/agents/" in arg for arg in cmdline
+            ):
+                # More specific check: look for loom SDK imports or agents directory
+                if any(kw in cmdline_str for kw in ["from loom import", "agents/", "loom.agent"]):
+                    print(f"[loom] Killing agent process (PID {proc.pid})")
+                    proc.terminate()
+                    killed_count += 1
+                    try:
+                        proc.wait(timeout=3)
+                    except psutil.TimeoutExpired:
+                        print(f"[loom] Force killing (PID {proc.pid})")
+                        proc.kill()
+
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+
+    if killed_count == 0:
+        print("[loom] No Loom processes found")
+    else:
+        print(f"[loom] Shutdown complete ({killed_count} processes killed)")
 
 
 def main():
@@ -294,6 +362,16 @@ def main():
         "--startup-wait", type=float, default=2.0, help="Seconds to wait after runtime starts"
     )
     sr.add_argument("--logs", action="store_true", help="Save logs to project logs/ directory")
+    sr.add_argument(
+        "--use-debug",
+        action="store_true",
+        help="Prefer debug builds over release builds (dev mode)",
+    )
+    sr.add_argument(
+        "--force-download",
+        action="store_true",
+        help="Force download binary from GitHub, skip cache and local builds",
+    )
     sr.set_defaults(func=cmd_run)
 
     su = sub.add_parser("up", help="Start embedded runtime (bridge or full core with dashboard)")
@@ -308,7 +386,20 @@ def main():
     su.add_argument(
         "--dashboard-port", type=int, default=3030, help="Dashboard port (default: 3030)"
     )
+    su.add_argument(
+        "--use-debug",
+        action="store_true",
+        help="Prefer debug builds over release builds (dev mode)",
+    )
+    su.add_argument(
+        "--force-download",
+        action="store_true",
+        help="Force download binary from GitHub, skip cache and local builds",
+    )
     su.set_defaults(func=cmd_up)
+
+    sdown = sub.add_parser("down", help="Shutdown all Loom processes (runtime + agents)")
+    sdown.set_defaults(func=cmd_down)
 
     args = p.parse_args()
     args.func(args)
