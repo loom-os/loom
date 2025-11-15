@@ -6,6 +6,23 @@ Parses loom.toml files with support for:
 - LLM provider configuration
 - MCP server configuration
 - Dashboard settings
+
+Example loom.toml structure:
+
+    [llm.openai]
+    type = "http"
+    api_key = "sk-..."
+    model = "gpt-4"
+
+    [mcp.filesystem]
+    command = "npx"
+    args = ["-y", "@modelcontextprotocol/server-filesystem"]
+
+    [agents.my_agent]
+    role = "analyst"
+    max_iterations = 10
+
+Note: Use proper TOML tables (not string-encoded Python dictionaries).
 """
 
 from __future__ import annotations
@@ -132,20 +149,11 @@ class ProjectConfig:
                 host=dash_data.get("host", "127.0.0.1"),
             )
 
-        # LLM providers
+        # LLM providers - expect proper TOML tables
         if "llm" in data:
             for provider_name, provider_data in data["llm"].items():
-                # Handle string-encoded dicts (e.g., "{'key': 'value'}")
-                if isinstance(provider_data, str):
-                    import ast
-
-                    try:
-                        provider_data = ast.literal_eval(provider_data)
-                    except (ValueError, SyntaxError):
-                        # If parsing fails, skip this provider
-                        continue
-
                 if not isinstance(provider_data, dict):
+                    # Skip invalid entries - TOML should provide dictionaries
                     continue
 
                 config.llm_providers[provider_name] = LLMProviderConfig(
@@ -160,20 +168,11 @@ class ProjectConfig:
                     extra=provider_data.get("extra", {}),
                 )
 
-        # MCP servers
+        # MCP servers - expect proper TOML tables
         if "mcp" in data:
             for server_name, server_data in data["mcp"].items():
-                # Handle string-encoded dicts (e.g., "{'key': 'value'}")
-                if isinstance(server_data, str):
-                    import ast
-
-                    try:
-                        server_data = ast.literal_eval(server_data)
-                    except (ValueError, SyntaxError):
-                        # If parsing fails, skip this server
-                        continue
-
                 if not isinstance(server_data, dict):
+                    # Skip invalid entries - TOML should provide dictionaries
                     continue
 
                 config.mcp_servers[server_name] = MCPServerConfig(
@@ -183,20 +182,8 @@ class ProjectConfig:
                     env=server_data.get("env", {}),
                 )
 
-        # Agent configs - handle string-encoded dicts
-        raw_agents = data.get("agents", {})
-        config.agents = {}
-        for agent_name, agent_data in raw_agents.items():
-            if isinstance(agent_data, str):
-                import ast
-
-                try:
-                    config.agents[agent_name] = ast.literal_eval(agent_data)
-                except (ValueError, SyntaxError):
-                    # If parsing fails, keep as string
-                    config.agents[agent_name] = agent_data
-            else:
-                config.agents[agent_name] = agent_data
+        # Agent configs - expect proper TOML tables
+        config.agents = data.get("agents", {})
 
         return config
 
