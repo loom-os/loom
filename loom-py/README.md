@@ -46,13 +46,26 @@ loom up --mode bridge-only
 
 # Specify custom ports
 loom up --bridge-port 9999 --dashboard-port 8080
+
+# Development: Prefer debug builds over release
+loom up --use-debug
+
+# Force download from GitHub (skip cache and local builds)
+loom up --force-download
 ```
 
 The `loom up` command will:
+
 - Automatically download pre-built binaries (or use local builds in dev)
 - Start the runtime with proper configuration
 - Cache binaries in `~/.cache/loom/bin` for reuse
 - Display the Dashboard URL (in full mode): `http://localhost:3030`
+
+**Binary Selection Priority**:
+
+1. **Local builds** in `target/release/` or `target/debug/` (prefers release unless `--use-debug`)
+2. **Cached binaries** in `~/.cache/loom/bin/` (validated by version)
+3. **GitHub releases** (downloaded and cached automatically)
 
 Or manually specify a remote bridge:
 
@@ -100,11 +113,10 @@ python my_agent.py
 - Context API (emit, reply, tool invocation)
 - Envelope for correlation and threading
 - Request/reply with timeout
-🚧 **Coming Soon**:
+  🚧 **Coming Soon**:
 - Memory backends
 - Dynamic subscriptions
 - Streaming responses
-
 
 ## Documentation
 

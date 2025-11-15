@@ -183,45 +183,23 @@ Priority 4: Chaos engineering tests
 
 ---
 
-#### 3. **Binary Selection & Caching** — 🐛 KNOWN BUG
+#### 3. **Binary Selection & Caching** — ✅ FIXED (2025-11-15)
 
-**Problem**: `loom run` may use stale cached binaries after local rebuild, causing confusion during development.
+**Problem**: `loom run` used stale cached binaries after local rebuild, causing confusion during development.
 
-**Current State** (`loom-py/src/loom/embedded.py`):
+**Solution** (`loom-py/src/loom/embedded.py`):
 
-- ✅ Finds local builds in `target/{debug,release}/`
-- ✅ Downloads from GitHub Releases with SHA256 verification
-- ✅ Caches binaries in `~/.cache/loom/bin/{version}/`
-- ❌ **No version validation** for cached binaries
-- ❌ **Cache invalidation** requires manual deletion
-- ❌ **Priority order** unclear (cached vs local build)
+- ✅ **Version validation**: Calls `binary --version` to validate cached binaries before use
+- ✅ **Cache invalidation**: Automatically invalidates cache on version mismatch
+- ✅ **Priority order**: local builds → cached → download (developer-friendly)
+- ✅ **Release preference**: Prefers release over debug by default (`prefer_release=True`)
+- ✅ **CLI flags**: Added `--use-debug` and `--force-download` to `loom run` and `loom up`
+- ✅ **Visibility**: Logs which binary is being used (path + version)
 
-**Required Work**:
+**Remaining Work** (moved to P1):
 
-```
-Priority 1: Add version validation
-  - get_binary() calls binary --version
-  - Compare with expected version
-  - Invalidate cache on mismatch
-
-Priority 2: Improve local build detection
-  - Prefer release over debug by default
-  - Add --use-debug flag to loom run
-  - Search from current directory upwards (not just repo root)
-
-Priority 3: Developer ergonomics
-  - Add --force-rebuild flag to loom run
-  - Add --clear-cache command to CLI
-  - Log which binary is being used (path + version)
-```
-
-**Acceptance Criteria**:
-
-- ✅ After `cargo build --release`, next `loom run` uses new binary
-- ✅ Cache invalidated automatically when version changes
-- ✅ Clear error message if binary version mismatch
-
-**Estimated Effort**: 1-2 days
+- 🚧 Add `--clear-cache` command to CLI
+- 🚧 Search from current directory upwards (not just repo root)
 
 ---
 

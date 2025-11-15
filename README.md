@@ -48,13 +48,15 @@ See full component breakdown and contracts in `docs/ARCHITECTURE.md`.
 
 ### Option A: Python Multi-Agent Example (5-minute quickstart)
 
-1. Start the Bridge server
+**Prerequisite**: `pip install loom`
+
+1. Start the Loom runtime (auto-downloads binaries)
 
 ```bash
-cargo run -p loom-bridge --bin loom-bridge-server
+loom up
 ```
 
-2. Write your agents (see `loom-py/examples/trio.py`):
+2. Write your agents:
 
 ```python
 from loom import Agent, capability
@@ -86,7 +88,24 @@ await planner.start()
 await researcher.start()
 ```
 
-3. Explore more examples in `loom-py/examples/`.
+3. Run the Market Analyst demo (5 collaborative agents):
+
+```bash
+cd demo/market-analyst
+loom run  # Auto-starts all agents from loom.toml
+```
+
+4. Open the Dashboard at `http://localhost:3030` to see events flowing!
+
+**Development Tips**:
+
+```bash
+# Use debug builds (faster compile, more logs)
+loom run --use-debug
+
+# Force fresh download from GitHub releases
+loom run --force-download
+```
 
 ### Option B: Voice Agent Demo (fastest way to see Loom in action)
 
