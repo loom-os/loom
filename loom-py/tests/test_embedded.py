@@ -97,7 +97,9 @@ members = ["core", "bridge"]
     result = find_local_build("loom-bridge-server")
     assert result is not None
     assert result.name == "loom-bridge-server"
-    assert "target/release" in str(result)
+    # Check path components instead of string to be cross-platform
+    assert result.parent.name == "release"
+    assert result.parent.parent.name == "target"
 
 
 def test_find_local_build_no_repo(tmp_path, monkeypatch):
