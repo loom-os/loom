@@ -1,5 +1,5 @@
 #!/bin/bash
-# End-to-end trace test script to ensure OTEL env is passed to Rust and Python
+# Complete trace test script to ensure environment variables are correctly passed to Rust and Python
 
 set -e
 
@@ -23,15 +23,15 @@ else
     echo "✅ Jaeger is running"
 fi
 
-# 2. Stop previous processes
+# 2. Stop old processes
 echo ""
-echo "[2/5] Cleaning up previous Loom processes..."
+echo "[2/5] Stopping old processes..."
 conda run -n loom loom down || true
 sleep 2
 
-# 3. Set environment variables (important)
+# 3. Set environment variables (critical!)
 echo ""
-echo "[3/5] Configuring environment..."
+echo "[3/5] Setting environment variables..."
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 export OTEL_SERVICE_NAME=loom-trace-test
 export RUST_LOG=info,loom_core=debug,loom_bridge=debug
@@ -41,14 +41,14 @@ echo "   OTEL_EXPORTER_OTLP_ENDPOINT: $OTEL_EXPORTER_OTLP_ENDPOINT"
 echo "   OTEL_SERVICE_NAME: $OTEL_SERVICE_NAME"
 echo "   RUST_LOG: $RUST_LOG"
 
-# 4. Start Loom (with env vars)
+# 4. Start loom with env vars
 echo ""
 echo "[4/5] Starting Loom..."
 echo "📝 Running for 30 seconds to generate traces..."
 echo "   View logs: tail -f logs/*.log"
 echo ""
 
-# 使用timeout并保持环境变量
+# Set ENV and run loom with 30s timeout
 timeout 30 conda run -n loom bash -c "
     export OTEL_EXPORTER_OTLP_ENDPOINT=$OTEL_EXPORTER_OTLP_ENDPOINT
     export OTEL_SERVICE_NAME=$OTEL_SERVICE_NAME
@@ -70,12 +70,12 @@ echo ""
 echo "🔍 Find traces:"
 echo "   1. Service: select 'loom-trace-test' or 'trace-test-sensor'"
 echo "   2. Click 'Find Traces'"
-echo "   3. Open a trace to view details"
+echo "   3. Select a trace to view details"
 echo ""
 echo "✅ Expected results:"
-echo "   - See 3 services (sensor/processor/output)"
-echo "   - Each trace has 5–7 spans"
-echo "   - Spans connect seamlessly with no large gaps"
+echo "   - 3 services visible (sensor/processor/output)"
+echo "   - Each trace has 5-7 spans"
+echo "   - Spans are seamlessly connected with no large gaps"
 echo "   - Includes: sensor.emit → bridge.publish → event_bus.publish → processor → ..."
 echo ""
 echo "==================================="

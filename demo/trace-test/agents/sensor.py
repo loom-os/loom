@@ -9,7 +9,7 @@ import asyncio
 import json
 import time
 
-from loom import Agent, shutdown_telemetry
+from loom import Agent
 from opentelemetry import trace
 
 # Get tracer for creating root spans
@@ -62,4 +62,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("[sensor] Shutting down...")
-        shutdown_telemetry()

@@ -36,7 +36,14 @@ class Agent:
         if os.getenv("LOOM_TELEMETRY_AUTO", "1") != "0":
             # Derive a sensible default service name per agent process
             svc = os.getenv("OTEL_SERVICE_NAME") or f"agent-{agent_id}"
-            init_telemetry(service_name=svc)
+            try:
+                init_telemetry(service_name=svc)
+            except Exception as e:
+                logging.warning(
+                    "Failed to initialize telemetry for agent %s: %s. Continuing without tracing.",
+                    agent_id,
+                    e,
+                )
 
         self.agent_id = agent_id
         self.topics = list(topics)

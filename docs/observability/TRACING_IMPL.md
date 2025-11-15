@@ -117,7 +117,7 @@ sensor-agent → sensor.data → processor-agent → processed.data → output-a
 - Update `docs/ROADMAP.md` to mark tracing implementation as done for core/bridge/sdk and move remaining work to dashboard + demos.
 - Create a high‑level `docs/observability/TRACING.md` that points to this implementation file and shows “how to use it” for users.
 
-## 🏗️ 架构图
+## 🏗️ Architucture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

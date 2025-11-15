@@ -123,7 +123,7 @@ class Envelope:
         and stores them in the envelope for propagation across process boundaries.
         """
         span = get_current_span()
-        if span and span.get_span_context().is_valid:
+        if span and span.get_span_context().is_valid():
             ctx = span.get_span_context()
             self.trace_id = format(ctx.trace_id, "032x")
             self.span_id = format(ctx.span_id, "016x")

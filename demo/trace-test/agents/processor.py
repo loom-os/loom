@@ -3,7 +3,7 @@
 import asyncio
 import json
 
-from loom import Agent, init_telemetry, shutdown_telemetry
+from loom import Agent
 
 
 async def processor_handler(ctx, topic: str, event) -> None:
@@ -29,9 +29,8 @@ async def processor_handler(ctx, topic: str, event) -> None:
 
 
 async def main():
-    # Initialize telemetry BEFORE creating agent
-    init_telemetry(service_name="trace-test-processor")
-
+    # Telemetry is automatically initialized by the Agent class
+    # Service name is derived from agent_id: "agent-processor-agent"
     agent = Agent(
         agent_id="processor-agent",
         topics=["sensor.data"],
@@ -48,7 +47,6 @@ async def main():
     except KeyboardInterrupt:
         print("[processor] Shutting down...")
         await agent.stop()
-        shutdown_telemetry()
 
 
 if __name__ == "__main__":
