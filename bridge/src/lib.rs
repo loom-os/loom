@@ -412,11 +412,28 @@ impl Bridge for BridgeService {
         Ok(Response::new(Box::pin(outbound) as Self::EventStreamStream))
     }
 
+    #[tracing::instrument(skip(self, request), fields(
+        capability = tracing::field::Empty,
+        call_id = tracing::field::Empty,
+        trace_id = tracing::field::Empty
+    ))]
     async fn forward_action(
         &self,
         request: Request<ActionCall>,
     ) -> std::result::Result<Response<ActionResult>, Status> {
         let call = request.into_inner();
+
+        // Record call details in span
+        tracing::Span::current().record("capability", &call.capability.as_str());
+        tracing::Span::current().record("call_id", &call.id.as_str());
+
+        // Extract trace context from action call
+        let envelope = loom_core::Envelope::from_metadata(&call.headers, &call.id);
+        if envelope.extract_trace_context() {
+            tracing::Span::current()
+                .record("trace_id", &tracing::field::display(&envelope.trace_id));
+        }
+
         let broker = Arc::clone(&self.state.action_broker);
         match broker.invoke(call.clone()).await {
             Ok(res) => Ok(Response::new(res)),
