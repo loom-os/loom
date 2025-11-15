@@ -1,43 +1,45 @@
 # Distributed Tracing Implementation Summary
 
-## 🎯 目标
+## 🎯 Goal
 
-实现 market-analyst demo 的全链路分布式追踪，解决 P0 Critical Gap #1。
+Implement end-to-end distributed tracing for the demos (starting with `trace-test`, then `market-analyst`) and close P0 Critical Gap #1.
 
-## ✅ 已完成工作
+## ✅ Completed
 
-### 1. Rust Core - Envelope 扩展 (/core/src/envelope.rs)
+### 1. Rust Core – Envelope trace context (/core/src/envelope.rs)
 
-**新增字段**：
+**New fields**:
 
 - `trace_id`: OpenTelemetry trace ID (128-bit hex)
 - `span_id`: OpenTelemetry span ID (64-bit hex)
 - `trace_flags`: Trace flags (8-bit hex, typically "01" for sampled)
 
-**新增方法**：
+**New methods**:
 
 ```rust
 pub fn inject_trace_context(&mut self)
 pub fn extract_trace_context(&self) -> bool
 ```
 
-**自动注入点**：
+**Automatic injection points**:
 
-- `EventBus::publish()` - 在事件发布前自动注入当前 span 的 trace context
-- `ActionBroker::invoke()` - 在 action 调用前自动注入 trace context
+- `EventBus::publish()` – injects the current span’s trace context into the event metadata before publishing.
+- `ActionBroker::invoke()` – injects trace context into ActionCall headers before invoking capabilities.
 
-### 2. Bridge - Trace Propagation (/bridge/src/lib.rs)
+### 2. Bridge – Trace propagation (/bridge/src/lib.rs)
 
-**event_stream 处理**：
+**event_stream handling**:
 
-- 从 Python ClientEvent 提取 trace context
-- 使用`envelope.extract_trace_context()`设置远程父 span
-- 创建`bridge_publish` span 继续 trace 链路
-- 包含属性：agent_id, topic, event_id, trace_id, span_id
+- Extracts trace context from inbound events via `Envelope::from_event`.
+- Calls `envelope.extract_trace_context()` *after* creating and entering the `bridge.publish` span so the span gets the correct remote parent.
+- Emits spans:
+    - `bridge.publish` – Python → Bridge → EventBus path
+    - `bridge.forward` – EventBus → Bridge → Python agent delivery path
+- Span attributes include: `agent_id`, `topic`, `event_id`, `trace_id`, `span_id`.
 
-### 3. Python SDK - OpenTelemetry 集成
+### 3. Python SDK – OpenTelemetry integration
 
-**依赖添加** (pyproject.toml):
+**Dependencies** (pyproject.toml):
 
 ```toml
 opentelemetry-api>=1.22.0
@@ -45,89 +47,75 @@ opentelemetry-sdk>=1.22.0
 opentelemetry-exporter-otlp-proto-grpc>=1.22.0
 ```
 
-**envelope.py 扩展**：
+**envelope.py**:
 
-- 添加 trace_id/span_id/trace_flags 字段
-- `inject_trace_context()` - 从当前 span 注入
-- `extract_trace_context()` - 提取并返回 SpanContext
+- Adds `trace_id` / `span_id` / `trace_flags` fields.
+- `inject_trace_context()` – injects the current span’s IDs and flags into the envelope and metadata.
+- `extract_trace_context()` – parses IDs and returns a remote `SpanContext` to be used as parent.
 
-**context.py 修改**：
+**context.py**:
 
-- `emit()` - 自动调用`env.inject_trace_context()`
+- `emit()` – calls `env.inject_trace_context()` automatically so every outbound event carries trace context.
 
-**agent.py 修改**：
+**agent.py**:
 
-- `_run_stream()` - 在 on_event 前提取 trace context 并创建子 span
-- 创建`agent.on_event` span with attributes (agent.id, event.id, event.type, topic, thread_id, correlation_id)
+- `_run_stream()` – before invoking user `on_event`, extracts trace context from the envelope and creates an `agent.on_event` child span.
+- Span attributes: `agent.id`, `event.id`, `event.type`, `topic`, `thread_id`, `correlation_id`.
+- Agents now auto-initialize telemetry on construction, with defaults:
+    - `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` (if not set)
+    - `OTEL_TRACE_SAMPLER=always_on` (if not set)
+    - `OTEL_SERVICE_NAME=agent-{agent_id}` unless overridden
+    - This can be disabled with `LOOM_TELEMETRY_AUTO=0`.
 
-**tracing.py (新模块)**：
+**tracing.py**:
 
-- `init_telemetry()` - 初始化 OTLP exporter 和 TracerProvider
-- `shutdown_telemetry()` - 优雅关闭并刷新 pending spans
-- 支持环境变量：OTEL_SERVICE_NAME, OTEL_EXPORTER_OTLP_ENDPOINT
+- `init_telemetry()` – sets up OTLP exporter and `TracerProvider` (still available for manual/custom setups).
+- `shutdown_telemetry()` – flushes and shuts down the provider.
+- Respects `OTEL_SERVICE_NAME` and `OTEL_EXPORTER_OTLP_ENDPOINT` environment variables.
 
 ### 4. Trace Test Demo (/demo/trace-test/)
 
-**简化的 3-agent 线性 workflow**：
+**Simplified 3‑agent linear workflow**：
 
 ```
 sensor-agent → sensor.data → processor-agent → processed.data → output-agent
 ```
 
-**目的**：
+**Goals**：
 
-- 验证 Python → Rust → Python 的完整 trace 链路
-- 验证 parent-child span 关系
-- 避免 market-analyst 的复杂 fan-out/fan-in
+- Validate full Python → Rust → Python trace propagation.
+- Validate parent/child span relationships.
+- Use a simple topology instead of the complex `market-analyst` fan‑out/fan‑in as a first step.
 
-**文件**：
+**Files**：
 
-- `loom.toml` - agent 配置
-- `agents/sensor.py` - 数据生成器（每 2 秒）
-- `agents/processor.py` - 数据处理器（×1.5）
-- `agents/output.py` - 数据消费者
+- `loom.toml` – project config
+- `agents/sensor.py` – data producer (every 2 seconds, creates root spans)
+- `agents/processor.py` – data transformer (×1.5)
+- `agents/output.py` – sink/consumer
 
-## 📋 下一步行动
+## 📋 Next Actions
 
-### Priority 1: 测试 trace-test demo
+### Priority 1: Dashboard integration (Roadmap TODO #5)
 
-```bash
-# Terminal 1: 启动observability stack
-cd observability
-docker compose -f docker-compose.observability.yaml up
+- Extend `FlowTracker` and `EventFlow` to carry `trace_id`.
+- Surface `trace_id` in dashboard APIs and UI.
+- Add a Jaeger deep‑link so clicking an event in the dashboard opens the corresponding trace.
 
-# Terminal 2: 运行demo
-cd demo/trace-test
-loom run
+### Priority 2: Market‑Analyst validation (Roadmap TODO #6)
 
-# Terminal 3: 查看Jaeger
-open http://localhost:16686
-```
+- Ensure all agents (data/trend/risk/sentiment/planner) run with telemetry enabled.
+- Validate fan‑out/fan‑in trace topology:
+    - One root span at request entry.
+    - Parallel spans for each analysis agent.
+    - A planner span that either parents or links to all upstream spans.
+- Confirm LLM spans are visible and correctly attributed.
 
-**验证项**：
+### Priority 3: E2E tests and docs (Roadmap TODO #7)
 
-- [ ] Jaeger 中能看到完整 trace
-- [ ] sensor → processor → output 的 span hierarchy 正确
-- [ ] trace_id 在所有 span 中一致
-- [ ] Python spans 有正确的 attributes
-
-### Priority 2: Dashboard 集成 (TODO #5)
-
-- 修改`flow_tracker.rs`添加 trace_id 字段
-- 修改 EventFlow struct 包含 trace_id
-- Dashboard UI 显示 trace_id 并链接到 Jaeger
-
-### Priority 3: Market-Analyst 验证 (TODO #6)
-
-- 在 data/trend/risk/sentiment/planner agents 中添加 init_telemetry()
-- 验证 fan-out/fan-in 的 trace 拓扑
-- 确认 LLM 调用的 span 可见
-
-### Priority 4: E2E 测试和文档 (TODO #7)
-
-- 添加 integration test 验证 trace propagation
-- 更新 ROADMAP.md 标记 tracing 完成
-- 创建 docs/observability/TRACING.md
+- Add end‑to‑end tests that assert trace continuity across Rust Core, Bridge, and Python SDK.
+- Update `docs/ROADMAP.md` to mark tracing implementation as done for core/bridge/sdk and move remaining work to dashboard + demos.
+- Create a high‑level `docs/observability/TRACING.md` that points to this implementation file and shows “how to use it” for users.
 
 ## 🏗️ 架构图
 
@@ -175,17 +163,17 @@ open http://localhost:16686
 │                                                             │
 │  Jaeger displays:                                          │
 │  trace_id: XXX (same across all spans)                     │
-│  ├─ A1 (Python emit)                                       │
-│  │  ├─ B1 (Bridge receive)                                │
+│  ├─ A1 (Python emit root span, e.g. sensor.emit_data)      │
+│  │  ├─ B1 (Bridge publish)                                │
 │  │  │  ├─ E1 (EventBus publish)                           │
 │  │  │  │  ├─ B2 (Bridge forward)                          │
-│  │  │  │  │  └─ A2 (Python on_event)                      │
+│  │  │  │  │  └─ A2 (Python agent.on_event)                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 🔑 关键代码片段
+## 🔑 Key code snippets
 
-### Rust: Envelope 注入
+### Rust: Envelope injection
 
 ```rust
 // In EventBus::publish()
@@ -194,7 +182,7 @@ envelope.inject_trace_context();
 envelope.attach_to_event(&mut event);
 ```
 
-### Rust: Bridge 提取
+### Rust: Bridge extraction
 
 ```rust
 // In event_stream inbound handler
@@ -208,7 +196,7 @@ let span = tracing::info_span!(
 );
 ```
 
-### Python: Agent 处理
+### Python: Agent handling
 
 ```python
 # In agent._run_stream()
@@ -221,28 +209,28 @@ with tracer.start_as_current_span("agent.on_event", context=ctx):
     await self._on_event(self._ctx, delivery.topic, env)
 ```
 
-## 💡 设计决策
+## 💡 Design decisions
 
-1. **自动注入** - EventBus 和 ActionBroker 自动注入，无需手动调用
-2. **向后兼容** - trace 字段为 Optional，不影响现有代码
-3. **标准格式** - 使用 W3C Trace Context 格式（128-bit trace_id, 64-bit span_id）
-4. **Envelope 为载体** - 统一使用 Envelope 传递 trace context，避免分散
-5. **Environment-based 配置** - OTEL_SERVICE_NAME, OTEL_EXPORTER_OTLP_ENDPOINT
+1. **Automatic injection** – EventBus and ActionBroker inject trace context automatically; user code rarely needs to call inject manually.
+2. **Backwards compatible** – trace fields are optional and skipped when empty; existing payloads and agents continue to work.
+3. **Standard format** – uses W3C Trace Context format (128‑bit `trace_id`, 64‑bit `span_id`).
+4. **Envelope as carrier** – the envelope is the single place where cross‑process trace context lives, avoiding ad‑hoc headers.
+5. **Environment‑based configuration** – `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, and `OTEL_TRACE_SAMPLER` control behavior for both Rust and Python.
 
-## 🐛 已知问题
+## 🐛 Known gaps
 
-1. **Python 依赖未安装** - 需要`pip install -e loom-py`重新安装
-2. **Dashboard 未集成** - FlowTracker 还没有 trace_id 字段
-3. **Market-Analyst 未更新** - agents 需要调用 init_telemetry()
+1. **Dashboard trace integration** – FlowTracker and the dashboard UI now have access to `trace_id`, but the UI still needs explicit trace timelines + Jaeger deep links.
+2. **Market‑Analyst demo** – the demo code must be updated to rely on the new auto‑telemetry behavior and validated end‑to‑end.
+3. **Docs & tests** – a user‑facing “Tracing Quickstart” and regression tests for trace propagation are still to be added.
 
-## 📚 参考资料
+## 📚 References
 
 - [OpenTelemetry Python](https://opentelemetry-python.readthedocs.io/)
 - [W3C Trace Context](https://www.w3.org/TR/trace-context/)
 - [Jaeger UI Guide](https://www.jaegertracing.io/docs/latest/frontend-ui/)
 - [ROADMAP.md](../../docs/ROADMAP.md) - P0 Critical Gap #1
-
 ---
 
-**Status**: ✅ Core implementation 完成，等待 testing 验证
-**Next**: 运行 trace-test demo 并验证 Jaeger traces
+**Status**: ✅ Core implementation (Rust + Bridge + Python SDK) is complete and validated with the `trace-test` demo.
+
+**Next**: Integrate traces into the Dashboard UX and roll tracing out to the `market-analyst` demo and other examples.
