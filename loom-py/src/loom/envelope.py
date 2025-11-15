@@ -77,7 +77,10 @@ class Envelope:
         meta = dict(ev.metadata)
 
         def get_opt(key: str) -> Optional[str]:
-            return meta.get(key)
+            # Try with loom prefix first, then without
+            return meta.get(f"{META_PREFIX}.{key}") or meta.get(key)
+
+        ttl_str = get_opt("ttl_ms") or get_opt("ttl")
 
         return cls(
             id=ev.id,
@@ -92,7 +95,7 @@ class Envelope:
             correlation_id=get_opt("correlation_id"),
             sender=get_opt("sender"),
             reply_to=get_opt("reply_to"),
-            ttl_ms=int(get_opt("ttl")) if get_opt("ttl") is not None else None,
+            ttl_ms=int(ttl_str) if ttl_str is not None else None,
             trace_id=get_opt("trace_id"),
             span_id=get_opt("span_id"),
             trace_flags=get_opt("trace_flags"),
