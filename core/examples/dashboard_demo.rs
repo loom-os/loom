@@ -13,8 +13,8 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Initialize telemetry
-    loom_core::telemetry::init_telemetry()?;
+    // Initialize telemetry with SpanCollector
+    let span_collector = loom_core::telemetry::init_telemetry()?;
 
     info!("Starting Loom with Dashboard...");
 
@@ -31,10 +31,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let event_bus = Arc::new(event_bus);
 
-    // Start Dashboard server
+    // Start Dashboard server with SpanCollector
     let config = DashboardConfig::from_env();
-    let dashboard = DashboardServer::new(config.clone(), broadcaster, agent_directory.clone())
-        .with_flow_tracker(flow_tracker.clone());
+    let dashboard = DashboardServer::new(
+        config.clone(),
+        broadcaster,
+        agent_directory.clone(),
+        span_collector,
+    )
+    .with_flow_tracker(flow_tracker.clone());
 
     info!(
         "Dashboard will be available at http://{}:{}",
@@ -53,6 +58,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         agent_id: "planner".to_string(),
         subscribed_topics: vec!["agent.task".to_string(), "thread.*.broadcast".to_string()],
         capabilities: vec!["plan.create".to_string()],
+        status: loom_core::directory::AgentStatus::Active,
+        last_heartbeat: Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64,
+        ),
         metadata: Default::default(),
     };
 
@@ -62,6 +74,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         agent_id: "researcher".to_string(),
         subscribed_topics: vec!["agent.research".to_string()],
         capabilities: vec!["web.search".to_string()],
+        status: loom_core::directory::AgentStatus::Active,
+        last_heartbeat: Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64,
+        ),
         metadata: Default::default(),
     });
 
@@ -69,6 +88,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         agent_id: "writer".to_string(),
         subscribed_topics: vec!["agent.write".to_string()],
         capabilities: vec!["content.generate".to_string()],
+        status: loom_core::directory::AgentStatus::Active,
+        last_heartbeat: Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64,
+        ),
         metadata: Default::default(),
     });
 

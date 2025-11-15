@@ -32,6 +32,7 @@ pub use providers::{WeatherProvider, WebSearchProvider};
 pub use router::{
     ConfidenceEstimator, DummyConfidenceEstimator, ModelRouter, Route, RoutingDecision,
 };
+pub use telemetry::{init_telemetry, shutdown_telemetry, SpanCollector, SpanData};
 
 // Generated proto code
 // Re-export proto types from the shared crate so existing paths `crate::proto::...` continue to work.
