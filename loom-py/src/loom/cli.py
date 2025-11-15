@@ -138,6 +138,8 @@ def cmd_run(args):
         dashboard_port=args.dashboard_port,
         startup_wait_sec=args.startup_wait,
         agent_scripts=agent_scripts,
+        prefer_release=not args.use_debug,
+        force_download=args.force_download,
     )
 
     # Run orchestrator
@@ -223,8 +225,16 @@ def cmd_up(args):
     bridge_port = args.bridge_port or _pick_free_port()
     bridge_addr = f"127.0.0.1:{bridge_port}"
 
+    prefer_release = not args.use_debug
+    force_download = args.force_download
+
     if mode == "bridge-only":
-        proc = embedded.start_bridge(bridge_addr, version=version)
+        proc = embedded.start_bridge(
+            bridge_addr,
+            version=version,
+            prefer_release=prefer_release,
+            force_download=force_download,
+        )
         print(f"[loom] Bridge server started PID={proc.pid} at {bridge_addr}")
         print(f"[loom] Python agents can connect via LOOM_BRIDGE_ADDR={bridge_addr}")
     else:  # full mode
@@ -233,6 +243,8 @@ def cmd_up(args):
             bridge_addr=bridge_addr,
             dashboard_port=dashboard_port,
             version=version,
+            prefer_release=prefer_release,
+            force_download=force_download,
         )
         print(f"[loom] Loom Core started PID={proc.pid}")
         print(f"[loom] Bridge: {bridge_addr}")
@@ -294,6 +306,16 @@ def main():
         "--startup-wait", type=float, default=2.0, help="Seconds to wait after runtime starts"
     )
     sr.add_argument("--logs", action="store_true", help="Save logs to project logs/ directory")
+    sr.add_argument(
+        "--use-debug",
+        action="store_true",
+        help="Prefer debug builds over release builds (dev mode)",
+    )
+    sr.add_argument(
+        "--force-download",
+        action="store_true",
+        help="Force download binary from GitHub, skip cache and local builds",
+    )
     sr.set_defaults(func=cmd_run)
 
     su = sub.add_parser("up", help="Start embedded runtime (bridge or full core with dashboard)")
@@ -307,6 +329,16 @@ def main():
     su.add_argument("--bridge-port", type=int, help="Bridge server port (default: auto)")
     su.add_argument(
         "--dashboard-port", type=int, default=3030, help="Dashboard port (default: 3030)"
+    )
+    su.add_argument(
+        "--use-debug",
+        action="store_true",
+        help="Prefer debug builds over release builds (dev mode)",
+    )
+    su.add_argument(
+        "--force-download",
+        action="store_true",
+        help="Force download binary from GitHub, skip cache and local builds",
     )
     su.set_defaults(func=cmd_up)
 
