@@ -5,10 +5,15 @@ import json
 import uuid
 from typing import Any, Awaitable, Callable, Dict, Optional
 
+from opentelemetry import trace
+
 from .client import BridgeClient, pb_action, pb_bridge, pb_event
 from .envelope import Envelope
 
 EventHandler = Callable[["Context", str, Envelope], Awaitable[None]]
+
+# Get tracer for capability invocation spans
+tracer = trace.get_tracer(__name__)
 
 
 class Context:
@@ -64,34 +69,60 @@ class Context:
         timeout_ms: int = 5000,
         headers: Optional[Dict[str, str]] = None,
     ) -> bytes:
-        data = payload
-        if payload is not None and not isinstance(payload, (bytes, bytearray)):
-            data = json.dumps(payload).encode("utf-8")
-        call_id = str(uuid.uuid4())
-        correlation_id = call_id
+        # Create span for capability invocation
+        with tracer.start_as_current_span(
+            "capability.invoke",
+            attributes={
+                "capability.name": name,
+                "capability.version": version,
+                "agent.id": self.agent_id,
+                "timeout.ms": timeout_ms,
+            },
+        ) as span:
+            data = payload
+            if payload is not None and not isinstance(payload, (bytes, bytearray)):
+                data = json.dumps(payload).encode("utf-8")
+            call_id = str(uuid.uuid4())
+            correlation_id = call_id
 
-        # Merge custom headers with default headers
-        call_headers = {
-            "x-correlation-id": correlation_id,
-            "x-agent-id": self.agent_id,
-        }
-        if headers:
-            call_headers.update(headers)
+            # Merge custom headers with default headers
+            call_headers = {
+                "x-correlation-id": correlation_id,
+                "x-agent-id": self.agent_id,
+            }
+            if headers:
+                call_headers.update(headers)
 
-        call = pb_action.ActionCall(
-            id=call_id,
-            capability=name,
-            version=version,
-            payload=data or b"",
-            headers=call_headers,
-            timeout_ms=timeout_ms,
-            correlation_id=correlation_id,
-            qos=0,
-        )
-        res = await self.client.forward_action(call)
-        if res.status == pb_action.ActionStatus.ACTION_OK:
-            return bytes(res.output)
-        raise RuntimeError(f"Tool call failed: {res.error.message if res.error else 'unknown'}")
+            call = pb_action.ActionCall(
+                id=call_id,
+                capability=name,
+                version=version,
+                payload=data or b"",
+                headers=call_headers,
+                timeout_ms=timeout_ms,
+                correlation_id=correlation_id,
+                qos=0,
+            )
+
+            try:
+                res = await self.client.forward_action(call)
+
+                # Record result status
+                span.set_attribute("capability.status", res.status)
+
+                if res.status == pb_action.ActionStatus.ACTION_OK:
+                    span.set_attribute("capability.output.size", len(res.output))
+                    span.set_status(trace.Status(trace.StatusCode.OK))
+                    return bytes(res.output)
+                else:
+                    error_msg = res.error.message if res.error else "unknown"
+                    span.set_status(trace.Status(trace.StatusCode.ERROR, error_msg))
+                    span.record_exception(RuntimeError(error_msg))
+                    raise RuntimeError(f"Tool call failed: {error_msg}")
+            except Exception as e:
+                span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                span.record_exception(e)
+                raise
 
     async def join_thread(self, thread_id: str) -> None:
         # MVP: use topic naming convention (doc): thread.{thread_id}.events

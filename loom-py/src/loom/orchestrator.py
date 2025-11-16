@@ -145,9 +145,9 @@ class Orchestrator:
             stdout_log = self._get_log_file(agent_name, stderr=False)
             stderr_log = self._get_log_file(agent_name, stderr=True)
 
-            # Per-agent env: derive service name if not set
+            # Per-agent env: MUST override service name for each agent
             env_agent = env_vars.copy()
-            env_agent.setdefault("OTEL_SERVICE_NAME", f"agent-{agent_name}")
+            env_agent["OTEL_SERVICE_NAME"] = f"agent-{agent_name}"  # Force override, not setdefault
 
             with open(stdout_log, "w") as out_f, open(stderr_log, "w") as err_f:
                 proc = subprocess.Popen(

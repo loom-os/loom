@@ -111,7 +111,7 @@ impl CapabilityProvider for LlmGenerateProvider {
 
     async fn invoke(&self, call: ActionCall) -> crate::Result<ActionResult> {
         // Allow headers to override config dynamically
-        // Keys: model, base_url, temperature, request_timeout_ms
+        // Keys: model, base_url, api_key, temperature, request_timeout_ms
         if !call.headers.is_empty() {
             let mut cfg = self.client.cfg.clone();
             if let Some(v) = call.headers.get("model") {
@@ -119,6 +119,9 @@ impl CapabilityProvider for LlmGenerateProvider {
             }
             if let Some(v) = call.headers.get("base_url") {
                 cfg.base_url = v.clone();
+            }
+            if let Some(v) = call.headers.get("api_key") {
+                cfg.api_key = Some(v.clone());
             }
             if let Some(v) = call
                 .headers

@@ -8,37 +8,53 @@ import asyncio
 import json
 import random
 
+from opentelemetry import trace
+
 from loom import Agent, load_project_config
+
+tracer = trace.get_tracer(__name__)
 
 
 async def sentiment_handler(ctx, topic: str, event) -> None:
     """Analyze sentiment from price update."""
-    data = json.loads(event.payload.decode("utf-8"))
-    price = data["price"]
-    symbol = data["symbol"]
+    with tracer.start_as_current_span(
+        "sentiment.analyze",
+        attributes={"sentiment.topic": topic},
+    ) as span:
+        data = json.loads(event.payload.decode("utf-8"))
+        price = data["price"]
+        symbol = data["symbol"]
 
-    # Simulate sentiment analysis (TODO: Use LLM + web search MCP tool)
-    await asyncio.sleep(random.uniform(0.2, 0.5))
+        # Simulate sentiment analysis (TODO: Use LLM + web search MCP tool)
+        await asyncio.sleep(random.uniform(0.2, 0.5))
 
-    sentiment = random.choice(["bullish", "neutral", "bearish"])
-    score = random.uniform(-1.0, 1.0)
+        sentiment = random.choice(["bullish", "neutral", "bearish"])
+        score = random.uniform(-1.0, 1.0)
 
-    result = {
-        "symbol": symbol,
-        "price": price,
-        "sentiment": sentiment,
-        "score": score,
-        "sources": ["twitter", "news", "reddit"],  # Placeholder
-        "timestamp_ms": data["timestamp_ms"],
-    }
+        result = {
+            "symbol": symbol,
+            "price": price,
+            "sentiment": sentiment,
+            "score": score,
+            "sources": ["twitter", "news", "reddit"],  # Placeholder
+            "timestamp_ms": data["timestamp_ms"],
+        }
 
-    print(f"[sentiment] {symbol} sentiment: {sentiment} (score: {score:.2f})")
+        # Record sentiment metrics
+        span.set_attribute("sentiment.symbol", symbol)
+        span.set_attribute("sentiment.price", price)
+        span.set_attribute("sentiment.result", sentiment)
+        span.set_attribute("sentiment.score", score)
 
-    await ctx.emit(
-        "analysis.sentiment",
-        type="analysis.sentiment",
-        payload=json.dumps(result).encode("utf-8"),
-    )
+        print(f"[sentiment] {symbol} sentiment: {sentiment} (score: {score:.2f})")
+
+        await ctx.emit(
+            "analysis.sentiment",
+            type="analysis.sentiment",
+            payload=json.dumps(result).encode("utf-8"),
+        )
+
+        span.set_status(trace.Status(trace.StatusCode.OK))
 
 
 async def main():

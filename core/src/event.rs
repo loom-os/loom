@@ -296,12 +296,34 @@ impl EventBus {
             );
         }
 
-        // Get subscribers
+        // Get subscribers: match both exact topics and wildcard patterns
+        let mut all_matching_subs: Vec<Subscription> = Vec::new();
+
+        // First, check for exact match
         if let Some(subs) = self.subscriptions.get(topic) {
+            all_matching_subs.extend(subs.value().iter().cloned());
+        }
+
+        // Then, check for wildcard patterns (e.g., "market.price.*" matches "market.price.BTC")
+        for entry in self.subscriptions.iter() {
+            let pattern = entry.key().as_str();
+            if let Some(prefix) = pattern.strip_suffix(".*") {
+                // Check if topic starts with this prefix followed by a dot
+                if topic.len() > prefix.len()
+                    && topic.starts_with(prefix)
+                    && topic.as_bytes().get(prefix.len()) == Some(&b'.')
+                {
+                    // This pattern matches the topic
+                    all_matching_subs.extend(entry.value().iter().cloned());
+                }
+            }
+        }
+
+        if !all_matching_subs.is_empty() {
             let mut delivered = 0;
             let mut dropped = 0;
 
-            for sub in subs.value() {
+            for sub in &all_matching_subs {
                 // Check event type filtering
                 if !sub.event_types.is_empty() && !sub.event_types.contains(&event.r#type) {
                     continue;
