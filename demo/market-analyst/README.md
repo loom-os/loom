@@ -15,7 +15,7 @@ This demo showcases Loom's capabilities for building production-ready multi-agen
 ## Architecture
 
 ```
-data_agent (market prices)
+data_agent (OKX WebSocket - real-time prices)
     ↓ emits market.price.BTC
     ├──→ trend_agent (technical indicators)
     ├──→ risk_agent (risk metrics)
@@ -23,7 +23,18 @@ data_agent (market prices)
             ↓ emit analysis.*
             └──→ planner_agent (aggregate + LLM reasoning)
                     ↓ emit plan.ready
+                    └──→ executor_agent (OKX WebSocket - trade execution)
+                            ↓ emit execution.{symbol}
 ```
+
+## Features
+
+✅ **Real-Time Data**: OKX WebSocket for live market prices (BTC, ETH)
+✅ **LLM Planning**: DeepSeek API for intelligent trading decisions
+✅ **Trade Execution**: Automated order placement via OKX API
+✅ **Demo Mode**: Safe testing with OKX simulated trading
+✅ **Full Observability**: Jaeger traces for end-to-end monitoring
+✅ **Safety Controls**: Trading disabled by default, position sizing limits
 
 ## Quick Start
 
@@ -33,13 +44,18 @@ data_agent (market prices)
 # Install Loom SDK
 pip install loom
 
-# Set DeepSeek API key (required for LLM-based planning)
-export DEEPSEEK_API_KEY="sk-your-key-here"
+# Install required dependencies
+pip install aiohttp  # For OKX WebSocket
 
-# Optional: For sentiment analysis web search
-export BRAVE_API_KEY="your-brave-search-key"
+# Set API keys
+export DEEPSEEK_API_KEY="sk-your-key-here"  # Required for LLM planning
+export OKX_API_KEY="your-okx-key"           # Required for trading
+export OKX_SECRET_KEY="your-okx-secret"     # Required for trading
+export OKX_PASSPHRASE="your-okx-pass"       # Required for trading
 
-# Note: Real market data from Binance works out-of-the-box (no API key needed)
+# Or create .env file (recommended)
+cp .env.example .env
+# Edit .env with your API keys
 ```
 
 ### 2. Run the Demo
@@ -61,25 +77,47 @@ This single command will:
 
 Open the Dashboard to see:
 
-- **Real-time event stream** with price updates from Binance
-- **Agent network graph** showing message flows between agents
+- **Real-time event stream** with price updates from OKX WebSocket
+- **Agent network graph** showing message flows between 6 agents
 - **LLM tool invocations** (DeepSeek generating trading recommendations)
-- **Plan generation** with intelligent reasoning or rule-based fallback
-- **Market metrics**: live BTC price, 24h change, volume
+- **Trade execution** with order IDs and sizes (when enabled)
+- **Distributed traces** in Jaeger showing full request flow
+- **Market metrics**: live BTC/ETH price, 24h change, volume
+
+### 4. Check Account & Enable Trading (Optional)
+
+```bash
+# Check your OKX demo account balance
+python3 check_okx_account_ws.py
+
+# Enable trading (currently in simulation mode)
+# Edit loom.toml:
+[agents.executor-agent]
+enable_trading = true  # Set to true
+
+# Restart
+loom run
+```
+
+See [EXECUTOR.md](EXECUTOR.md) for detailed trading configuration.
 
 ## Project Structure
 
 ```
 demo/market-analyst/
-├── loom.toml           # Configuration
-├── README.md           # This file
-├── agents/             # Agent implementations
-│   ├── data.py        # Market data ingestion
-│   ├── trend.py       # Technical analysis
-│   ├── risk.py        # Risk metrics
-│   ├── sentiment.py   # Sentiment analysis (LLM + MCP)
-│   └── planner.py     # Aggregation + planning (LLM)
-└── logs/              # Created automatically
+├── loom.toml              # Configuration
+├── README.md              # This file
+├── EXECUTOR.md            # Trading execution guide
+├── .env                   # API keys (gitignored)
+├── agents/                # Agent implementations
+│   ├── data.py           # OKX WebSocket data feed
+│   ├── trend.py          # Technical analysis
+│   ├── risk.py           # Risk metrics
+│   ├── sentiment.py      # Sentiment analysis (LLM + MCP)
+│   ├── planner.py        # Aggregation + planning (LLM)
+│   └── executor.py       # Trade execution (OKX WebSocket)
+├── check_okx_account_ws.py  # Account verification tool
+└── test_executor.py       # Executor testing
 
 ```
 
@@ -105,12 +143,23 @@ temperature = 0.7
 
 ```toml
 [agents.data-agent]
-exchange = "binance"
-symbols = ["BTCUSDT"]
-refresh_interval_sec = 1
+data_source = "okx"
+exchange = "okx"
+symbols = ["BTC-USDT", "ETH-USDT"]
 ```
 
-The data agent automatically connects to Binance's public API. No API key required! Falls back to simulation if the API is unavailable.
+The data agent connects to OKX's public WebSocket for real-time market data. No API key required for market data!
+
+### Trade Execution
+
+```toml
+[agents.executor-agent]
+enable_trading = false  # Safety: disabled by default
+min_order_size = 0.001  # Minimum order in BTC
+max_order_size = 0.01   # Maximum order in BTC
+```
+
+**⚠️ Trading is disabled by default**. Set `enable_trading=true` to enable. Order size scales with plan confidence (50%-100%).
 
 ### Agent Behavior
 
