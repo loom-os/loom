@@ -15,10 +15,10 @@ use axum::{
         sse::{Event, KeepAlive},
         Html, IntoResponse, Sse,
     },
-    routing::get,
+    routing::{get, post},
     Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
@@ -91,17 +91,49 @@ impl DashboardServer {
             }
         });
 
+        // Optionally start a synthetic debug feed if enabled via env
+        if std::env::var("LOOM_DASHBOARD_FAKE_FEED")
+            .ok()
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            let broadcaster = state.broadcaster.clone();
+            tokio::spawn(async move {
+                let mut i = 0u64;
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+                loop {
+                    interval.tick().await;
+                    let id = format!("debug-{}", i);
+                    i = i.wrapping_add(1);
+                    broadcaster.broadcast(crate::dashboard::DashboardEvent {
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        event_type: crate::dashboard::DashboardEventType::EventPublished,
+                        event_id: id.clone(),
+                        topic: "debug.heartbeat".to_string(),
+                        sender: Some("dashboard.debug".to_string()),
+                        thread_id: None,
+                        correlation_id: None,
+                        payload_preview: "debug heartbeat".to_string(),
+                        trace_id: String::new(),
+                    });
+                }
+            });
+            info!(target: "dashboard", "Started FAKE_FEED for SSE debug");
+        }
+
         // Build router
         let app = Router::new()
             .route("/", get(index_handler))
             .route("/static/*asset", get(static_asset_handler))
             .route("/api/events/stream", get(event_stream_handler))
+            .route("/api/events/status", get(events_status_handler))
             .route("/api/topology", get(topology_handler))
             .route("/api/flow", get(flow_handler))
             .route("/api/metrics", get(metrics_handler))
             .route("/api/spans/recent", get(spans_recent_handler))
             .route("/api/traces/:trace_id", get(trace_handler))
             .route("/api/spans/stream", get(spans_stream_handler))
+            .route("/api/debug/emit", post(debug_emit_handler))
             .layer(
                 CorsLayer::new()
                     .allow_origin(Any)
@@ -155,7 +187,7 @@ async fn event_stream_handler(
     info!(target: "dashboard", "New SSE client connected");
 
     let rx = state.broadcaster.subscribe();
-    let stream = BroadcastStream::new(rx).filter_map(|result| match result {
+    let event_stream = BroadcastStream::new(rx).filter_map(|result| match result {
         Ok(event) => {
             // Convert DashboardEvent to SSE Event
             match serde_json::to_string(&event) {
@@ -172,7 +204,30 @@ async fn event_stream_handler(
         }
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    // Add explicit heartbeat events to keep intermediaries from closing idle connections.
+    // These are named events ("ping") so they won't trigger default `onmessage` handlers.
+    let heartbeat = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(
+        std::time::Duration::from_secs(10),
+    ))
+    .map(|_| Ok(Event::default().event("ping").data("{}")));
+
+    let merged = tokio_stream::StreamExt::merge(heartbeat, event_stream);
+
+    Sse::new(merged).keep_alive(KeepAlive::default())
+}
+
+#[derive(Serialize)]
+struct EventsStatus {
+    subscribers: usize,
+}
+
+/// Lightweight status for SSE event stream (subscriber count)
+async fn events_status_handler(State(state): State<DashboardState>) -> impl IntoResponse {
+    let body = serde_json::to_string(&EventsStatus {
+        subscribers: state.broadcaster.subscriber_count(),
+    })
+    .unwrap_or_else(|_| "{}".to_string());
+    (StatusCode::OK, body)
 }
 
 /// Get current topology snapshot
@@ -198,12 +253,42 @@ async fn flow_handler(
 }
 
 /// Get current metrics snapshot
-async fn metrics_handler() -> Result<impl IntoResponse, StatusCode> {
-    // TODO: Integrate with OpenTelemetry metrics
+async fn metrics_handler(
+    State(state): State<DashboardState>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let graph = state.flow_tracker.get_graph().await;
+
+    // Count active agents (nodes with type "agent")
+    let active_agents = graph
+        .nodes
+        .iter()
+        .filter(|n| matches!(n.node_type, crate::dashboard::flow_tracker::NodeType::Agent))
+        .count();
+
+    // Calculate events per second from recent activity
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
+    let recent_window_ms = 5000; // Last 5 seconds
+    let recent_events: u64 = graph
+        .nodes
+        .iter()
+        .filter(|n| now.saturating_sub(n.last_active_ms) < recent_window_ms)
+        .map(|n| n.event_count)
+        .sum();
+
+    let events_per_sec = if recent_events > 0 {
+        recent_events as f64 / (recent_window_ms as f64 / 1000.0)
+    } else {
+        0.0
+    };
+
     let metrics = serde_json::json!({
-        "events_per_sec": 0,
-        "active_agents": 0,
-        "active_subscriptions": 0,
+        "events_per_sec": events_per_sec,
+        "active_agents": active_agents,
+        "active_subscriptions": graph.flows.len(),
         "tool_invocations_per_sec": 0,
     });
 
@@ -299,8 +384,55 @@ async fn spans_stream_handler(
     });
 
     // Convert channel receiver to stream
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
+    let spans_stream = tokio_stream::wrappers::ReceiverStream::new(rx)
         .map(|json| Ok(Event::default().event("spans").data(json)));
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    // Add explicit heartbeat events so clients can detect liveness even when no spans arrive.
+    let heartbeat = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(
+        std::time::Duration::from_secs(10),
+    ))
+    .map(|_| Ok(Event::default().event("ping").data("{}")));
+
+    let merged = tokio_stream::StreamExt::merge(heartbeat, spans_stream);
+
+    Sse::new(merged).keep_alive(KeepAlive::default())
+}
+
+#[derive(Deserialize)]
+struct DebugEmitRequest {
+    topic: Option<String>,
+    sender: Option<String>,
+    payload: Option<String>,
+}
+
+/// Debug endpoint: emit a synthetic DashboardEvent into the SSE stream
+/// Enabled only when LOOM_DASHBOARD_DEBUG=true
+async fn debug_emit_handler(
+    State(state): State<DashboardState>,
+    axum::extract::Json(req): axum::extract::Json<DebugEmitRequest>,
+) -> impl IntoResponse {
+    let enabled = std::env::var("LOOM_DASHBOARD_DEBUG")
+        .ok()
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !enabled {
+        return (StatusCode::FORBIDDEN, "debug disabled");
+    }
+
+    let id = format!("debug-emit-{}", chrono::Utc::now().timestamp_millis());
+    state
+        .broadcaster
+        .broadcast(crate::dashboard::DashboardEvent {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            event_type: crate::dashboard::DashboardEventType::EventPublished,
+            event_id: id,
+            topic: req.topic.unwrap_or_else(|| "debug.emit".to_string()),
+            sender: Some(req.sender.unwrap_or_else(|| "debug.client".to_string())),
+            thread_id: None,
+            correlation_id: None,
+            payload_preview: req.payload.unwrap_or_else(|| "ok".to_string()),
+            trace_id: String::new(),
+        });
+
+    (StatusCode::OK, "ok")
 }

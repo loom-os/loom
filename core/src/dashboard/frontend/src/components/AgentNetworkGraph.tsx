@@ -77,17 +77,26 @@ export const AgentNetworkGraph = ({ agents, messages = [] }: AgentNetworkGraphPr
     const radius = Math.min(width, height) * 0.35;
 
     // Position agents in a circle
-    const positions = agents.map((_, i) => {
-      const angle = (i / agents.length) * 2 * Math.PI - Math.PI / 2;
-      return {
-        x: centerX + radius * Math.cos(angle),
-        y: centerY + radius * Math.sin(angle),
-      };
-    });
+    const positions = agents.length
+      ? agents.map((_, i) => {
+          const angle = (i / agents.length) * 2 * Math.PI - Math.PI / 2;
+          return {
+            x: centerX + radius * Math.cos(angle),
+            y: centerY + radius * Math.sin(angle),
+          };
+        })
+      : [] as Array<{ x: number; y: number }>;
 
     const animate = () => {
       // Clear canvas
       ctx.clearRect(0, 0, width, height);
+
+      // If there are no agents, ensure we don't try to draw using stale particles
+      if (agents.length === 0) {
+        particlesRef.current = [];
+        animationFrameRef.current = requestAnimationFrame(animate);
+        return;
+      }
 
       // Draw connections
       agents.forEach((agent, i) => {
@@ -110,6 +119,16 @@ export const AgentNetworkGraph = ({ agents, messages = [] }: AgentNetworkGraphPr
 
       // Update and draw particles
       particlesRef.current = particlesRef.current.filter(particle => {
+        // Guard against out-of-bounds indices when agents list changes
+        if (
+          particle.from < 0 ||
+          particle.to < 0 ||
+          particle.from >= positions.length ||
+          particle.to >= positions.length
+        ) {
+          return false;
+        }
+
         particle.progress += particle.speed;
 
         if (particle.progress >= 1) {
@@ -157,6 +176,7 @@ export const AgentNetworkGraph = ({ agents, messages = [] }: AgentNetworkGraphPr
     // Draw agent nodes
     agents.forEach((agent, i) => {
       const pos = positions[i];
+      if (!pos) return;
       const nodeRadius = 30;
 
       // Status glow

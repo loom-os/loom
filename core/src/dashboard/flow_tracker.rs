@@ -128,7 +128,7 @@ impl FlowTracker {
 
         let active_flows: Vec<EventFlow> = flows
             .values()
-            .filter(|f| now.saturating_sub(f.last_event_ms) < FLOW_RETENTION_MS / 2)
+            .filter(|f| now.saturating_sub(f.last_event_ms) < FLOW_RETENTION_MS)
             .cloned()
             .collect();
 

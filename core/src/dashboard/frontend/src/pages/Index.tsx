@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { HeroSection } from "@/components/HeroSection";
 import { MetricsOverview } from "@/components/MetricsOverview";
 import { EventFlowVisualization } from "@/components/EventFlowVisualization";
@@ -8,6 +9,8 @@ import {
   AgentCommunication,
   type Communication,
 } from "@/components/AgentCommunication";
+import { Button } from "@/components/ui/button";
+import { Activity } from "lucide-react";
 import {
   createEventStream,
   fetchFlow,
@@ -227,11 +230,12 @@ const Index = () => {
   });
 
   useEffect(() => {
-    let source = createEventStream();
+    let source: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let isMounted = true;
 
     const handleMessage = (event: MessageEvent<string>) => {
-      if (!event.data) {
+      if (!event.data || !isMounted) {
         return;
       }
 
@@ -252,20 +256,46 @@ const Index = () => {
       }
     };
 
-    const scheduleReconnect = () => {
-      reconnectTimer = setTimeout(() => {
-        source.close();
+    const connect = () => {
+      if (!isMounted) return;
+
+      try {
         source = createEventStream();
+
         source.onmessage = handleMessage;
-        source.onerror = scheduleReconnect;
-      }, 2_000);
+
+        source.onerror = () => {
+          if (!isMounted) return;
+
+          console.warn("SSE connection error, reconnecting in 2s...");
+          if (source) {
+            source.close();
+            source = null;
+          }
+
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+          }
+
+          reconnectTimer = setTimeout(() => {
+            if (isMounted) {
+              connect();
+            }
+          }, 2000);
+        };
+      } catch (error) {
+        console.error("Failed to create EventSource:", error);
+      }
     };
 
-    source.onmessage = handleMessage;
-    source.onerror = scheduleReconnect;
+    connect();
 
     return () => {
-      source.close();
+      isMounted = false;
+      if (source) {
+        source.close();
+        source = null;
+      }
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
       }
@@ -305,6 +335,16 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8">
         <HeroSection />
+
+        {/* Timeline Link */}
+        <div className="mb-6 flex justify-end">
+          <Link to="/timeline">
+            <Button variant="outline" className="gap-2">
+              <Activity className="h-4 w-4" />
+              View Trace Timeline
+            </Button>
+          </Link>
+        </div>
 
         <div className="space-y-8">
           <MetricsOverview metrics={metrics} />
