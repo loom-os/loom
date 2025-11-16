@@ -231,7 +231,10 @@ const Timeline = () => {
                 Refresh
               </Button>
 
-              <Select value={selectedTrace} onValueChange={setSelectedTrace}>
+              <Select
+                value={selectedTrace}
+                onValueChange={(v) => setSelectedTrace(v || "all")}
+              >
                 <SelectTrigger className="w-[200px] h-9">
                   <SelectValue placeholder="Select trace" />
                 </SelectTrigger>
