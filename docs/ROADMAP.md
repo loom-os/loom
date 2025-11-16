@@ -2,7 +2,7 @@
 
 **Goal**: Enable developers to build a long-running, observable, and extensible event‑driven Multi‑Agent System in Python/JS within 10 minutes.
 
-**Current Status** (as of 2025-11): Core runtime, Bridge, Python SDK, MCP client, Dashboard MVP, and OpenTelemetry metrics are **production-ready**. Focus shifting to **observability completion** (distributed tracing) and **testing hardening**.
+**Current Status** (as of 2025-11): Core runtime, Bridge, Python SDK, MCP client, Dashboard MVP, OpenTelemetry metrics **and initial Trace Timeline UI** are **production-ready**. Focus shifting to **trace UX refinement** (flamegraph/search/heatmaps) and **testing hardening**.
 
 ## Architecture Overview
 
@@ -38,7 +38,7 @@ See `docs/ARCHITECTURE.md` for detailed component documentation.
 
 - OpenTelemetry metrics (60+ metrics → Prometheus)
 - Grafana dashboards (throughput, latency, routing, tool invocations)
-- Dashboard MVP (React SSE): event stream, agent topology, flow graph
+- Dashboard MVP (React SSE): event stream, agent topology, flow graph, trace timeline (swimlanes v1)
 
 **Developer Experience**:
 
@@ -48,7 +48,7 @@ See `docs/ARCHITECTURE.md` for detailed component documentation.
 
 ### 🔥 Critical Gaps (Blocking Production)
 
-#### ✅ **Distributed Tracing** — COMPLETE
+#### ✅ **Distributed Tracing & Timeline** — COMPLETE (Phase 1)
 
 **Problem**: Trace context was lost at process boundaries (Bridge ↔ Python agents), making cross-process debugging impossible.
 
@@ -59,7 +59,7 @@ See `docs/ARCHITECTURE.md` for detailed component documentation.
 - **Python SDK**: The SDK now has a full OpenTelemetry integration. The `Agent` class automatically initializes tracing, and the `Context` object automatically handles trace context injection and extraction for all event operations (`emit`, `request`, `reply`).
 - **Developer Experience**: Telemetry setup is now automated. The `loom run` command injects default OpenTelemetry environment variables, and the `Agent` class handles initialization, removing the need for boilerplate code in agent logic.
 
-**Result**: A complete, end-to-end trace is now visible in Jaeger for any event that crosses the boundary between Rust and Python, providing a unified view of the entire event lifecycle.
+**Result**: End-to-end traces are visible in Jaeger and a condensed swimlane rendering appears in the Dashboard Timeline. Phase 2 will add flamegraph, search, deep-linking, and latency overlays.
 
 ---
 
@@ -137,12 +137,13 @@ Priority 4: Chaos engineering tests
   - Verify: system recovers, no data loss, metrics accurate
 ```
 
-**Acceptance Criteria**:
+**Acceptance Criteria (updated)**:
 
 - ✅ CI runs Market Analyst E2E tests on every commit
 - ✅ Code coverage > 70% for core, bridge, loom-py
 - ✅ Stress tests pass: 20 agents, 10k events/min, 1 hour runtime
 - ✅ Chaos tests demonstrate graceful degradation
+- ✅ Timeline v1 populated during demo runs (trace-test, market-analyst)
 
 **Estimated Effort**: 7-10 days
 
@@ -172,17 +173,19 @@ Priority 4: Chaos engineering tests
 
 **Focus**: Polish DX, complete Dashboard features, expand SDK language support.
 
-### 1. Dashboard Enhancements
+### 1. Dashboard Enhancements (Phase 2)
 
-**Current State**: Basic event stream + topology graph (see `docs/dashboard/FLOW_VISUALIZATION_GUIDE.md`)
+**Current State**: Event stream + topology graph + flow graph + **Trace Timeline v1** (flat swimlanes, basic span attributes).
 
-**Required**:
+Required (Phase 2):
 
-- 🚧 **Trace Timeline View**: Swimlane visualization with span hierarchy (requires P0 tracing)
-- 🚧 **Prometheus Integration**: Replace placeholder `/api/metrics` with real Prometheus queries
-- 🚧 **Thread Inspector**: Filter/group events by thread_id, show collaboration patterns
-- 🚧 **Tool Call Timeline**: Success/failure breakdown, latency distribution per capability
-- 🚧 **Event Playback**: Time-travel debugging with event replay from Jaeger traces
+- 🚧 **Flamegraph View**: Hierarchical span stacking (parent/child collapse)
+- 🚧 **Span Search & Filter**: By name, agent_id, topic, trace_id
+- 🚧 **Latency Heatmaps**: Per agent/component
+- 🚧 **Tool Call Overlay**: Annotate spans with capability invocation results
+- 🚧 **Prometheus Metrics Integration**: Replace placeholder `/api/metrics`
+- 🚧 **Thread Inspector**: Correlate collaboration patterns (fanout/fanin, barrier)
+- 🚧 **Event Playback**: Replay sequence from stored spans + event snapshots
 
 ### 2. CLI Tooling
 
@@ -339,12 +342,12 @@ Priority 4: Chaos engineering tests
 - **Observability**: Dashboard first paint < 2s, all traces visible in Jaeger
 - **Testing**: Code coverage > 70% (core + bridge + loom-py)
 
-**Before declaring P0 complete**:
+**Before declaring Phase 1 complete**:
 
-- ✅ All P0 critical gaps resolved (tracing, testing, binary selection)
-- ✅ Market Analyst demo runs reliably with full observability
+- ✅ All Phase 1 gaps resolved (tracing propagation, timeline v1, binary selection)
+- ✅ Market Analyst demo runs reliably with full observability + timeline spans
 - ✅ CI/CD pipeline includes E2E tests and chaos engineering
-- ✅ Documentation complete (quickstart, architecture, troubleshooting)
+- ✅ Documentation updated (quickstart, architecture, timeline, testing guide)
 - ✅ PyPI package published (`loom` v0.1.0)
 
 ---

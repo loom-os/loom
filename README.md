@@ -277,6 +277,18 @@ cargo run --example dashboard_demo
 
 See `docs/dashboard/DASHBOARD_QUICKSTART.md` and `observability/README.md` for complete setup.
 
+#### Trace Timeline
+
+An initial distributed **Trace Timeline** (swimlane) view is now available, powered by end‑to‑end OpenTelemetry propagation across Rust core, the gRPC Bridge, and Python agents. It streams spans via `/api/spans/stream` and renders them in `Timeline.tsx`. To pick up frontend changes you must:
+
+```bash
+cd core/src/dashboard/frontend
+npm run build        # emits hashed bundle into ../static/
+cargo build -p loom-core --release  # re-embeds static assets (include_dir!)
+```
+
+See `docs/dashboard/TIMELINE.md` for architecture and planned Phase 2 enhancements (flamegraph, search, latency heatmaps).
+
 The audio pipeline (mic/VAD/STT/wake/TTS) lives in `loom-audio` and is intentionally optional.
 
 ## 🧩 Plugins & Integrations
