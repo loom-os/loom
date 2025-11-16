@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use loom_core::directory::AgentStatus as DirectoryAgentStatus;
 use loom_core::proto::{ActionCall, ActionResult, ActionStatus, CapabilityDescriptor};
 use loom_core::Result;
 use loom_core::{ActionBroker, AgentDirectory, AgentInfo, CapabilityDirectory, CapabilityProvider};
@@ -36,12 +37,16 @@ async fn agent_directory_indexing() {
         subscribed_topics: vec!["topic.a".into(), "topic.shared".into()],
         capabilities: vec!["echo".into()],
         metadata: Default::default(),
+        last_heartbeat: None,
+        status: DirectoryAgentStatus::Active,
     });
     dir.register_agent(AgentInfo {
         agent_id: "agent.b".into(),
         subscribed_topics: vec!["topic.b".into(), "topic.shared".into()],
         capabilities: vec!["search".into()],
         metadata: Default::default(),
+        last_heartbeat: None,
+        status: DirectoryAgentStatus::Active,
     });
 
     assert_eq!(dir.by_topic("topic.shared").len(), 2);

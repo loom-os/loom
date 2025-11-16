@@ -11,6 +11,7 @@ mod topology;
 pub use api::DashboardServer;
 pub use event_stream::{DashboardEvent, DashboardEventType, EventBroadcaster};
 pub use flow_tracker::{EventFlow, FlowGraph, FlowNode, FlowTracker, NodeType};
+pub use topology::TopologyBuilder;
 
 /// Dashboard configuration
 #[derive(Clone, Debug)]

@@ -39,12 +39,16 @@ async fn agent_directory_indexes_and_updates() -> Result<()> {
         subscribed_topics: vec!["t.x".into(), "t.y".into()],
         capabilities: vec!["cap.search".into()],
         metadata: Default::default(),
+        last_heartbeat: None,
+        status: loom_core::directory::AgentStatus::Active,
     });
     dir.register_agent(loom_core::AgentInfo {
         agent_id: "a2".into(),
         subscribed_topics: vec!["t.y".into()],
         capabilities: vec!["cap.tts".into()],
         metadata: Default::default(),
+        last_heartbeat: None,
+        status: loom_core::directory::AgentStatus::Active,
     });
 
     let ty = dir.by_topic("t.y");
@@ -58,6 +62,8 @@ async fn agent_directory_indexes_and_updates() -> Result<()> {
         subscribed_topics: vec!["t.y".into()],
         capabilities: vec!["cap.tts".into()],
         metadata: Default::default(),
+        last_heartbeat: None,
+        status: loom_core::directory::AgentStatus::Active,
     });
     assert_eq!(dir.by_topic("t.x").len(), 0);
     assert!(dir.by_capability("cap.search").is_empty());

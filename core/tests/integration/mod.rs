@@ -27,6 +27,7 @@ mod e2e_action_broker;
 mod e2e_agent_reply;
 mod e2e_basic;
 mod e2e_collab;
+mod e2e_dashboard;
 mod e2e_directory;
 mod e2e_dynamic_subscription;
 mod e2e_envelope;
