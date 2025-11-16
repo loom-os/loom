@@ -481,7 +481,7 @@ pub async fn start_server(
     let svc = BridgeService::new(BridgeState::new(event_bus, action_broker, agent_directory));
 
     // Create memory store and handler
-    let memory_store = loom_core::context::agent_memory::AgentMemoryStore::new();
+    let memory_store = loom_core::context::memory::InMemoryMemory::new();
     let memory_handler = memory_handler::MemoryHandler::new(memory_store);
 
     tonic::transport::Server::builder()
@@ -516,7 +516,7 @@ pub async fn start_server_with_dashboard(
     let svc = BridgeService::new(state);
 
     // Create memory store and handler
-    let memory_store = loom_core::context::agent_memory::AgentMemoryStore::new();
+    let memory_store = loom_core::context::memory::InMemoryMemory::new();
     let memory_handler = memory_handler::MemoryHandler::new(memory_store);
 
     tonic::transport::Server::builder()
