@@ -144,7 +144,9 @@ const Timeline = () => {
         ? spans
         : spans.filter((s) => s.trace_id === selectedTrace);
 
-    const uniqueTraces = Array.from(new Set(spans.map((s) => s.trace_id)));
+    // Filter out empty trace IDs
+    const uniqueTraces = Array.from(new Set(spans.map((s) => s.trace_id)))
+      .filter((id) => id && id.trim().length > 0);
 
     // Calculate time range
     if (filtered.length === 0) {

@@ -102,12 +102,13 @@ const SelectItem = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
 >(({ className, children, value, ...props }, ref) => {
-  // Radix requires value to be non-empty; if not provided, use children or a safe fallback
+  // Radix requires value to be non-empty string; filter out undefined/null/empty strings
   const safeValue =
-    value ??
-    (typeof children === "string" && children.trim().length > 0
-      ? children
-      : "item");
+    value && value.trim().length > 0
+      ? value
+      : typeof children === "string" && children.trim().length > 0
+        ? children
+        : "item";
 
   return (
     <SelectPrimitive.Item

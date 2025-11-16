@@ -545,6 +545,34 @@ When adding new Dashboard features:
 
 ---
 
+## Common Issues
+
+### Dashboard shows old frontend after rebuild
+
+**Symptom**: Browser console shows errors from old JS bundle (e.g., `index-D_HfJVS4.js`) even after running `npm run build` in the frontend directory.
+
+**Cause**: Dashboard static assets are embedded into the Rust binary at compile time using `include_dir!` macro. Frontend changes require recompiling the Rust backend.
+
+**Solution**:
+
+```bash
+# 1. Rebuild frontend
+cd core/src/dashboard/frontend
+npm run build
+
+# 2. Recompile loom-core to embed new assets
+cd ../../..  # back to project root
+cargo build -p loom-core --release
+
+# 3. If using loom-bridge, recompile it too
+cargo build -p loom-bridge --release
+
+# 4. Restart the application
+# No browser cache clearing needed - new binary serves new assets
+```
+
+---
+
 ## Resources
 
 - [Loom Test README](../../core/tests/README.md) - Overall test structure

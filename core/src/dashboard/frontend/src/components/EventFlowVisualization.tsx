@@ -27,7 +27,11 @@ export const EventFlowVisualization = ({
   const [selectedAgent, setSelectedAgent] = useState<string>("all");
 
   const agents = useMemo(() => {
-    const agentSet = new Set(events.map(e => e.sender));
+    const agentSet = new Set(
+      events
+        .map(e => e.sender)
+        .filter(sender => sender && sender.trim().length > 0)
+    );
     return ["all", ...Array.from(agentSet).sort()];
   }, [events]);
 
