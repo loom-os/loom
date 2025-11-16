@@ -1,4 +1,4 @@
-use loom_core::context::agent_memory::AgentMemoryStore;
+use loom_core::context::memory::InMemoryMemory;
 use loom_proto::{
     memory_service_server::MemoryService, CheckDuplicateRequest, CheckDuplicateResponse,
     CheckExecutedRequest, CheckExecutedResponse, GetExecutionStatsRequest,
@@ -14,11 +14,11 @@ use tracing::debug;
 /// Memory handler service exposed via gRPC
 #[derive(Clone)]
 pub struct MemoryHandler {
-    store: Arc<AgentMemoryStore>,
+    store: Arc<InMemoryMemory>,
 }
 
 impl MemoryHandler {
-    pub fn new(store: Arc<AgentMemoryStore>) -> Self {
+    pub fn new(store: Arc<InMemoryMemory>) -> Self {
         Self { store }
     }
 }
