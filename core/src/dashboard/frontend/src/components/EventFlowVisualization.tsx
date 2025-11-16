@@ -27,7 +27,11 @@ export const EventFlowVisualization = ({
   const [selectedAgent, setSelectedAgent] = useState<string>("all");
 
   const agents = useMemo(() => {
-    const agentSet = new Set(events.map(e => e.sender));
+    const agentSet = new Set(
+      events
+        .map(e => e.sender)
+        .filter(sender => sender && sender.trim().length > 0)
+    );
     return ["all", ...Array.from(agentSet).sort()];
   }, [events]);
 
@@ -57,7 +61,10 @@ export const EventFlowVisualization = ({
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold text-foreground">Event Flow</h2>
         <div className="flex items-center gap-3">
-          <Select value={selectedAgent} onValueChange={setSelectedAgent}>
+          <Select
+            value={selectedAgent}
+            onValueChange={(v) => setSelectedAgent(v || "all")}
+          >
             <SelectTrigger className="w-[140px] h-8">
               <SelectValue />
             </SelectTrigger>

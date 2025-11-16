@@ -531,6 +531,39 @@ npm run build      # Production build → ../static/
 - No per-event drill-down (need trace_id → span correlation)
 - Metrics not yet connected to Prometheus/Grafana
 
+### Distributed Trace Timeline
+
+The Dashboard now includes an experimental **Trace Timeline** view (see `docs/dashboard/TIMELINE.md`) that renders spans from Rust core components, the Bridge, and Python agents in synchronized swimlanes.
+
+Data Path:
+
+```
+OpenTelemetry Spans (Rust + Python)
+  │
+  ├─ SpanCollector (in‑process ring buffer, 10k spans)
+  │
+  ├─ /api/spans/recent  (initial load)
+  ├─ /api/spans/stream  (SSE incremental updates)
+  └─ /api/traces/{trace_id} (focused trace drill‑down)
+    │
+    └─ Timeline.tsx (React, selective render, pause/resume)
+```
+
+Key Concepts:
+
+- **SpanCollector** implements an OpenTelemetry `SpanProcessor`, normalizing spans into a light `SpanData` struct.
+- **Trace Context Propagation**: `Envelope` carries W3C traceparent across EventBus, Bridge, and Python SDK boundaries.
+- **Live Mode**: SSE pushes batches (`event: spans`) and the UI appends while trimming history (`maxSpans` client-side).
+- **Filtering**: Client can target a single `trace_id` without over-fetching other spans.
+
+Current Constraints:
+
+- No hierarchical flamegraph yet (flat swimlane only)
+- Error spans use basic coloring; severity heatmaps are planned
+- Limited attribute projection (agent_id, topic, correlation_id); needs extension for tool calls
+
+If Timeline UI fails to update after a frontend build, recompile `loom-core` to embed new assets (static bundling via `include_dir!`). See Troubleshooting section in `docs/dashboard/TESTING_GUIDE.md`.
+
 ## Data Flow Examples
 
 ### Example 1: Real-time Face Emotion Recognition

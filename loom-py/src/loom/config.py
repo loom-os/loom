@@ -27,6 +27,7 @@ Note: Use proper TOML tables (not string-encoded Python dictionaries).
 
 from __future__ import annotations
 
+import ast
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -182,8 +183,25 @@ class ProjectConfig:
                     env=server_data.get("env", {}),
                 )
 
-        # Agent configs - expect proper TOML tables
-        config.agents = data.get("agents", {})
+        # Agent configs - expect proper TOML tables. Backward-compat: coerce stringified dicts.
+        raw_agents = data.get("agents", {})
+        agents: dict[str, Any] = {}
+        for name, val in raw_agents.items():
+            if isinstance(val, str):
+                # Attempt to parse legacy stringified Python dicts safely
+                try:
+                    parsed = ast.literal_eval(val)
+                    if isinstance(parsed, dict):
+                        agents[name] = parsed
+                    else:
+                        agents[name] = {"value": parsed}
+                except Exception:
+                    # Keep as-is if parsing fails
+                    agents[name] = {"_raw": val}
+            else:
+                agents[name] = val
+
+        config.agents = agents
 
         return config
 

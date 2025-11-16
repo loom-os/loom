@@ -3,11 +3,36 @@ name = "market-analyst"
 version = "0.1.0"
 
 [agents]
-data-agent = "{'topics': ['market.price.BTC', 'market.price.ETH'], 'refresh_interval_sec': 3, 'data_source': 'cryptocompare', 'exchange': 'cryptocompare', 'symbols': ['BTC', 'ETH']}"
-planner-agent = "{'topics': ['analysis.trend', 'analysis.risk', 'analysis.sentiment'], 'llm_provider': 'deepseek', 'timeout_sec': 30, 'aggregation_strategy': 'complete_or_timeout', 'timeout_ms': 3000}"
-risk-agent = "{'topics': ['market.price.*'], 'var_confidence': 0.95, 'max_drawdown': 0.15}"
-sentiment-agent = "{'topics': ['market.price.*'], 'llm_provider': 'deepseek', 'mcp_tools': ['web-search'], 'search_interval_sec': 60}"
-trend-agent = "{'topics': ['market.price.*'], 'window_size': 20, 'indicators': ['SMA', 'EMA', 'RSI']}"
+
+[agents.data-agent]
+topics = ["market.price.BTC", "market.price.ETH"]
+refresh_interval_sec = 3
+data_source = "cryptocompare"
+exchange = "cryptocompare"
+symbols = ["BTC", "ETH"]
+
+[agents.planner-agent]
+topics = ["analysis.trend", "analysis.risk", "analysis.sentiment"]
+llm_provider = "deepseek"
+timeout_sec = 30
+aggregation_strategy = "complete_or_timeout"
+timeout_ms = 3000
+
+[agents.risk-agent]
+topics = ["market.price.*"]
+var_confidence = 0.95
+max_drawdown = 0.15
+
+[agents.sentiment-agent]
+topics = ["market.price.*"]
+llm_provider = "deepseek"
+mcp_tools = ["web-search"]
+search_interval_sec = 60
+
+[agents.trend-agent]
+topics = ["market.price.*"]
+window_size = 20
+indicators = ["SMA", "EMA", "RSI"]
 
 [bridge]
 address = "127.0.0.1:50051"
@@ -20,8 +45,27 @@ host = "127.0.0.1"
 port = 3030
 
 [llm]
-deepseek = "{'type': 'http', 'api_key': '${DEEPSEEK_API_KEY}', 'api_base': 'https://api.deepseek.com', 'model': 'deepseek-chat', 'max_tokens': 4096, 'temperature': 0.7, 'timeout_sec': 30}"
-local = "{'type': 'http', 'api_base': 'http://localhost:8000/v1', 'model': 'qwen2.5', 'max_tokens': 2048, 'temperature': 0.8}"
+
+[llm.deepseek]
+type = "http"
+api_key = "${DEEPSEEK_API_KEY}"
+api_base = "https://api.deepseek.com"
+model = "deepseek-chat"
+max_tokens = 4096
+temperature = 0.7
+timeout_sec = 30
+
+[llm.local]
+type = "http"
+api_base = "http://localhost:8000/v1"
+model = "qwen2.5"
+max_tokens = 2048
+temperature = 0.8
 
 [mcp]
-web-search = "{'command': 'npx', 'args': ['-y', '@modelcontextprotocol/server-brave-search'], 'env': {'BRAVE_API_KEY': '${BRAVE_API_KEY}'}}"
+
+[mcp.web-search]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-brave-search"]
+	[mcp.web-search.env]
+	BRAVE_API_KEY = "${BRAVE_API_KEY}"

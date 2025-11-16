@@ -307,16 +307,27 @@ impl EventBus {
                     continue;
                 }
 
+                // Create a span for delivery to this subscriber
+                let delivery_span = tracing::debug_span!(
+                    "event_bus.deliver",
+                    subscription_id = %sub.id,
+                    qos = ?sub.qos,
+                    delivered = tracing::field::Empty
+                );
+                let _guard = delivery_span.enter();
+
                 // Handle based on QoS level
                 match sub.qos {
                     QoSLevel::QosRealtime => {
                         // Realtime mode: drop aggressively when backpressured, and drop on full queue
                         if over_threshold {
                             dropped += 1;
+                            tracing::Span::current().record("delivered", false);
                             continue;
                         }
                         if sub.sender.try_send(event.clone()).is_ok() {
                             delivered += 1;
+                            tracing::Span::current().record("delivered", true);
 
                             // Record flow in FlowTracker (EventBus -> subscriber)
                             if let Some(ref flow_tracker) = self.flow_tracker {

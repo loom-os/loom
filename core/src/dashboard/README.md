@@ -103,10 +103,57 @@ The dashboard ships as a Vite-powered React application:
 
 ---
 
+## Testing
+
+The Dashboard has comprehensive test coverage:
+
+- **Unit Tests** (30 tests): `core/tests/dashboard_unit_test.rs`
+
+  - EventBroadcaster (8 tests)
+  - FlowTracker (11 tests)
+  - TopologyBuilder (5 tests)
+  - DashboardConfig (6 tests)
+
+- **Integration Tests** (8 tests): `core/tests/integration/e2e_dashboard.rs`
+  - EventBus ↔ Dashboard integration
+  - FlowTracker multi-agent scenarios
+  - TopologyBuilder synchronization
+  - Full event pipeline testing
+
+**Run tests**:
+
+```bash
+# All Dashboard tests
+cargo test dashboard
+
+# Unit tests only
+cargo test dashboard_unit_test
+
+# Integration tests only
+cargo test e2e_dashboard
+```
+
+See [docs/dashboard/TESTING_GUIDE.md](../../../docs/dashboard/TESTING_GUIDE.md) for detailed testing documentation.
+
+---
+
+## Documentation
+
+- **[Quickstart Guide](../../../docs/dashboard/DASHBOARD_QUICKSTART.md)** - Get started in 60 seconds
+- **[API Reference](../../../docs/dashboard/API_REFERENCE.md)** - Complete HTTP API documentation
+- **[Testing Guide](../../../docs/dashboard/TESTING_GUIDE.md)** - Comprehensive testing guide
+- **[Flow Visualization](../../../docs/dashboard/FLOW_VISUALIZATION_GUIDE.md)** - Flow graph usage
+- **[Metrics Integration](../../../docs/dashboard/METRICS_INTEGRATION.md)** - Metrics and observability
+- **[Timeline View](../../../docs/dashboard/TIMELINE.md)** - Trace timeline documentation
+
+---
+
 ## Roadmap Ideas
 
 - Live latency charts (P95 / P99) once telemetry endpoints are plumbed.
 - Flow playback mode to scrub through historical windows.
 - Auth guard integration and configurable retention budgets.
+- HTTP API tests with mock server
+- Frontend E2E tests with Playwright
 
 Have a need not captured here? Open an issue or leave a note alongside your service integration.

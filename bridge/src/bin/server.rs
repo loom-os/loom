@@ -7,12 +7,18 @@ use loom_core::Loom;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize OpenTelemetry for distributed tracing
-    if let Err(e) = loom_core::telemetry::init_telemetry() {
-        tracing::warn!("Failed to initialize telemetry: {}", e);
-    } else {
-        tracing::info!("OpenTelemetry initialized for bridge server");
-    }
+    // Initialize OpenTelemetry for distributed tracing with SpanCollector
+    let span_collector = match loom_core::telemetry::init_telemetry() {
+        Ok(collector) => {
+            tracing::info!("OpenTelemetry initialized for bridge server");
+            collector
+        }
+        Err(e) => {
+            tracing::warn!("Failed to initialize telemetry: {}", e);
+            // Create a default SpanCollector even if OTLP fails
+            loom_core::SpanCollector::new()
+        }
+    };
 
     let mut loom = Loom::new().await?;
 
@@ -39,9 +45,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Get agent directory
         let agent_directory = loom.agent_directory.clone();
 
-        // Create dashboard server
-        let dashboard = DashboardServer::new(config.clone(), broadcaster.clone(), agent_directory)
-            .with_flow_tracker(flow_tracker.clone());
+        // Create dashboard server with SpanCollector
+        let dashboard = DashboardServer::new(
+            config.clone(),
+            broadcaster.clone(),
+            agent_directory,
+            span_collector.clone(),
+        )
+        .with_flow_tracker(flow_tracker.clone());
 
         tracing::info!(
             "Dashboard enabled at http://{}:{}",

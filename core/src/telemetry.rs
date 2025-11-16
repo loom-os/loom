@@ -1,12 +1,16 @@
 // Telemetry and observability with OpenTelemetry support
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::RwLock;
 use tracing::info;
 
+use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::export::trace::SpanData as OtelSpanData;
+use opentelemetry_sdk::trace::SpanProcessor;
 use opentelemetry_sdk::Resource;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -109,6 +113,8 @@ impl Default for MetricsCollector {
 /// - Tracing subscriber with OpenTelemetry layer
 /// - Resource attributes (service.name, service.version, etc.)
 ///
+/// Returns a SpanCollector for Dashboard Timeline visualization.
+///
 /// # Environment Variables
 ///
 /// - `OTEL_EXPORTER_OTLP_ENDPOINT`: OTLP collector endpoint (default: http://localhost:4317)
@@ -125,8 +131,11 @@ impl Default for MetricsCollector {
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     // Initialize telemetry (reads from env vars)
-///     init_telemetry()?;
+///     // Initialize telemetry and get SpanCollector
+///     let span_collector = init_telemetry()?;
+///
+///     // Use span_collector for Dashboard APIs
+///     let recent = span_collector.get_recent(100).await;
 ///
 ///     // Your application code...
 ///
@@ -135,7 +144,7 @@ impl Default for MetricsCollector {
 ///     Ok(())
 /// }
 /// ```
-pub fn init_telemetry() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub fn init_telemetry() -> Result<SpanCollector, Box<dyn std::error::Error + Send + Sync>> {
     let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
         .unwrap_or_else(|_| "http://localhost:4317".to_string());
 
@@ -159,20 +168,30 @@ pub fn init_telemetry() -> Result<(), Box<dyn std::error::Error + Send + Sync>> 
         ),
     ]);
 
-    // Initialize tracer provider with OTLP exporter
-    let tracer = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint(otlp_endpoint.clone()),
-        )
-        .with_trace_config(
+    // Create SpanCollector for Dashboard
+    let span_collector = SpanCollector::new();
+
+    // Build trace config with SpanCollector
+    use opentelemetry_sdk::trace::TracerProvider;
+    let tracer_provider = TracerProvider::builder()
+        .with_config(
             opentelemetry_sdk::trace::config()
                 .with_resource(resource.clone())
                 .with_sampler(get_sampler_from_env()),
         )
-        .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+        .with_span_processor(span_collector.clone())
+        .with_batch_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint(otlp_endpoint.clone())
+                .build_span_exporter()?,
+            opentelemetry_sdk::runtime::Tokio,
+        )
+        .build();
+
+    // Set as global tracer provider
+    opentelemetry::global::set_tracer_provider(tracer_provider.clone());
+    let tracer = tracer_provider.tracer("loom-core");
 
     // Initialize metrics provider with OTLP exporter
     let meter_provider = opentelemetry_otlp::new_pipeline()
@@ -204,10 +223,10 @@ pub fn init_telemetry() -> Result<(), Box<dyn std::error::Error + Send + Sync>> 
 
     info!(
         target: "telemetry",
-        "OpenTelemetry initialized successfully"
+        "OpenTelemetry initialized successfully with SpanCollector"
     );
 
-    Ok(())
+    Ok(span_collector)
 }
 
 /// Get sampler from environment variable
@@ -249,4 +268,232 @@ pub fn shutdown_telemetry() {
     // Note: MeterProvider will automatically flush on drop
 
     info!(target: "telemetry", "OpenTelemetry shutdown complete");
+}
+
+// ==============================================================================
+// Span Collection for Dashboard
+// ==============================================================================
+
+/// Simplified span data for Dashboard Timeline visualization
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpanData {
+    /// W3C trace ID (hex string)
+    pub trace_id: String,
+    /// W3C span ID (hex string)
+    pub span_id: String,
+    /// Parent span ID if exists (hex string)
+    pub parent_span_id: Option<String>,
+    /// Span name (e.g., "sensor.emit", "bridge.forward")
+    pub name: String,
+    /// Start time (Unix timestamp in nanoseconds)
+    pub start_time: u64,
+    /// Duration in nanoseconds
+    pub duration: u64,
+    /// Span attributes (agent_id, topic, correlation_id, etc.)
+    pub attributes: HashMap<String, String>,
+    /// Span status: "ok", "error", "unset"
+    pub status: String,
+    /// Error message if status is "error"
+    pub error_message: Option<String>,
+}
+
+impl SpanData {
+    /// Convert OpenTelemetry SpanData to Dashboard SpanData
+    fn from_otel(span: &OtelSpanData) -> Self {
+        let trace_id = format!("{:032x}", span.span_context.trace_id());
+        let span_id = format!("{:016x}", span.span_context.span_id());
+
+        // Check if parent span ID is valid (non-zero)
+        let parent_span_id = {
+            let parent_bytes = span.parent_span_id.to_bytes();
+            let is_zero = parent_bytes.iter().all(|&b| b == 0);
+            if !is_zero {
+                Some(format!("{:016x}", span.parent_span_id))
+            } else {
+                None
+            }
+        };
+
+        // Extract attributes
+        let mut attributes = HashMap::new();
+        for kv in &span.attributes {
+            attributes.insert(kv.key.to_string(), kv.value.to_string());
+        }
+
+        // Determine status
+        let (status, error_message) = match &span.status {
+            opentelemetry::trace::Status::Error { description } => {
+                ("error".to_string(), Some(description.to_string()))
+            }
+            opentelemetry::trace::Status::Ok => ("ok".to_string(), None),
+            opentelemetry::trace::Status::Unset => ("unset".to_string(), None),
+        };
+
+        // Calculate timestamps
+        let start_time = span
+            .start_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+
+        let end_time = span
+            .end_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+
+        let duration = end_time.saturating_sub(start_time);
+
+        SpanData {
+            trace_id,
+            span_id,
+            parent_span_id,
+            name: span.name.to_string(),
+            start_time,
+            duration,
+            attributes,
+            status,
+            error_message,
+        }
+    }
+}
+
+/// SpanCollector implements OpenTelemetry SpanProcessor to collect spans for Dashboard
+///
+/// Maintains a ring buffer of recent spans (default: 10,000) and provides
+/// query APIs for Dashboard Timeline visualization.
+#[derive(Debug)]
+pub struct SpanCollector {
+    /// Ring buffer of collected spans
+    spans: Arc<RwLock<VecDeque<SpanData>>>,
+    /// Maximum buffer size
+    max_size: usize,
+    /// Index by trace_id for fast lookup
+    trace_index: Arc<RwLock<HashMap<String, Vec<usize>>>>,
+}
+
+impl SpanCollector {
+    /// Create a new SpanCollector with default buffer size (10,000)
+    pub fn new() -> Self {
+        Self::with_capacity(10_000)
+    }
+
+    /// Create a new SpanCollector with custom buffer size
+    pub fn with_capacity(max_size: usize) -> Self {
+        Self {
+            spans: Arc::new(RwLock::new(VecDeque::with_capacity(max_size))),
+            max_size,
+            trace_index: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Get recent spans (up to `limit`, newest first)
+    pub async fn get_recent(&self, limit: usize) -> Vec<SpanData> {
+        let spans = self.spans.read().await;
+        spans.iter().rev().take(limit).cloned().collect()
+    }
+
+    /// Get all spans for a specific trace_id
+    pub async fn get_trace(&self, trace_id: &str) -> Vec<SpanData> {
+        let index = self.trace_index.read().await;
+        if let Some(indices) = index.get(trace_id) {
+            let spans = self.spans.read().await;
+            indices
+                .iter()
+                .filter_map(|&i| spans.get(i).cloned())
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Get total number of collected spans
+    pub async fn count(&self) -> usize {
+        self.spans.read().await.len()
+    }
+
+    /// Clear all collected spans
+    pub async fn clear(&self) {
+        self.spans.write().await.clear();
+        self.trace_index.write().await.clear();
+    }
+
+    /// Internal: Add a span to the buffer
+    async fn add_span(&self, span_data: SpanData) {
+        let mut spans = self.spans.write().await;
+        let mut trace_index = self.trace_index.write().await;
+
+        // Enforce max size (ring buffer behavior)
+        if spans.len() >= self.max_size {
+            if let Some(removed) = spans.pop_front() {
+                // Remove from trace index
+                if let Some(indices) = trace_index.get_mut(&removed.trace_id) {
+                    indices.retain(|&i| i != 0);
+                    if indices.is_empty() {
+                        trace_index.remove(&removed.trace_id);
+                    }
+                }
+                // Shift all indices down by 1
+                for indices in trace_index.values_mut() {
+                    for idx in indices.iter_mut() {
+                        *idx = idx.saturating_sub(1);
+                    }
+                }
+            }
+        }
+
+        // Add new span
+        let index = spans.len();
+        let trace_id = span_data.trace_id.clone();
+        spans.push_back(span_data);
+
+        // Update trace index
+        trace_index
+            .entry(trace_id)
+            .or_insert_with(Vec::new)
+            .push(index);
+    }
+}
+
+impl Default for SpanCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SpanProcessor for SpanCollector {
+    fn on_start(&self, _span: &mut opentelemetry_sdk::trace::Span, _cx: &opentelemetry::Context) {
+        // We only collect on span end
+    }
+
+    fn on_end(&self, span: OtelSpanData) {
+        let span_data = SpanData::from_otel(&span);
+        let collector = self.clone();
+
+        // Spawn async task to add span (SpanProcessor is sync but we need async)
+        tokio::spawn(async move {
+            collector.add_span(span_data).await;
+        });
+    }
+
+    fn force_flush(&self) -> opentelemetry::trace::TraceResult<()> {
+        // No-op: spans are already in memory
+        Ok(())
+    }
+
+    fn shutdown(&mut self) -> opentelemetry::trace::TraceResult<()> {
+        // No-op: spans will be dropped with the collector
+        Ok(())
+    }
+}
+
+// Make SpanCollector cloneable for sharing across threads
+impl Clone for SpanCollector {
+    fn clone(&self) -> Self {
+        Self {
+            spans: Arc::clone(&self.spans),
+            max_size: self.max_size,
+            trace_index: Arc::clone(&self.trace_index),
+        }
+    }
 }
