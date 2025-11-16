@@ -19,6 +19,8 @@ _NAMES = [
     "action_pb2",
     "agent_pb2",
     "plugin_pb2",
+    "memory_pb2",
+    "memory_pb2_grpc",
 ]
 
 for _name in _NAMES:

@@ -455,7 +455,7 @@ class TradeExecutor:
 
 
 async def on_plan_event(ctx, topic: str, event):
-    """Handle plan.ready events and execute trades."""
+    """Handle plan.ready events and execute trades with idempotency."""
     with tracer.start_as_current_span(
         "executor.on_plan_event",
         attributes={
@@ -470,15 +470,37 @@ async def on_plan_event(ctx, topic: str, event):
             action = payload.get("action", "HOLD")
             confidence = payload.get("confidence", 0.0)
             reasoning = payload.get("reasoning", "")
+            plan_hash = payload.get("plan_hash")  # 🆕 Get plan_hash from planner
 
             print(f"\n[executor] 📋 Received Plan:")
             print(f"[executor]    Symbol: {symbol}")
             print(f"[executor]    Action: {action}")
             print(f"[executor]    Confidence: {confidence:.2%}")
             print(f"[executor]    Reasoning: {reasoning}")
+            if plan_hash:
+                print(f"[executor]    Plan Hash: {plan_hash}")
 
             span.set_attribute("executor.plan.action", action)
             span.set_attribute("executor.plan.confidence", confidence)
+            if plan_hash:
+                span.set_attribute("executor.plan.plan_hash", plan_hash)
+
+            # 🆕 Check if plan already executed (idempotency)
+            if plan_hash:
+                try:
+                    is_executed, exec_info = await ctx.check_plan_executed(plan_hash)
+                    if is_executed:
+                        print(f"[executor] ⏭️  SKIPPING: Plan already executed")
+                        print(f"[executor]    Previous execution: {exec_info['action']} {exec_info['status']}")
+                        print(f"[executor]    Order ID: {exec_info.get('order_id', 'N/A')}")
+                        span.add_event("plan_already_executed", {
+                            "previous_status": exec_info["status"],
+                            "previous_order_id": exec_info.get("order_id", ""),
+                        })
+                        return  # Skip execution
+                except Exception as e:
+                    print(f"[executor] Failed to check execution status: {e}")
+                    span.add_event("execution_check_failed", {"error": str(e)})
 
             # Execute plan
             global EXECUTOR_INSTANCE
@@ -487,6 +509,40 @@ async def on_plan_event(ctx, topic: str, event):
                 return
 
             result = await EXECUTOR_INSTANCE.execute_plan(payload)
+
+            # 🆕 Mark plan as executed in Core Memory
+            if plan_hash and result.get("status") != "error":
+                try:
+                    await ctx.mark_plan_executed(
+                        plan_hash=plan_hash,
+                        symbol=symbol,
+                        action=action,
+                        status=result["status"],
+                        executed=result.get("executed", False),
+                        order_id=result.get("order_id"),
+                        order_size_usdt=result.get("order_size_usdt", 0.0),
+                    )
+                    print(f"[executor] ✅ Marked plan as executed in memory")
+                    span.add_event("plan_marked_executed")
+                except Exception as e:
+                    print(f"[executor] Failed to mark execution: {e}")
+                    span.add_event("mark_execution_failed", {"error": str(e)})
+
+            # 🆕 Display execution statistics periodically
+            try:
+                stats = await ctx.get_execution_stats(symbol)
+                total = stats.get("total_executions", 0)
+                if total > 0 and total % 5 == 0:  # Every 5 executions
+                    print(f"\n[executor] 📊 Execution Statistics for {symbol}:")
+                    print(f"[executor]    Total Executions: {total}")
+                    print(f"[executor]    Win Rate: {stats.get('win_rate', 0.0):.1%}")
+                    print(f"[executor]    Recent Actions: {stats.get('recent_actions', [])}")
+                    span.add_event("execution_stats", {
+                        "total": total,
+                        "win_rate": stats.get("win_rate", 0.0),
+                    })
+            except Exception as e:
+                print(f"[executor] Failed to get execution stats: {e}")
 
             # Emit execution result
             await ctx.emit(
