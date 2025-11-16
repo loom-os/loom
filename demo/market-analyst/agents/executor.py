@@ -30,6 +30,37 @@ tracer = trace.get_tracer(__name__)
 # Default symbol
 SYMBOL = "BTC"
 
+# Global executor instance for event handler access
+EXECUTOR_INSTANCE: Optional["TradeExecutor"] = None
+
+
+# Simple file logger to capture early-exit issues under orchestrator
+_LOG_FH = None
+
+def _init_file_logger():
+    global _LOG_FH
+    try:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        logs_dir = os.path.join(base_dir, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+        _LOG_FH = open(os.path.join(logs_dir, "executor-agent.log"), "a", buffering=1)
+    except Exception:
+        _LOG_FH = None
+
+
+def _log(msg: str):
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] {msg}\n"
+    try:
+        print(f"[executor] {msg}")
+    except Exception:
+        pass
+    if _LOG_FH:
+        try:
+            _LOG_FH.write(line)
+        except Exception:
+            pass
+
 
 @dataclass
 class ExecutorConfig:
@@ -375,12 +406,12 @@ class TradeExecutor:
         self._connected = False
 
 
-async def on_plan_event(ctx, event):
+async def on_plan_event(ctx, topic: str, event):
     """Handle plan.ready events and execute trades."""
     with tracer.start_as_current_span(
         "executor.on_plan_event",
         attributes={
-            "event.topic": event.topic,
+            "event.topic": topic,
         },
     ) as span:
         try:
@@ -402,12 +433,12 @@ async def on_plan_event(ctx, event):
             span.set_attribute("executor.plan.confidence", confidence)
 
             # Execute plan
-            executor = ctx.get_state("executor")
-            if not executor:
+            global EXECUTOR_INSTANCE
+            if not EXECUTOR_INSTANCE:
                 print("[executor] ERROR: Executor not initialized")
                 return
 
-            result = await executor.execute_plan(payload)
+            result = await EXECUTOR_INSTANCE.execute_plan(payload)
 
             # Emit execution result
             await ctx.emit(
@@ -427,20 +458,29 @@ async def on_plan_event(ctx, event):
 
 async def main():
     """Main entry point."""
+    _init_file_logger()
     try:
+        _log("Executor Agent initializing...")
         # Load configuration
         config = load_project_config()
         agent_config = config.agents.get("executor-agent", {})
+        _log(f"Loaded agent config: {json.dumps(agent_config)}")
+
+        # Load runtime flags from config first
+        enable_trading_flag = agent_config.get("enable_trading", False)
 
         # Load API credentials from environment
         api_key = os.getenv("OKX_API_KEY")
         secret_key = os.getenv("OKX_SECRET_KEY")
         passphrase = os.getenv("OKX_PASSPHRASE")
         use_demo = os.getenv("OKX_USE_DEMO", "true").lower() == "true"
+        _log(f"Env OKX_USE_DEMO={use_demo}, enable_trading={enable_trading_flag}")
 
-        if not all([api_key, secret_key, passphrase]):
-            print("[executor] ❌ Missing OKX API credentials")
-            print("[executor] Required: OKX_API_KEY, OKX_SECRET_KEY, OKX_PASSPHRASE")
+        # Only require credentials when trading is enabled
+        if enable_trading_flag and not all([api_key, secret_key, passphrase]):
+            _log("Missing OKX API credentials while trading is enabled")
+            _log("Required: OKX_API_KEY, OKX_SECRET_KEY, OKX_PASSPHRASE")
+            _log("Tip: create a .env file in the demo folder or export env vars before running")
             return
 
         # Create executor config
@@ -451,13 +491,13 @@ async def main():
             use_demo=use_demo,
             min_order_size=agent_config.get("min_order_size", 0.001),
             max_order_size=agent_config.get("max_order_size", 0.01),
-            enable_trading=agent_config.get("enable_trading", False),
+            enable_trading=enable_trading_flag,
         )
 
-        print(f"[executor] Executor Agent starting...")
-        print(f"[executor] Trading Mode: {'🎮 DEMO' if use_demo else '⚠️  PRODUCTION'}")
-        print(f"[executor] Trading Enabled: {executor_config.enable_trading}")
-        print(f"[executor] Order Size Range: {executor_config.min_order_size} - {executor_config.max_order_size} BTC")
+        _log("Executor Agent starting...")
+        _log(f"Trading Mode: {'DEMO' if use_demo else 'PRODUCTION'}")
+        _log(f"Trading Enabled: {executor_config.enable_trading}")
+        _log(f"Order Size Range: {executor_config.min_order_size} - {executor_config.max_order_size} BTC")
 
         # Create agent
         agent = Agent(
@@ -466,30 +506,36 @@ async def main():
             on_event=on_plan_event,
         )
 
+        # Start agent first (connect to Core)
         await agent.start()
+        _log("Connected to Loom Core")
 
-        # Initialize executor
+        # Then initialize executor
         executor = TradeExecutor(executor_config)
         await executor.initialize()
 
-        # Store executor in agent state
-        agent._ctx.set_state("executor", executor)
+        # Store executor globally for handler
+        global EXECUTOR_INSTANCE
+        EXECUTOR_INSTANCE = executor
 
-        print(f"[executor] 🎯 Listening for trading plans on: plan.ready")
-        print(f"[executor] Will emit execution results to: execution.{{symbol}}")
+        _log("Listening for trading plans on: plan.ready")
+        _log("Will emit execution results to: execution.{symbol}")
 
         # Keep running
         try:
             await asyncio.Event().wait()
         except KeyboardInterrupt:
-            print("[executor] Shutting down...")
+            _log("Shutting down...")
             await executor.cleanup()
             await agent.stop()
 
     except Exception as e:
-        print(f"[executor] FATAL ERROR: {type(e).__name__}: {e}")
+        _log(f"FATAL ERROR: {type(e).__name__}: {e}")
         import traceback
-        traceback.print_exc()
+        if _LOG_FH:
+            traceback.print_exc(file=_LOG_FH)
+        else:
+            traceback.print_exc()
         raise
 
 
