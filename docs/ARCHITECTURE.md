@@ -60,6 +60,25 @@ Loom is an event-driven AI operating system that models intelligent agents as **
 └─────────────────────────────────────┘
 ```
 
+### Case Study: The Market Analyst Demo
+
+The `demo/market-analyst` application serves as a comprehensive showcase of the Loom architecture in action, demonstrating a sophisticated multi-agent system for real-time market analysis and automated trading. It consists of five distinct Python agents collaborating to:
+
+1.  **Data Agent**: Ingests real-time market data from the OKX WebSocket API and publishes it onto the event bus (e.g., `market.price.BTC-USDT-SWAP`).
+2.  **Analysis Agents (Risk, Trend, Sentiment)**: These agents subscribe to price events using wildcard topics (`market.price.*`). They perform parallel analysis:
+    - **Sentiment Agent**: Uses an MCP `web-search` tool to gather news and determine market sentiment.
+    - **Trend Agent**: Analyzes price history to identify short-term trends.
+    - **Risk Agent**: Calculates risk metrics based on volatility.
+3.  **Planner Agent**: Subscribes to all `analysis.*` topics. It aggregates the inputs from the analysis agents and uses an LLM (via the `llm.generate` capability) to formulate a trading plan (e.g., "BUY BTC at market price").
+4.  **Executor Agent**: Subscribes to `plan.ready` events. It parses the plan and executes trades by calling the `okx.place_order` capability, which is a native Rust capability for interacting with the exchange's private API.
+
+This demo validates several core architectural principles:
+
+- **Event-First Collaboration**: Agents communicate exclusively through the event bus, ensuring loose coupling.
+- **Polyglot Agents**: A Rust core orchestrates Python agents via the gRPC Bridge.
+- **Capability Abstraction**: LLM, web search (MCP), and trading APIs are all exposed as uniform "tools" or "capabilities" through the ActionBroker.
+- **Observability**: The entire workflow, from data ingestion to trade execution, is captured in a single distributed trace, providing deep visibility into the system's behavior.
+
 ## Core Components
 
 ### Event Bus
