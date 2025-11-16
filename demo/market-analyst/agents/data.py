@@ -1,7 +1,7 @@
 """Data Agent - Market Price Feed
 
-Emits real-time market price updates from Binance exchange.
-Falls back to simulated data if API unavailable.
+Emits real-time market price updates from OKX WebSocket.
+Falls back to simulated data if connection fails.
 """
 
 import asyncio
@@ -16,256 +16,141 @@ try:
 except ImportError:
     AIOHTTP_AVAILABLE = False
 
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
-
 from loom import Agent, load_project_config
 
 # Default cryptocurrency symbol to track
 SYMBOL = "BTC"
 
 
-class BinanceClient:
-    """Simple Binance REST API client for public market data."""
+class OKXWebSocketClient:
+    """OKX WebSocket client for real-time market data.
 
-    BASE_URL = "https://api.binance.com/api/v3"
+    Connects to OKX public WebSocket and subscribes to ticker updates.
+    Provides real-time price, volume, and 24h statistics.
+    """
+
+    WS_URL = "wss://ws.okx.com:8443/ws/v5/public"
 
     def __init__(self):
+        self.ws: Optional[aiohttp.ClientWebSocketResponse] = None
         self.session: Optional[aiohttp.ClientSession] = None
+        self._connected = False
+        self._last_ticker = {}
 
-    async def __aenter__(self):
-        if AIOHTTP_AVAILABLE:
+    async def connect(self):
+        """Establish WebSocket connection."""
+        if not AIOHTTP_AVAILABLE:
+            print("[data-okx] aiohttp not available")
+            return False
+
+        try:
             self.session = aiohttp.ClientSession()
-        return self
+            self.ws = await self.session.ws_connect(
+                self.WS_URL,
+                timeout=aiohttp.ClientTimeout(total=30)
+            )
+            self._connected = True
+            print("[data-okx] WebSocket connected")
+            return True
+        except Exception as e:
+            print(f"[data-okx] Failed to connect: {e}")
+            if self.session:
+                await self.session.close()
+            return False
 
-    async def __aexit__(self, *args):
-        if self.session:
-            await self.session.close()
-
-    async def get_ticker(self, symbol: str) -> Optional[dict]:
-        """Get 24h ticker price data for a symbol.
+    async def subscribe(self, inst_id: str):
+        """Subscribe to ticker channel for a trading pair.
 
         Args:
-            symbol: Trading pair symbol (e.g., "BTCUSDT")
-
-        Returns:
-            Dict with price data or None if failed
+            inst_id: Instrument ID (e.g., "BTC-USDT", "ETH-USDT")
         """
-        if not self.session:
-            return None
+        if not self.ws or not self._connected:
+            print("[data-okx] Not connected, cannot subscribe")
+            return False
 
         try:
-            url = f"{self.BASE_URL}/ticker/24hr"
-            params = {"symbol": symbol}
+            subscribe_msg = {
+                "op": "subscribe",
+                "args": [
+                    {
+                        "channel": "tickers",
+                        "instId": inst_id
+                    }
+                ]
+            }
 
-            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                else:
-                    print(f"[data] Binance API error: {resp.status}")
-                    return None
+            await self.ws.send_json(subscribe_msg)
+            print(f"[data-okx] Subscribed to {inst_id} ticker")
+            return True
         except Exception as e:
-            print(f"[data] Failed to fetch from Binance: {e}")
-            return None
+            print(f"[data-okx] Failed to subscribe: {e}")
+            return False
 
-
-class CoinGeckoClient:
-    """CoinGecko API client for cryptocurrency prices (no API key required)."""
-
-    BASE_URL = "https://api.coingecko.com/api/v3"
-
-    # Map common symbols to CoinGecko IDs
-    SYMBOL_MAP = {
-        "BTC": "bitcoin",
-        "ETH": "ethereum",
-        "USDT": "tether",
-        "BNB": "binancecoin",
-    }
-
-    def __init__(self, use_sync: bool = False):
-        self.session: Optional[aiohttp.ClientSession] = None
-        self.use_sync = use_sync
-
-    async def __aenter__(self):
-        if not self.use_sync and AIOHTTP_AVAILABLE:
-            self.session = aiohttp.ClientSession()
-        return self
-
-    async def __aexit__(self, *args):
-        if self.session:
-            await self.session.close()
-
-    async def get_ticker(self, symbol: str) -> Optional[dict]:
-        """Get price data for a cryptocurrency.
+    async def receive_updates(self, callback):
+        """Receive ticker updates and invoke callback.
 
         Args:
-            symbol: Symbol (e.g., "BTC", "ETH")
+            callback: Async function to call with ticker data
+        """
+        if not self.ws or not self._connected:
+            print("[data-okx] Not connected")
+            return
+
+        try:
+            async for msg in self.ws:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+
+                    # Handle subscription confirmation
+                    if data.get("event") == "subscribe":
+                        print(f"[data-okx] Subscription confirmed: {data.get('arg', {}).get('instId')}")
+                        continue
+
+                    # Handle ticker data
+                    if data.get("arg", {}).get("channel") == "tickers" and data.get("data"):
+                        ticker = data["data"][0]
+                        self._last_ticker = ticker
+                        await callback(ticker)
+
+                elif msg.type == aiohttp.WSMsgType.ERROR:
+                    print(f"[data-okx] WebSocket error: {self.ws.exception()}")
+                    break
+
+                elif msg.type == aiohttp.WSMsgType.CLOSED:
+                    print("[data-okx] WebSocket closed")
+                    break
+
+        except asyncio.CancelledError:
+            print("[data-okx] Receive loop cancelled")
+            raise
+        except Exception as e:
+            print(f"[data-okx] Error receiving updates: {e}")
+
+    async def close(self):
+        """Close WebSocket connection."""
+        self._connected = False
+        if self.ws:
+            await self.ws.close()
+        if self.session:
+            await self.session.close()
+        print("[data-okx] WebSocket closed")
+
+    def normalize_ticker(self, ticker: dict, symbol: str) -> dict:
+        """Normalize OKX ticker data to our format.
+
+        Args:
+            ticker: OKX ticker data
+            symbol: Symbol (e.g., "BTC")
 
         Returns:
-            Dict with price data or None if failed
+            Normalized ticker dict
         """
-        coin_id = self.SYMBOL_MAP.get(symbol)
-        if not coin_id:
-            return None
-
-        # Try sync method with requests if async fails or use_sync is True
-        if self.use_sync and REQUESTS_AVAILABLE:
-            return await asyncio.to_thread(self._get_ticker_sync, coin_id)
-
-        # Async method with aiohttp
-        if not self.session:
-            return None
-
-        try:
-            url = f"{self.BASE_URL}/simple/price"
-            params = {
-                "ids": coin_id,
-                "vs_currencies": "usd",
-                "include_24hr_vol": "true",
-                "include_24hr_change": "true",
-                "include_last_updated_at": "true",
-            }
-
-            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if coin_id in data:
-                        return self._normalize_coingecko_data(data[coin_id])
-                    return None
-                else:
-                    print(f"[data] CoinGecko API error: {resp.status}")
-                    return None
-        except Exception as e:
-            print(f"[data] Failed to fetch from CoinGecko (async): {e}")
-            # Try sync fallback if available
-            if REQUESTS_AVAILABLE:
-                print("[data] Trying sync fallback with requests...")
-                return await asyncio.to_thread(self._get_ticker_sync, coin_id)
-            return None
-
-    def _get_ticker_sync(self, coin_id: str) -> Optional[dict]:
-        """Synchronous fallback using requests library."""
-        try:
-            url = f"{self.BASE_URL}/simple/price"
-            params = {
-                "ids": coin_id,
-                "vs_currencies": "usd",
-                "include_24hr_vol": "true",
-                "include_24hr_change": "true",
-            }
-
-            response = requests.get(url, params=params, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if coin_id in data:
-                    return self._normalize_coingecko_data(data[coin_id])
-            else:
-                print(f"[data] CoinGecko API error (sync): {response.status_code}")
-            return None
-        except Exception as e:
-            print(f"[data] Failed to fetch from CoinGecko (sync): {e}")
-            return None
-
-    def _normalize_coingecko_data(self, coin_data: dict) -> dict:
-        """Normalize CoinGecko data to our format."""
-        price = coin_data.get("usd", 0)
         return {
-            "lastPrice": str(price),
-            "volume": str(coin_data.get("usd_24h_vol", 0)),
-            "priceChangePercent": str(coin_data.get("usd_24h_change", 0)),
-            "highPrice": str(price * 1.02),  # Approximation
-            "lowPrice": str(price * 0.98),   # Approximation
-        }
-
-
-class CryptoCompareClient:
-    """CryptoCompare API client (no API key required for basic use)."""
-
-    BASE_URL = "https://min-api.cryptocompare.com/data"
-
-    def __init__(self, use_sync: bool = False):
-        self.session: Optional[aiohttp.ClientSession] = None
-        self.use_sync = use_sync
-
-    async def __aenter__(self):
-        if not self.use_sync and AIOHTTP_AVAILABLE:
-            self.session = aiohttp.ClientSession()
-        return self
-
-    async def __aexit__(self, *args):
-        if self.session:
-            await self.session.close()
-
-    async def get_ticker(self, symbol: str) -> Optional[dict]:
-        """Get price data for a cryptocurrency.
-
-        Args:
-            symbol: Symbol (e.g., "BTC", "ETH")
-
-        Returns:
-            Dict with price data or None if failed
-        """
-        # Try sync method first (more reliable)
-        if REQUESTS_AVAILABLE:
-            return await asyncio.to_thread(self._get_ticker_sync, symbol)
-
-        # Async method
-        if not self.session:
-            return None
-
-        try:
-            # Get current price
-            url = f"{self.BASE_URL}/pricemultifull"
-            params = {
-                "fsyms": symbol,
-                "tsyms": "USD"
-            }
-
-            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if "RAW" in data and symbol in data["RAW"] and "USD" in data["RAW"][symbol]:
-                        return self._normalize_cryptocompare_data(data["RAW"][symbol]["USD"])
-                    return None
-                else:
-                    print(f"[data] CryptoCompare API error: {resp.status}")
-                    return None
-        except Exception as e:
-            print(f"[data] Failed to fetch from CryptoCompare (async): {e}")
-            return None
-
-    def _get_ticker_sync(self, symbol: str) -> Optional[dict]:
-        """Synchronous fallback using requests library."""
-        try:
-            url = f"{self.BASE_URL}/pricemultifull"
-            params = {
-                "fsyms": symbol,
-                "tsyms": "USD"
-            }
-
-            response = requests.get(url, params=params, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if "RAW" in data and symbol in data["RAW"] and "USD" in data["RAW"][symbol]:
-                    return self._normalize_cryptocompare_data(data["RAW"][symbol]["USD"])
-            else:
-                print(f"[data] CryptoCompare API error (sync): {response.status_code}")
-            return None
-        except Exception as e:
-            print(f"[data] Failed to fetch from CryptoCompare (sync): {e}")
-            return None
-
-    def _normalize_cryptocompare_data(self, usd_data: dict) -> dict:
-        """Normalize CryptoCompare data to our format."""
-        return {
-            "lastPrice": str(usd_data.get("PRICE", 0)),
-            "volume": str(usd_data.get("VOLUME24HOUR", 0)),
-            "priceChangePercent": str(usd_data.get("CHANGEPCT24HOUR", 0)),
-            "highPrice": str(usd_data.get("HIGH24HOUR", 0)),
-            "lowPrice": str(usd_data.get("LOW24HOUR", 0)),
+            "lastPrice": ticker.get("last", "0"),
+            "volume": ticker.get("volCcy24h", "0"),  # 24h volume in quote currency
+            "priceChangePercent": str(float(ticker.get("changePercent24h", "0")) * 100),  # Convert to percentage
+            "highPrice": ticker.get("high24h", "0"),
+            "lowPrice": ticker.get("low24h", "0"),
         }
 
 
@@ -295,61 +180,27 @@ def simulate_price(base_price: float = 50000.0, symbol: str = "BTC") -> dict:
     }
 
 
-async def data_loop(ctx, interval_sec: float = 1.0, exchange_symbol: str = "BTCUSDT", use_real_data: bool = True, data_source: str = "binance") -> None:
-    """Continuously emit price updates.
+async def data_loop_okx_websocket(ctx, inst_id: str = "BTC-USDT") -> None:
+    """OKX WebSocket-based data loop (event-driven).
 
     Args:
         ctx: Agent context
-        interval_sec: Update interval in seconds
-        exchange_symbol: Exchange trading pair (e.g., "BTCUSDT" for Binance) or symbol (e.g., "BTC" for CoinGecko)
-        use_real_data: Whether to use real exchange API or simulated data
-        data_source: Data source to use ("binance" or "coingecko")
+        inst_id: OKX instrument ID (e.g., "BTC-USDT", "ETH-USDT")
     """
-    print(f"[data] Starting price feed for {SYMBOL}")
-    print(f"[data] Mode: {'REAL' if use_real_data and AIOHTTP_AVAILABLE else 'SIMULATED'}")
-    print(f"[data] Data source: {data_source}")
-    print(f"[data] Symbol: {exchange_symbol}")
-    print(f"[data] Interval: {interval_sec}s")
+    okx_client = OKXWebSocketClient()
 
-    client = None
-    if use_real_data:
-        if data_source == "coingecko":
-            print("[data] Initializing CoinGecko client...")
-            client = await CoinGeckoClient(use_sync=REQUESTS_AVAILABLE).__aenter__()
-        elif data_source == "cryptocompare":
-            print("[data] Initializing CryptoCompare client...")
-            client = await CryptoCompareClient(use_sync=REQUESTS_AVAILABLE).__aenter__()
-        else:  # binance
-            print("[data] Initializing Binance client...")
-            client = await BinanceClient().__aenter__()
+    async def handle_ticker(ticker: dict):
+        """Handle incoming ticker update from OKX WebSocket."""
+        try:
+            # Normalize ticker data
+            normalized = okx_client.normalize_ticker(ticker, SYMBOL)
 
-    last_price = REALISTIC_PRICES.get(SYMBOL, 50000.0)  # Use realistic baseline
-
-    try:
-        while True:
-            ticker_data = None
-            source = "simulated"
-
-            # Try to get real data first
-            if client:
-                ticker_data = await client.get_ticker(exchange_symbol)
-                if ticker_data:
-                    source = data_source
-
-            # Fall back to realistic simulation if needed
-            if not ticker_data:
-                ticker_data = simulate_price(last_price, SYMBOL)
-                source = "simulated-realistic"
-
-            # Parse ticker data
-            price = float(ticker_data.get("lastPrice", last_price))
-            volume = float(ticker_data.get("volume", 0))
-            price_change_pct = float(ticker_data.get("priceChangePercent", 0))
-            high_price = float(ticker_data.get("highPrice", price))
-            low_price = float(ticker_data.get("lowPrice", price))
-
-            # Update last price for continuity
-            last_price = price
+            # Parse data
+            price = float(normalized.get("lastPrice", 0))
+            volume = float(normalized.get("volume", 0))
+            price_change_pct = float(normalized.get("priceChangePercent", 0))
+            high_price = float(normalized.get("highPrice", price))
+            low_price = float(normalized.get("lowPrice", price))
 
             payload = {
                 "symbol": SYMBOL,
@@ -359,10 +210,10 @@ async def data_loop(ctx, interval_sec: float = 1.0, exchange_symbol: str = "BTCU
                 "high_24h": high_price,
                 "low_24h": low_price,
                 "timestamp_ms": int(time.time() * 1000),
-                "source": source,
+                "source": "okx-websocket",
             }
 
-            print(f"[data] {source.upper():20s} | {SYMBOL} ${price:,.2f} | 24h: {price_change_pct:+.2f}% | Vol: ${volume:,.0f}")
+            print(f"[data] OKX-WEBSOCKET      | {SYMBOL} ${price:,.2f} | 24h: {price_change_pct:+.2f}% | Vol: ${volume:,.0f}")
 
             await ctx.emit(
                 f"market.price.{SYMBOL}",
@@ -370,11 +221,40 @@ async def data_loop(ctx, interval_sec: float = 1.0, exchange_symbol: str = "BTCU
                 payload=json.dumps(payload).encode("utf-8"),
             )
 
-            await asyncio.sleep(interval_sec)
+        except Exception as e:
+            print(f"[data-okx] Error handling ticker: {e}")
+
+    try:
+        # Connect to OKX WebSocket
+        if not await okx_client.connect():
+            print("[data-okx] Failed to connect, falling back to simulation")
+            # Fall back to simulated data
+            last_price = REALISTIC_PRICES.get(SYMBOL, 50000.0)
+            while True:
+                ticker_data = simulate_price(last_price, SYMBOL)
+                price = float(ticker_data.get("lastPrice", last_price))
+                await handle_ticker({
+                    "last": str(price),
+                    "volCcy24h": ticker_data.get("volume", "0"),
+                    "changePercent24h": str(float(ticker_data.get("priceChangePercent", "0")) / 100),
+                    "high24h": ticker_data.get("highPrice", str(price)),
+                    "low24h": ticker_data.get("lowPrice", str(price)),
+                })
+                last_price = price
+                await asyncio.sleep(1.0)
+            return
+
+        # Subscribe to ticker
+        if not await okx_client.subscribe(inst_id):
+            print("[data-okx] Failed to subscribe")
+            await okx_client.close()
+            return
+
+        # Receive updates (blocking)
+        await okx_client.receive_updates(handle_ticker)
 
     finally:
-        if client:
-            await client.__aexit__(None, None, None)
+        await okx_client.close()
 
 
 async def main():
@@ -385,11 +265,8 @@ async def main():
         agent_config = config.agents.get("data-agent", {})
 
         # Get settings
-        topics = agent_config.get("topics", [f"market.price.{SYMBOL}"])
-        interval = agent_config.get("refresh_interval_sec", 1.0)
-        exchange = agent_config.get("exchange", "binance")
-        symbols = agent_config.get("symbols", ["BTCUSDT"])
-        exchange_symbol = symbols[0] if symbols else "BTCUSDT"
+        symbols = agent_config.get("symbols", ["BTC-USDT"])
+        inst_id = symbols[0] if symbols else "BTC-USDT"
 
         # Create agent (data agent only emits, no subscriptions needed)
         agent = Agent(
@@ -399,33 +276,15 @@ async def main():
         )
 
         print(f"[data] Data Agent starting...")
-        print(f"[data] Will emit to: {topics}")
-        print(f"[data] Exchange: {exchange}")
-        print(f"[data] Symbols: {symbols}")
+        print(f"[data] Exchange: OKX WebSocket")
+        print(f"[data] Instrument: {inst_id}")
+        print(f"[data] Will emit to: market.price.{SYMBOL}")
 
         await agent.start()
 
-        # Start data loop
-        # Determine data source and symbol based on config
-        data_source = agent_config.get("data_source", "cryptocompare")  # Default to CryptoCompare (most reliable)
-        use_real_data = AIOHTTP_AVAILABLE or REQUESTS_AVAILABLE
-
-        # For CoinGecko, use simple symbol (BTC, ETH)
-        # For Binance, use trading pair (BTCUSDT, ETHUSDT)
-        # For CryptoCompare, use simple symbol (BTC, ETH)
-        if data_source == "binance":
-            symbol_for_api = exchange_symbol  # Use trading pair like "BTCUSDT"
-        else:  # coingecko or cryptocompare
-            symbol_for_api = SYMBOL  # Use simple symbol like "BTC"
-
+        # Start OKX WebSocket data loop
         asyncio.create_task(
-            data_loop(
-                agent._ctx,
-                interval_sec=interval,
-                exchange_symbol=symbol_for_api,
-                use_real_data=use_real_data,
-                data_source=data_source,
-            )
+            data_loop_okx_websocket(agent._ctx, inst_id=inst_id)
         )
 
         # Keep running

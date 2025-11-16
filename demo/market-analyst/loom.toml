@@ -7,9 +7,9 @@ version = "0.1.0"
 [agents.data-agent]
 topics = ["market.price.BTC", "market.price.ETH"]
 refresh_interval_sec = 3
-data_source = "cryptocompare"
-exchange = "cryptocompare"
-symbols = ["BTC", "ETH"]
+data_source = "okx"
+exchange = "okx"
+symbols = ["BTC-USDT", "ETH-USDT"]
 
 [agents.planner-agent]
 topics = ["analysis.trend", "analysis.risk", "analysis.sentiment"]
