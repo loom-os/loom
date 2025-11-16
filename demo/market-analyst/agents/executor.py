@@ -70,9 +70,9 @@ class ExecutorConfig:
     secret_key: str
     passphrase: str
     use_demo: bool = True
-    min_order_size: float = 0.001  # Minimum order size in BTC
-    max_order_size: float = 0.1    # Maximum order size in BTC
-    enable_trading: bool = False   # Safety switch - must be explicitly enabled
+    min_order_usdt: float = 10.0     # Minimum order size in USDT
+    max_order_usdt: float = 100.0    # Maximum order size in USDT
+    enable_trading: bool = False      # Safety switch - must be explicitly enabled
 
     @property
     def ws_url(self) -> str:
@@ -141,12 +141,27 @@ class OKXTradingClient:
                     if data.get('event') == 'login':
                         if data.get('code') == '0':
                             self._authenticated = True
-                            print("[executor-okx] Authentication successful")
-                            # Start message handler
+                            _log("OKX: Authentication successful")
+
+                            # Subscribe to private order updates (helps as fallback ack)
+                            try:
+                                sub_msg = {
+                                    "op": "subscribe",
+                                    "args": [
+                                        {"channel": "orders", "instType": "SPOT"},
+                                        {"channel": "orders", "instType": "SWAP"},
+                                    ],
+                                }
+                                await self.ws.send_json(sub_msg)
+                                _log("OKX: Subscribed to private orders channels (SPOT, SWAP)")
+                            except Exception as e:
+                                _log(f"OKX: Failed to subscribe orders channel: {e}")
+
+                            # Start message handler after login
                             asyncio.create_task(self._message_handler())
                             return True
                         else:
-                            print(f"[executor-okx] Authentication failed: {data.get('msg')}")
+                            _log(f"OKX: Authentication failed: {data.get('msg')}")
                             return False
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     print(f"[executor-okx] WebSocket error during auth: {self.ws.exception()}")
@@ -155,7 +170,7 @@ class OKXTradingClient:
             return False
 
         except Exception as e:
-            print(f"[executor-okx] Connection error: {e}")
+            _log(f"OKX: Connection error: {e}")
             if self.session:
                 await self.session.close()
             return False
@@ -166,40 +181,67 @@ class OKXTradingClient:
             async for msg in self.ws:
                 if msg.type == aiohttp.WSMsgType.TEXT:
                     data = json.loads(msg.data)
+                    # Debug log abbreviated incoming messages
+                    try:
+                        kind = data.get('event') or data.get('op') or data.get('arg', {}).get('channel')
+                        _log(f"OKX WS recv kind={kind}")
+                    except Exception:
+                        pass
 
-                    # Handle order responses
+                    # Handle order responses (immediate ack from op=order)
+                    # OKX returns {"id":"xxx","op":"order","data":[{...}],"code":"0","msg":""}
                     if data.get('op') == 'order':
                         request_id = data.get('id')
                         if request_id and request_id in self._pending_requests:
                             future = self._pending_requests.pop(request_id)
-                            future.set_result(data)
+                            if data.get('code') == '0':
+                                future.set_result(data)
+                                _log(f"OKX: Order ack received for id={request_id}")
+                            else:
+                                # Order failed
+                                error_data = data.get('data', [{}])[0]
+                                error_msg = error_data.get('sMsg', data.get('msg', 'Order failed'))
+                                error_code = error_data.get('sCode', data.get('code'))
+                                _log(f"OKX: Order failed code={error_code} msg={error_msg}")
+                                future.set_exception(Exception(f"{error_code}: {error_msg}"))
 
                     # Handle error events
                     elif data.get('event') == 'error':
-                        print(f"[executor-okx] Error event: {data.get('msg')}")
+                        error_msg = data.get('msg', 'Unknown error')
+                        error_code = data.get('code', 'unknown')
+                        _log(f"OKX: Error event code={error_code} msg={error_msg} data={data}")
                         request_id = data.get('id')
                         if request_id and request_id in self._pending_requests:
                             future = self._pending_requests.pop(request_id)
-                            future.set_exception(Exception(data.get('msg', 'Unknown error')))
+                            future.set_exception(Exception(f"{error_code}: {error_msg}"))
+
+                    # Handle orders channel updates as fallback ack (match by clOrdId)
+                    elif data.get('arg', {}).get('channel') == 'orders' and data.get('data'):
+                        orders = data.get('data', [])
+                        for od in orders:
+                            cl_id = od.get('clOrdId')
+                            # Try to match as a backup confirmation method
+                            if cl_id:
+                                _log(f"OKX: Orders channel update for clOrdId={cl_id} state={od.get('state')}")
 
                 elif msg.type == aiohttp.WSMsgType.ERROR:
-                    print(f"[executor-okx] WebSocket error: {self.ws.exception()}")
+                    _log(f"OKX: WebSocket error: {self.ws.exception()}")
                     break
 
                 elif msg.type == aiohttp.WSMsgType.CLOSED:
-                    print("[executor-okx] WebSocket closed")
+                    _log("OKX: WebSocket closed")
                     break
 
         except asyncio.CancelledError:
-            print("[executor-okx] Message handler cancelled")
+            _log("OKX: Message handler cancelled")
         except Exception as e:
-            print(f"[executor-okx] Message handler error: {e}")
+            _log(f"OKX: Message handler error: {e}")
 
     async def place_market_order(
         self,
         inst_id: str,
         side: str,  # "buy" or "sell"
-        size: float,
+        size_usdt: float,  # Order size in USDT
         trade_mode: str = "cash"  # "cash" for spot, "cross" for margin
     ) -> Dict[str, Any]:
         """Place a market order.
@@ -207,7 +249,7 @@ class OKXTradingClient:
         Args:
             inst_id: Instrument ID (e.g., "BTC-USDT")
             side: "buy" or "sell"
-            size: Order size (in base currency)
+            size_usdt: Order size in USDT (quote currency)
             trade_mode: Trading mode ("cash", "cross", "isolated")
 
         Returns:
@@ -217,17 +259,22 @@ class OKXTradingClient:
             raise Exception("Not authenticated")
 
         self._request_id += 1
-        request_id = f"order_{self._request_id}"
+        # OKX requires id field, use timestamp-based unique ID
+        request_id = str(int(time.time()*1000) + self._request_id)
+        # clOrdId: alphanumeric, max 32 chars
+        cl_ord_id = f"loom{int(time.time()*1000)}"
 
         order_msg = {
-            "id": request_id,
+            "id": request_id,  # Required by OKX
             "op": "order",
             "args": [{
                 "instId": inst_id,
                 "tdMode": trade_mode,
                 "side": side.lower(),
                 "ordType": "market",
-                "sz": str(size),
+                "sz": str(size_usdt),
+                "clOrdId": cl_ord_id,
+                "tgtCcy": "quote_ccy"  # Size in USDT (quote currency)
             }]
         }
 
@@ -237,11 +284,11 @@ class OKXTradingClient:
 
         # Send order
         await self.ws.send_json(order_msg)
-        print(f"[executor-okx] Sent {side.upper()} order: {size} {inst_id}")
+        _log(f"OKX: Sent {side.upper()} order: {size_usdt} USDT of {inst_id}")
 
         try:
             # Wait for response (with timeout)
-            response = await asyncio.wait_for(future, timeout=10.0)
+            response = await asyncio.wait_for(future, timeout=20.0)
             return response
         except asyncio.TimeoutError:
             self._pending_requests.pop(request_id, None)
@@ -337,9 +384,9 @@ class TradeExecutor:
                     span.set_attribute("executor.status", "hold")
 
                 elif action in ["BUY", "SELL"]:
-                    # Calculate order size based on confidence
+                    # Calculate order size based on confidence (in USDT)
                     # Higher confidence = larger position size
-                    order_size = self._calculate_order_size(confidence)
+                    order_size_usdt = self._calculate_order_size(confidence)
 
                     inst_id = f"{symbol}-USDT"
                     side = "buy" if action == "BUY" else "sell"
@@ -348,7 +395,7 @@ class TradeExecutor:
                     order_response = await self.client.place_market_order(
                         inst_id=inst_id,
                         side=side,
-                        size=order_size,
+                        size_usdt=order_size_usdt,
                         trade_mode="cash"  # Spot trading
                     )
 
@@ -358,15 +405,15 @@ class TradeExecutor:
                         result["executed"] = True
                         result["status"] = "success"
                         result["order_id"] = order_data.get("ordId")
-                        result["order_size"] = order_size
-                        result["message"] = f"Order placed: {side.upper()} {order_size} {inst_id}"
+                        result["order_size_usdt"] = order_size_usdt
+                        result["message"] = f"Order placed: {side.upper()} {order_size_usdt} USDT of {inst_id}"
 
-                        print(f"[executor] ✅ EXECUTED: {side.upper()} {order_size} {inst_id}")
+                        print(f"[executor] ✅ EXECUTED: {side.upper()} {order_size_usdt} USDT of {inst_id}")
                         print(f"[executor]    Order ID: {result['order_id']}")
 
                         span.set_attribute("executor.status", "success")
                         span.set_attribute("executor.order_id", result["order_id"])
-                        span.set_attribute("executor.order_size", order_size)
+                        span.set_attribute("executor.order_size_usdt", order_size_usdt)
                     else:
                         result["status"] = "error"
                         result["message"] = order_response.get("msg", "Order failed")
@@ -391,13 +438,14 @@ class TradeExecutor:
         """Calculate order size based on confidence level.
 
         Higher confidence = larger position size (within limits).
+        Returns size in USDT.
         """
         # Scale order size: 50% confidence = min size, 100% confidence = max size
-        size_range = self.config.max_order_size - self.config.min_order_size
+        size_range = self.config.max_order_usdt - self.config.min_order_usdt
         confidence_factor = max(0.0, min(1.0, (confidence - 0.5) * 2))  # Map 0.5-1.0 to 0-1
 
-        order_size = self.config.min_order_size + (size_range * confidence_factor)
-        return round(order_size, 6)  # Round to 6 decimals
+        order_size = self.config.min_order_usdt + (size_range * confidence_factor)
+        return round(order_size, 2)  # Round to 2 decimals (USDT)
 
     async def cleanup(self):
         """Cleanup resources."""
@@ -489,15 +537,15 @@ async def main():
             secret_key=secret_key,
             passphrase=passphrase,
             use_demo=use_demo,
-            min_order_size=agent_config.get("min_order_size", 0.001),
-            max_order_size=agent_config.get("max_order_size", 0.01),
+            min_order_usdt=agent_config.get("min_order_usdt", 10.0),
+            max_order_usdt=agent_config.get("max_order_usdt", 50.0),
             enable_trading=enable_trading_flag,
         )
 
         _log("Executor Agent starting...")
         _log(f"Trading Mode: {'DEMO' if use_demo else 'PRODUCTION'}")
         _log(f"Trading Enabled: {executor_config.enable_trading}")
-        _log(f"Order Size Range: {executor_config.min_order_size} - {executor_config.max_order_size} BTC")
+        _log(f"Order Size Range: {executor_config.min_order_usdt} - {executor_config.max_order_usdt} USDT")
 
         # Create agent
         agent = Agent(

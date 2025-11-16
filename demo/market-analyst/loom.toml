@@ -36,9 +36,9 @@ indicators = ["SMA", "EMA", "RSI"]
 
 [agents.executor-agent]
 topics = ["plan.ready"]
-enable_trading = false  # Safety switch - set to true to enable real trading
-min_order_size = 0.001  # Minimum order size in BTC
-max_order_size = 0.01   # Maximum order size in BTC
+enable_trading = true    # Safety switch - set to true to enable real trading
+min_order_usdt = 10.0    # Minimum order size in USDT
+max_order_usdt = 50.0    # Maximum order size in USDT
 
 [bridge]
 address = "127.0.0.1:50051"
