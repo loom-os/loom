@@ -16,7 +16,12 @@ try:
 except ImportError:
     AIOHTTP_AVAILABLE = False
 
+from opentelemetry import trace
+
 from loom import Agent, load_project_config
+
+# Get tracer for business logic spans
+tracer = trace.get_tracer(__name__)
 
 # Default cryptocurrency symbol to track
 SYMBOL = "BTC"
@@ -191,38 +196,54 @@ async def data_loop_okx_websocket(ctx, inst_id: str = "BTC-USDT") -> None:
 
     async def handle_ticker(ticker: dict):
         """Handle incoming ticker update from OKX WebSocket."""
-        try:
-            # Normalize ticker data
-            normalized = okx_client.normalize_ticker(ticker, SYMBOL)
+        with tracer.start_as_current_span(
+            "data.process_ticker",
+            attributes={
+                "data.symbol": SYMBOL,
+                "data.source": "okx-websocket",
+            },
+        ) as span:
+            try:
+                # Normalize ticker data
+                normalized = okx_client.normalize_ticker(ticker, SYMBOL)
 
-            # Parse data
-            price = float(normalized.get("lastPrice", 0))
-            volume = float(normalized.get("volume", 0))
-            price_change_pct = float(normalized.get("priceChangePercent", 0))
-            high_price = float(normalized.get("highPrice", price))
-            low_price = float(normalized.get("lowPrice", price))
+                # Parse data
+                price = float(normalized.get("lastPrice", 0))
+                volume = float(normalized.get("volume", 0))
+                price_change_pct = float(normalized.get("priceChangePercent", 0))
+                high_price = float(normalized.get("highPrice", price))
+                low_price = float(normalized.get("lowPrice", price))
 
-            payload = {
-                "symbol": SYMBOL,
-                "price": price,
-                "volume": volume,
-                "price_change_percent": price_change_pct,
-                "high_24h": high_price,
-                "low_24h": low_price,
-                "timestamp_ms": int(time.time() * 1000),
-                "source": "okx-websocket",
-            }
+                payload = {
+                    "symbol": SYMBOL,
+                    "price": price,
+                    "volume": volume,
+                    "price_change_percent": price_change_pct,
+                    "high_24h": high_price,
+                    "low_24h": low_price,
+                    "timestamp_ms": int(time.time() * 1000),
+                    "source": "okx-websocket",
+                }
 
-            print(f"[data] OKX-WEBSOCKET      | {SYMBOL} ${price:,.2f} | 24h: {price_change_pct:+.2f}% | Vol: ${volume:,.0f}")
+                # Record price data in span
+                span.set_attribute("data.price", price)
+                span.set_attribute("data.volume", volume)
+                span.set_attribute("data.price_change_pct", price_change_pct)
 
-            await ctx.emit(
-                f"market.price.{SYMBOL}",
-                type="price.update",
-                payload=json.dumps(payload).encode("utf-8"),
-            )
+                print(f"[data] OKX-WEBSOCKET      | {SYMBOL} ${price:,.2f} | 24h: {price_change_pct:+.2f}% | Vol: ${volume:,.0f}")
 
-        except Exception as e:
-            print(f"[data-okx] Error handling ticker: {e}")
+                await ctx.emit(
+                    f"market.price.{SYMBOL}",
+                    type="price.update",
+                    payload=json.dumps(payload).encode("utf-8"),
+                )
+
+                span.set_status(trace.Status(trace.StatusCode.OK))
+
+            except Exception as e:
+                print(f"[data-okx] Error handling ticker: {e}")
+                span.add_event("ticker_processing_failed", {"error": str(e)})
+                span.set_status(trace.Status(trace.StatusCode.ERROR))
 
     try:
         # Connect to OKX WebSocket

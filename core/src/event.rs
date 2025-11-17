@@ -92,8 +92,10 @@ impl EventExt for Event {
     }
 
     fn sender(&self) -> Option<&str> {
+        // Try without prefix first (Rust native), then with "loom." prefix (Python SDK)
         self.metadata
             .get(crate::envelope::keys::SENDER)
+            .or_else(|| self.metadata.get("loom.sender"))
             .map(|s| s.as_str())
     }
 }
@@ -258,6 +260,13 @@ impl EventBus {
                 payload_preview,
                 trace_id: envelope.trace_id.clone(),
             });
+        }
+
+        // 🔧 Record flow from sender to EventBus (for Dashboard visibility)
+        if let Some(ref flow_tracker) = self.flow_tracker {
+            if let Some(sender) = event.sender() {
+                flow_tracker.record_flow(sender, "EventBus", topic).await;
+            }
         }
 
         // Record published metric
@@ -427,7 +436,13 @@ impl EventBus {
                             }
                             Err(_) => {
                                 dropped += 1;
-                                warn!("Failed to send event to subscription {}", sub.id);
+                                // 🔧 More detailed logging for channel full errors
+                                warn!(
+                                    subscription_id = %sub.id,
+                                    topic = %topic,
+                                    qos = ?sub.qos,
+                                    "Failed to send event to subscription - channel may be full"
+                                );
                             }
                         }
                     }
@@ -506,9 +521,9 @@ impl EventBus {
         Span::current().record("subscription_id", &subscription_id);
 
         let cap = match qos {
-            QoSLevel::QosRealtime => 64,
-            QoSLevel::QosBatched => 1024,
-            QoSLevel::QosBackground => 4096,
+            QoSLevel::QosRealtime => 512,    // Raise from 64 to 512
+            QoSLevel::QosBatched => 2048,    // Raise from 1024 to 2048
+            QoSLevel::QosBackground => 4096, // Keep unchanged
         };
         let (tx, rx) = mpsc::channel(cap);
 

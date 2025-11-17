@@ -338,11 +338,16 @@ async def planner_handler(ctx, topic: str, event) -> None:
         span.set_attribute("planner.buffer.size", len(partials))
         span.set_attribute("planner.buffer.topics", list(partials.keys()))
 
+        # 🔧 Add debug logging
+        print(f"[planner] Received {topic}, buffer now has {len(partials)} analyses: {list(partials.keys())}")
+
         # Check if ready to plan
         if planner_buffer.ready(symbol):
             partials = planner_buffer.take(symbol) or {}
             span.set_attribute("planner.ready", True)
             span.set_attribute("planner.complete", len(partials) >= 3)
+
+            print(f"[planner] ✅ Buffer ready! Generating plan with {len(partials)} analyses")
 
             plan = await make_plan(ctx, partials)
 
@@ -368,16 +373,25 @@ async def planner_handler(ctx, topic: str, event) -> None:
         else:
             span.set_attribute("planner.ready", False)
             span.add_event("waiting_for_more_analyses")
+            # 🔧 Add debug logging
+            print(f"[planner] ⏳ Waiting for more analyses (have {len(partials)}/3, timeout={planner_buffer.timeout_sec}s)")
 
 
 async def planner_timeout_loop(ctx) -> None:
     """Check for expired symbols periodically."""
+    iteration = 0
     while True:
         await asyncio.sleep(0.5)
+        iteration += 1
+
+        # 🔧 Periodic health check logging
+        if iteration % 20 == 0:  # Every 10 seconds
+            print(f"[planner] ⏰ Timeout loop alive (iteration {iteration})")
 
         for symbol in planner_buffer.expired_symbols():
             partials = planner_buffer.take(symbol) or {}
             if partials:
+                print(f"[planner] ⏱️ Timeout triggered for {symbol} with {len(partials)} analyses")
                 plan = await make_plan(ctx, partials)
                 method = plan.get("method", "unknown")
                 print(f"[planner] Plan ready (timeout/{method}): {plan['action']} (conf: {plan['confidence']:.2f})")
@@ -397,11 +411,11 @@ async def main():
     agent_config = config.agents.get("planner-agent", {})
 
     topics = agent_config.get("topics", ["analysis.trend", "analysis.risk", "analysis.sentiment"])
-    timeout_ms = agent_config.get("timeout_ms", 3000)
+    timeout_ms = agent_config.get("timeout_ms", 3000)  # Use timeout_ms from config
     llm_name = agent_config.get("llm_provider", "deepseek")
 
-    # Update buffer timeout
-    planner_buffer.timeout_sec = timeout_ms / 1000
+    # Update buffer timeout from config
+    planner_buffer.timeout_sec = timeout_ms / 1000.0
 
     agent = Agent(
         agent_id="planner-agent",
@@ -411,7 +425,7 @@ async def main():
 
     print(f"[planner] Planner Agent starting")
     print(f"[planner] Subscribed to: {topics}")
-    print(f"[planner] Timeout: {timeout_ms}ms")
+    print(f"[planner] Timeout: {timeout_ms}ms ({planner_buffer.timeout_sec}s)")
     print(f"[planner] LLM Provider: {llm_name}")
 
     await agent.start()

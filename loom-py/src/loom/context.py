@@ -28,6 +28,18 @@ class Context:
     async def emit(
         self, topic: str, *, type: str, payload: bytes = b"", envelope: Optional[Envelope] = None
     ) -> None:
+        """Emit an event to a topic.
+
+        Args:
+            topic: Topic to publish to
+            type: Event type
+            payload: Event payload (bytes)
+            envelope: Optional pre-built envelope
+
+        Note:
+            QoS level is configured at subscription time in the Bridge (QosBatched by default),
+            not per-event. The Bridge uses channel size of 2048 for batched processing.
+        """
         env = envelope or Envelope.new(type=type, payload=payload, sender=self.agent_id)
         # Inject trace context from current span before sending
         env.inject_trace_context()

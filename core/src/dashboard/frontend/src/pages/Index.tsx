@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { HeroSection } from "@/components/HeroSection";
 import { MetricsOverview } from "@/components/MetricsOverview";
-import { EventFlowVisualization } from "@/components/EventFlowVisualization";
+import { EventStream } from "@/components/EventStream";
 import { AgentNetworkGraph } from "@/components/AgentNetworkGraph";
 import {
   AgentCommunication,
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Activity } from "lucide-react";
 import {
   createEventStream,
+  createSpansStream,
   fetchFlow,
   fetchMetrics,
   fetchTopology,
@@ -206,6 +207,7 @@ function foldCommunications(
 const Index = () => {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [communications, setCommunications] = useState<Communication[]>([]);
+  const [llmCommunications, setLlmCommunications] = useState<Communication[]>([]);
   const [eventsPerWindow, setEventsPerWindow] = useState<number[]>([]);
 
   const { data: metricsData } = useQuery({
@@ -229,6 +231,7 @@ const Index = () => {
     staleTime: 2_500,
   });
 
+  // Stream Dashboard events for Event Stream panel and lightweight communications fallback
   useEffect(() => {
     let source: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -302,6 +305,93 @@ const Index = () => {
     };
   }, []);
 
+  // Stream spans for LLM outputs (Agent Communication)
+  useEffect(() => {
+    let source: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let isMounted = true;
+
+    const handleSpans = (event: MessageEvent<string>) => {
+      if (!event.data || !isMounted) return;
+      try {
+        const spans = JSON.parse(event.data) as Array<{
+          trace_id: string;
+          span_id: string;
+          name: string;
+          start_time: number; // ns
+          attributes: Record<string, string>;
+          status: string;
+        }>;
+
+        const newItems: Communication[] = spans
+          .filter((s) => s.attributes?.capability === "llm.generate" || s.name === "llm.generate")
+          .map((s) => {
+            const agent = s.attributes?.sender || s.attributes?.["loom.sender"] || "agent";
+            const content =
+              s.attributes?.output_preview || s.attributes?.["llm.output_preview"] || "";
+            const threadId = s.attributes?.thread_id;
+            const model = s.attributes?.model;
+            const provider = s.attributes?.provider;
+
+            const toolLabel = provider && model ? `${provider}:${model}` : model || provider || "llm";
+
+            const item: Communication = {
+              id: s.span_id,
+              timestamp: Math.floor((s.start_time || 0) / 1_000_000),
+              agent,
+              type: "output",
+              content: content && content.length > 0 ? content : s.name,
+              tool: toolLabel,
+              threadId,
+            };
+            return item;
+          });
+
+        if (newItems.length > 0) {
+          setLlmCommunications((prev) => {
+            const merged = [...prev, ...newItems];
+            // de-dup by id and cap length
+            const map = new Map<string, Communication>();
+            for (const c of merged.slice(-MAX_COMMUNICATIONS * 2)) {
+              map.set(c.id, c);
+            }
+            return Array.from(map.values()).slice(-MAX_COMMUNICATIONS);
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to parse spans payload", err);
+      }
+    };
+
+    const connect = () => {
+      if (!isMounted) return;
+      try {
+        source = createSpansStream();
+
+        source.addEventListener("spans", handleSpans as any);
+
+        source.onerror = () => {
+          if (!isMounted) return;
+          if (source) {
+            source.close();
+            source = null;
+          }
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(connect, 2000);
+        };
+      } catch (error) {
+        console.error("Failed to create Spans EventSource:", error);
+      }
+    };
+
+    connect();
+    return () => {
+      isMounted = false;
+      if (source) source.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, []);
+
   const graph = useMemo(
     () => deriveAgentGraph(topologyData, flowData),
     [topologyData, flowData],
@@ -350,8 +440,8 @@ const Index = () => {
           <MetricsOverview metrics={metrics} />
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <EventFlowVisualization events={events} />
-            <AgentCommunication communications={communications} />
+            <EventStream events={events} />
+            <AgentCommunication communications={llmCommunications.length > 0 ? llmCommunications : communications} />
           </div>
 
           <AgentNetworkGraph agents={graph.agents} messages={recentMessages} />

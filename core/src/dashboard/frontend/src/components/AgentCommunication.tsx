@@ -58,9 +58,9 @@ export const AgentCommunication = ({
   return (
     <Card className="p-6 bg-card/50 backdrop-blur border-border/50 shadow-card">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-foreground">Agent Communications</h2>
+        <h2 className="text-xl font-bold text-foreground">LLM Outputs</h2>
         <Badge variant="outline" className="text-xs">
-          {visible.length} actions
+          {visible.length} items
         </Badge>
       </div>
 
