@@ -69,14 +69,21 @@ The `demo/market-analyst` application serves as a comprehensive showcase of the 
     - **Sentiment Agent**: Uses an MCP `web-search` tool to gather news and determine market sentiment.
     - **Trend Agent**: Analyzes price history to identify short-term trends.
     - **Risk Agent**: Calculates risk metrics based on volatility.
-3.  **Planner Agent**: Subscribes to all `analysis.*` topics. It aggregates the inputs from the analysis agents and uses an LLM (via the `llm.generate` capability) to formulate a trading plan (e.g., "BUY BTC at market price").
-4.  **Executor Agent**: Subscribes to `plan.ready` events. It parses the plan and executes trades by calling the `okx.place_order` capability, which is a native Rust capability for interacting with the exchange's private API.
+3.  **Planner Agent**: Subscribes to all `analysis.*` topics. It aggregates the inputs from the analysis agents and uses an LLM (via the `llm.generate` capability) to formulate a trading plan (e.g., "BUY BTC at market price"). Uses **memory system** to:
+    - Query recent plans for context (avoid similar decisions)
+    - Check for duplicate plans within 5-minute time window
+    - Save new plans with hash-based deduplication
+4.  **Executor Agent**: Subscribes to `plan.ready` events. It parses the plan and executes trades by calling the `okx.place_order` capability, which is a native Rust capability for interacting with the exchange's private API. Uses **memory system** to:
+    - Check execution idempotency (prevent double-execution on retry)
+    - Track execution status (success/error) with order details
+    - Calculate and display win rate statistics
 
 This demo validates several core architectural principles:
 
 - **Event-First Collaboration**: Agents communicate exclusively through the event bus, ensuring loose coupling.
 - **Polyglot Agents**: A Rust core orchestrates Python agents via the gRPC Bridge.
 - **Capability Abstraction**: LLM, web search (MCP), and trading APIs are all exposed as uniform "tools" or "capabilities" through the ActionBroker.
+- **Memory-Aware Decision Making**: Planner and Executor use shared memory to prevent duplicate decisions and double-execution, ensuring idempotent trading operations.
 - **Observability**: The entire workflow, from data ingestion to trade execution, is captured in a single distributed trace, providing deep visibility into the system's behavior.
 
 ## Core Components
@@ -209,11 +216,84 @@ runtime.unsubscribe_agent("agent-1", "thread.task-123.broadcast").await?;
 let subs = runtime.get_agent_subscriptions("agent-1")?;
 ```
 
-**Memory System**:
+### Memory & Context System
 
-- **Episodic**: Event sequences
-- **Semantic**: Knowledge graph
-- **Working**: Active context
+**✅ IMPLEMENTED** — Dual-layer memory system supporting both general-purpose episodic memory and specialized agent decision tracking.
+
+**Architecture**:
+
+```rust
+InMemoryMemory {
+    // General-purpose episodic memory
+    events: DashMap<String, Vec<String>>,       // session_id → events
+    summaries: DashMap<String, String>,         // session_id → summary
+
+    // Agent decision memory
+    plans: DashMap<String, Vec<PlanRecord>>,    // session_id → plans (max 100)
+    executed_plans: DashMap<String, ExecutionRecord>, // plan_hash → execution
+}
+```
+
+**Core Traits (General-purpose)**:
+
+- `MemoryWriter`: append_event(), summarize_episode()
+- `MemoryReader`: retrieve(query, k, filters)
+- Used by `ContextBuilder` to assemble LLM-ready `PromptBundle` with recent summaries and retrieved context
+
+**Agent Decision API (Extended)**:
+
+```rust
+// Plan storage with deduplication
+save_plan(session_id, symbol, action, confidence, reasoning, method) -> plan_hash
+
+// Query recent decisions
+get_recent_plans(session_id, symbol, limit) -> Vec<PlanRecord>
+
+// Duplicate detection (MD5 hash + time window)
+check_duplicate(session_id, symbol, action, reasoning, time_window_sec)
+    -> (bool, Option<PlanRecord>)
+
+// Execution tracking (idempotency)
+mark_executed(session_id, plan_hash, ...) -> Result<()>
+check_executed(session_id, plan_hash) -> (bool, Option<ExecutionRecord>)
+
+// Statistics
+get_execution_stats(session_id, symbol) -> ExecutionStats {
+    total_executions, successful_executions, failed_executions,
+    win_rate, recent_executions
+}
+```
+
+**Key Features**:
+
+- **Deduplication**: MD5 hash (symbol|action|reasoning) with configurable time windows (default: 5 min)
+- **Idempotency**: Execution tracking prevents duplicate order submissions (e.g., on retry)
+- **Session Isolation**: All data partitioned by session_id for multi-agent safety
+- **Performance**: DashMap lock-free concurrent access; O(1) execution lookups
+- **Plan Limit**: FIFO eviction at 100 plans per session
+
+**gRPC Bridge Integration**:
+
+Exposed via `MemoryService` with 9 RPC methods:
+
+- SavePlan, GetRecentPlans, CheckDuplicate
+- MarkExecuted, CheckExecuted, GetExecutionStats
+- Store, Retrieve, Summarize (legacy general-purpose)
+
+**Use Case: Market Analyst Demo**:
+
+- **Planner Agent**:
+  - Queries recent_plans for context
+  - Checks duplicates before saving new decisions
+  - Prevents repetitive trading signals within time windows
+- **Executor Agent**:
+  - Checks execution idempotency before placing orders
+  - Tracks execution status (success/error)
+  - Reports win rate and statistics
+
+**Testing**: 25 comprehensive tests (8 Core Rust + 5 Bridge gRPC + 12 Python SDK) — all passing ✅
+
+See `docs/core/memory.md` for detailed implementation and `core/src/context/README.md` for API usage.
 
 ### Action System (ActionBroker + Tool Orchestrator)
 
@@ -687,11 +767,13 @@ Detailed component-level documentation is available under `docs/core/`:
 - `docs/core/router.md` — Routing policies and decision logging
 - `docs/core/action_broker.md` — Capability registration and invocation
 - `docs/core/llm.md` — LLM adapters, streaming, retries
+- `docs/core/memory.md` — Memory & Context system (episodic + agent decision tracking)
 - `docs/core/plugin_system.md` — Plugin lifecycle and interfaces
 - `docs/core/storage.md` — Storage modes and configuration
 - `docs/core/telemetry.md` — Recommended metrics and spans
 - `docs/core/envelope.md` — Thread/correlation semantics and helpers
 - `docs/core/collaboration.md` — Collaboration primitives
 - `docs/core/directory.md` — Agent & Capability directories
+- `docs/core/cognitive_runtime.md` — Cognitive agent pattern (perceive-think-act)
 
 These pages provide implementation pointers, common error modes, and test guidance for each core component.

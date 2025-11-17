@@ -1,30 +1,29 @@
-## Memory & Context System (Design Draft)
+## Memory & Context System
 
-**Status**: Design / draft — this document describes the intended evolution of Loom's memory system around the existing `context` module.
-
----
-
-### Goals
-
-- Provide a **unified abstraction** for episodic and semantic memory that is usable from Rust and SDKs.
-- Keep the **initial implementation simple** (in‑process, RocksDB, or external KV) while allowing later upgrades to vector databases and knowledge graphs.
-- Make memory operations **observable** (reads, writes, retrieval quality) and easy to debug.
-- Integrate cleanly with:
-  - `ContextBuilder` (prompt assembly),
-  - Cognitive agents (planning and reasoning),
-  - Event persistence/replay.
+**Status**: Implemented — this document describes Loom's memory system with both general-purpose episodic memory and specialized agent decision tracking.
 
 ---
 
-### Existing Building Blocks
+### Overview
 
-The `context` module already exposes two core traits:
+The memory system provides two complementary capabilities:
+
+1. **General-purpose memory** via `MemoryReader/Writer` traits for episodic summaries and retrieval
+2. **Agent decision memory** for plan storage, deduplication, execution tracking, and statistics
+
+Both are implemented in `InMemoryMemory` (Rust core) and exposed via gRPC Bridge to Python SDK and external agents.
+
+---
+
+### Architecture
+
+#### Core Traits (General-purpose)
 
 ```rust
 #[async_trait::async_trait]
 pub trait MemoryWriter: Send + Sync {
-    async fn append_event(&self, session: &str, event: crate::proto::Event) -> crate::Result<()>;
-    async fn summarize_episode(&self, session: &str) -> crate::Result<Option<String>>;
+    async fn append_event(&self, session: &str, event: Event) -> Result<()>;
+    async fn summarize_episode(&self, session: &str) -> Result<Option<String>>;
 }
 
 #[async_trait::async_trait]
@@ -34,140 +33,500 @@ pub trait MemoryReader: Send + Sync {
         query: &str,
         k: usize,
         filters: Option<serde_json::Value>,
-    ) -> crate::Result<Vec<String>>;
+    ) -> Result<Vec<String>>;
 }
 ```
 
-and an in‑memory implementation (`InMemoryMemory`) used for demos and tests.
+These traits support:
 
-This document formalizes these traits as the **primary memory extension point** for Loom.
+- **Episodic memory**: Event sequences and summaries scoped to sessions
+- **Simple retrieval**: Substring-based search (upgradable to semantic search)
 
----
-
-### Memory Types
-
-The memory system is intended to support three conceptual layers:
-
-1. **Episodic memory**
-   - Sequences of events or summaries scoped to a session/thread.
-   - Backed by RocksDB or another KV store for durability.
-   - Used to reconstruct recent context and conversation history.
-2. **Semantic memory**
-   - Embedding‑based retrieval over documents, facts, or past interactions.
-   - Backed by a vector store (FAISS/Milvus/Weaviate, or pluggable adapters).
-   - Used to recall relevant knowledge given a query.
-3. **Working memory**
-   - Short‑lived, in‑process state used by a single agent while handling events.
-   - Typically stored in the agent's internal state or ephemeral caches.
-
-The `MemoryReader/Writer` traits cover episodic and a simplified view of semantic memory; working memory remains an agent‑local concern.
-
----
-
-### Planned Implementations
-
-#### 1. RocksDB‑backed episodic memory
-
-A first step is to provide a persistent `MemoryReader/Writer` implementation backed by RocksDB:
-
-- Keys scoped by `session_id` and (optionally) time buckets.
-- Values as compact textual summaries (similar to `InMemoryMemory`, but durable).
-- Configurable retention and compaction policies.
-
-This implementation is suitable for:
-
-- Reconstructing recent dialogues for LLM prompts.
-- Simple time‑ordered inspection and debugging.
-
-#### 2. Pluggable semantic memory provider
-
-Longer term, Loom should support semantic retrieval via a separate trait, e.g.:
+#### Agent Decision Methods (Extended API)
 
 ```rust
-#[async_trait::async_trait]
-pub trait SemanticMemory: Send + Sync {
-    async fn upsert(
+impl InMemoryMemory {
+    // Plan storage with deduplication
+    async fn save_plan(
         &self,
-        session: &str,
-        id: &str,
-        text: &str,
-        metadata: serde_json::Value,
-    ) -> crate::Result<()>;
+        session_id: &str,
+        symbol: &str,
+        action: &str,
+        confidence: f32,
+        reasoning: &str,
+        method: &str,
+    ) -> Result<String> // Returns plan_hash
 
-    async fn query(
+    // Query recent decisions
+    async fn get_recent_plans(
         &self,
-        session: &str,
-        query: &str,
-        k: usize,
-        filters: Option<serde_json::Value>,
-    ) -> crate::Result<Vec<String>>;
+        session_id: &str,
+        symbol: &str,
+        limit: usize,
+    ) -> Result<Vec<PlanRecord>>
+
+    // Duplicate detection
+    async fn check_duplicate(
+        &self,
+        session_id: &str,
+        symbol: &str,
+        action: &str,
+        reasoning: &str,
+        time_window_sec: u64,
+    ) -> Result<(bool, Option<PlanRecord>)>
+
+    // Execution tracking (idempotency)
+    async fn mark_executed(
+        &self,
+        session_id: &str,
+        plan_hash: &str,
+        // ... execution details
+    ) -> Result<()>
+
+    async fn check_executed(
+        &self,
+        session_id: &str,
+        plan_hash: &str,
+    ) -> Result<(bool, Option<ExecutionRecord>)>
+
+    // Statistics
+    async fn get_execution_stats(
+        &self,
+        session_id: &str,
+        symbol: &str,
+    ) -> Result<ExecutionStats>
 }
 ```
 
-Concrete adapters can then wrap FAISS, Milvus, or other backends.
+These methods support:
+
+- **Decision deduplication**: Prevent duplicate plans within time windows
+- **Execution idempotency**: Ensure plans execute at most once
+- **Performance tracking**: Win rates, success counts, recent executions
 
 ---
 
-### Integration with ContextBuilder
+### Implementation: InMemoryMemory
 
-`ContextBuilder` will remain the primary consumer of memory when constructing prompts:
+#### Data Structures
 
-- It can call `MemoryWriter::summarize_episode` to include a **recent episode summary**.
-- It can call `MemoryReader::retrieve` (and, later, semantic providers) to include **retrieved context** lines.
-- It assembles these pieces into a `PromptBundle` that LLM clients can consume.
+```rust
+pub struct InMemoryMemory {
+    // General-purpose episodic memory
+    events: Arc<DashMap<String, Vec<String>>>,        // session_id -> events
+    summaries: Arc<DashMap<String, String>>,          // session_id -> summary
 
-Future enhancements may include:
+    // Agent decision memory
+    plans: Arc<DashMap<String, Vec<PlanRecord>>>,     // session_id -> plans (max 100)
+    executed_plans: Arc<DashMap<String, ExecutionRecord>>, // plan_hash -> execution
+}
+```
 
-- Token‑aware truncation and budgeting.
-- Role‑annotated histories (user/assistant/tool) derived from episodic memory.
+**Key characteristics**:
+
+- **DashMap**: Lock-free concurrent hashmap for high-performance multi-agent access
+- **Session isolation**: All data partitioned by session_id
+- **Plan limit**: Keep last 100 plans per session (FIFO eviction)
+- **Hash-based lookups**: O(1) execution tracking via plan_hash
+
+#### Deduplication Algorithm
+
+```rust
+// 1. Generate deterministic hash
+let content = format!("{}|{}|{}", symbol, action, reasoning);
+let hash = md5::compute(content.as_bytes());
+let plan_hash = format!("{:x}", hash)[..8]; // 8-char prefix
+
+// 2. Check time window (default: 5 minutes)
+for existing_plan in plans {
+    if existing_plan.plan_hash == plan_hash {
+        let time_diff = current_time - existing_plan.timestamp_ms;
+        if time_diff < time_window_ms {
+            return (true, Some(existing_plan)); // Duplicate!
+        }
+    }
+}
+
+// 3. Save if unique
+plans.push(new_plan);
+```
+
+**Why MD5**:
+
+- Fast (not cryptographic security-critical)
+- Deterministic (same plan → same hash)
+- Collision-resistant enough for 8-char prefix in trading contexts
+
+#### Execution Idempotency
+
+```rust
+// Before execution
+let (already_executed, exec_info) = memory.check_executed(session, &plan_hash).await?;
+
+if already_executed {
+    log::warn!("Plan {} already executed: {:?}", plan_hash, exec_info);
+    return Ok(()); // Skip
+}
+
+// Execute order...
+let order_result = exchange.place_order(...).await?;
+
+// Mark as executed (atomic)
+memory.mark_executed(
+    session, &plan_hash, symbol, action, confidence,
+    "success", true, &order_id, order_size
+).await?;
+```
+
+**Guarantees**:
+
+- Single execution per plan_hash
+- Crash-safe with persistent memory backends (future: RocksDB)
+- Observable via execution stats
 
 ---
 
-### Memory and Events
+### gRPC Bridge Integration
 
-To tie memory into the event system and persistence story, P2 introduces **standardized memory topics/events**:
+#### Protobuf Service
 
-- Write/update events:
-  - Topic: `memory.{session_id}.update`
-  - Payload: event or summary to be written via `MemoryWriter`/semantic provider.
-- Retrieval events:
-  - Topic: `memory.{session_id}.retrieve`
-  - Payload: query parameters; response delivered on a reply topic or via an action result.
+```protobuf
+service MemoryService {
+  // Agent decision memory
+  rpc SavePlan(SavePlanRequest) returns (SavePlanResponse);
+  rpc GetRecentPlans(GetRecentPlansRequest) returns (GetRecentPlansResponse);
+  rpc CheckDuplicate(CheckDuplicateRequest) returns (CheckDuplicateResponse);
+  rpc MarkExecuted(MarkExecutedRequest) returns (MarkExecutedResponse);
+  rpc CheckExecuted(CheckExecutedRequest) returns (CheckExecutedResponse);
+  rpc GetExecutionStats(GetExecutionStatsRequest) returns (GetExecutionStatsResponse);
 
-A dedicated memory agent or service can subscribe to these topics and delegate to the configured memory backends, making memory operations:
+  // Legacy general-purpose memory
+  rpc Store(StoreRequest) returns (StoreResponse);
+  rpc Retrieve(RetrieveRequest) returns (RetrieveResponse);
+  rpc Summarize(SummarizeRequest) returns (SummarizeResponse);
+}
+```
 
-- Visible on the Dashboard (as normal events),
-- Easier to route and scale,
-- Easier to test in isolation.
+#### Bridge Handler
+
+```rust
+pub struct MemoryHandler {
+    memory: Arc<InMemoryMemory>,
+}
+
+#[tonic::async_trait]
+impl MemoryService for MemoryHandler {
+    async fn save_plan(&self, req: Request<SavePlanRequest>)
+        -> Result<Response<SavePlanResponse>, Status> {
+        // Delegate to InMemoryMemory
+        let hash = self.memory.save_plan(...).await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(SavePlanResponse {
+            success: true,
+            plan_hash: hash,
+            error_message: String::new(),
+        }))
+    }
+
+    // ... other RPCs
+}
+```
+
+**Architecture benefits**:
+
+- Single source of truth (Rust Core)
+- Type-safe protobuf contracts
+- Cross-language support (Python, future: JS/Go)
+- Observable via gRPC interceptors/tracing
 
 ---
 
-### Cognitive Agents and Memory
+### Python SDK Usage
 
-Cognitive agents (see `cognitive_runtime.md`) are expected to:
+```python
+from loom import Context
 
-- Call `append_event` from their `perceive` stage to keep episodic memory up to date.
-- Use `summarize_episode` and `retrieve` during `think` to build rich context.
-- Optionally emit `memory.update` / `memory.retrieve` events instead of calling traits directly, when cross‑process memory services are used.
+# Initialize with Bridge client
+ctx = Context(agent_id="planner-btc", client=bridge_client)
 
-This keeps the cognitive layer and memory layer loosely coupled while preserving a clear contract between them.
+# Check for duplicate plans
+is_dup, dup_info = await ctx.check_duplicate_plan(
+    symbol="BTC",
+    action="BUY",
+    reasoning="Strong bullish trend detected",
+    time_window_sec=300  # 5 minutes
+)
+
+if is_dup:
+    print(f"Duplicate plan from {dup_info['time_since_ms']}ms ago")
+    return
+
+# Save new plan
+plan_hash = await ctx.save_plan(
+    symbol="BTC",
+    action="BUY",
+    confidence=0.85,
+    reasoning="Strong bullish trend detected",
+    method="llm"
+)
+
+# Query recent plans for context
+recent_plans = await ctx.get_recent_plans(symbol="BTC", limit=10)
+for plan in recent_plans:
+    print(f"{plan['action']} @ {plan['confidence']}: {plan['reasoning']}")
+
+# Check execution status
+is_executed, exec_info = await ctx.check_plan_executed(plan_hash)
+
+if not is_executed:
+    # Execute and track
+    await ctx.mark_plan_executed(
+        plan_hash=plan_hash,
+        symbol="BTC",
+        action="BUY",
+        confidence=0.85,
+        status="success",
+        executed=True,
+        order_id="order-123",
+        order_size_usdt=100.0
+    )
+
+# Get statistics
+stats = await ctx.get_execution_stats("BTC")
+print(f"Win rate: {stats['win_rate']:.1%}")
+print(f"Total executions: {stats['total_executions']}")
+```
 
 ---
 
-### Observability and Tuning
+### Use Case: Market Analyst Demo
 
-Planned observability features include:
+#### Planner Agent
 
-- Metrics:
-  - Read/write QPS per memory backend.
-  - Retrieval latency and hit ratios.
-  - Storage size and retention effectiveness.
-- Tracing:
-  - Spans for `append_event`, `summarize_episode`, `retrieve`, and semantic queries.
-  - Links between event processing spans and memory operations.
+```python
+# 1. Query recent decisions for context
+recent_plans = await ctx.get_recent_plans(symbol="BTC", limit=5)
+context_lines = [
+    f"- {p['timestamp_ms']}: {p['action']} @ {p['confidence']:.2f} ({p['reasoning']})"
+    for p in recent_plans
+]
 
-Tuning knobs:
+# 2. Get LLM decision
+prompt = f"""
+Recent BTC decisions:
+{chr(10).join(context_lines)}
 
-- Retention windows per agent or namespace.
-- Maximum items per session and eviction strategies.
-- Backend‑specific configuration (e.g., index parameters for vector stores).
+Current market: {market_data}
+Decide: BUY/SELL/HOLD with reasoning.
+"""
+decision = await llm_client.complete(prompt)
+
+# 3. Check for duplicate
+is_dup, _ = await ctx.check_duplicate_plan(
+    symbol="BTC",
+    action=decision.action,
+    reasoning=decision.reasoning,
+    time_window_sec=300
+)
+
+if is_dup:
+    logger.info("Duplicate plan, skipping")
+    return
+
+# 4. Save plan
+plan_hash = await ctx.save_plan(
+    symbol="BTC",
+    action=decision.action,
+    confidence=decision.confidence,
+    reasoning=decision.reasoning,
+    method="llm"
+)
+
+# 5. Send to Executor
+await ctx.emit_event(topic="executor.plan", data={
+    "plan_hash": plan_hash,
+    "symbol": "BTC",
+    "action": decision.action,
+    "confidence": decision.confidence
+})
+```
+
+#### Executor Agent
+
+```python
+# 1. Receive plan from Planner
+plan = event.data
+
+# 2. Check idempotency
+is_executed, exec_info = await ctx.check_plan_executed(plan["plan_hash"])
+
+if is_executed:
+    logger.warning(f"Plan already executed: {exec_info}")
+    return
+
+# 3. Execute order
+try:
+    order = await exchange.place_order(
+        symbol=plan["symbol"],
+        side=plan["action"],
+        size=calculate_size(plan["confidence"])
+    )
+
+    # 4. Track execution
+    await ctx.mark_plan_executed(
+        plan_hash=plan["plan_hash"],
+        symbol=plan["symbol"],
+        action=plan["action"],
+        confidence=plan["confidence"],
+        status="success",
+        executed=True,
+        order_id=order.id,
+        order_size_usdt=order.size
+    )
+
+except Exception as e:
+    # 5. Track failure
+    await ctx.mark_plan_executed(
+        plan_hash=plan["plan_hash"],
+        symbol=plan["symbol"],
+        action=plan["action"],
+        confidence=plan["confidence"],
+        status="error",
+        executed=False,
+        order_id="",
+        order_size_usdt=0.0
+    )
+
+# 6. Query stats periodically
+stats = await ctx.get_execution_stats("BTC")
+logger.info(f"BTC win rate: {stats['win_rate']:.1%} ({stats['successful_executions']}/{stats['total_executions']})")
+```
+
+**Benefits**:
+
+- **No duplicate orders**: Planner prevents duplicate decisions
+- **Idempotent execution**: Executor prevents double-execution (e.g., on retry)
+- **Observable performance**: Real-time win rate tracking
+- **Context awareness**: Recent decisions inform future planning
+
+---
+
+### Testing
+
+#### Core Unit Tests (`core/tests/memory_test.rs`)
+
+- ✅ `test_save_and_retrieve_plans`: Basic plan storage and retrieval
+- ✅ `test_duplicate_detection`: Hash-based deduplication within time windows
+- ✅ `test_execution_idempotency`: Prevent double-execution
+- ✅ `test_plan_limit_enforcement`: FIFO eviction at 100 plans
+- ✅ `test_execution_stats`: Win rate calculation
+- ✅ `test_cross_session_isolation`: Session-scoped data
+- ✅ `test_duplicate_outside_time_window`: Time-based duplicate expiry
+- ✅ `test_symbol_filtering`: Symbol-specific queries
+
+**Run**: `cargo test -p loom-core --test memory_test`
+
+#### Bridge Integration Tests (`bridge/tests/memory_service_test.rs`)
+
+- ✅ `test_memory_service_save_and_retrieve`: gRPC save/get round-trip
+- ✅ `test_memory_service_duplicate_detection`: gRPC duplicate checking
+- ✅ `test_memory_service_execution_tracking`: gRPC execution idempotency
+- ✅ `test_memory_service_execution_stats`: gRPC statistics
+- ✅ `test_memory_service_session_isolation`: Session isolation via gRPC
+
+**Run**: `cargo test -p loom-bridge --test memory_service_test -- --test-threads=1`
+
+#### Python SDK Tests (`loom-py/tests/test_memory.py`)
+
+- ✅ `test_plan_hash_consistency`: Hash generation
+- ✅ `test_save_plan_success/failure`: Plan saving with mocked gRPC
+- ✅ `test_get_recent_plans`: Plan retrieval
+- ✅ `test_check_duplicate_plan_*`: Duplicate detection
+- ✅ `test_mark_plan_executed`: Execution tracking
+- ✅ `test_check_plan_executed_*`: Execution status queries
+- ✅ `test_get_execution_stats`: Statistics retrieval
+- ✅ `test_rpc_error_handling`: Error propagation
+
+**Run**: `cd loom-py && pytest tests/test_memory.py -v`
+
+**Total**: 25 tests (8 Core + 5 Bridge + 12 Python) — all passing ✅
+
+---
+
+### Future Enhancements
+
+#### 1. Persistent Memory Backends
+
+Replace `InMemoryMemory` with durable storage:
+
+```rust
+pub struct RocksDBMemory {
+    db: Arc<rocksdb::DB>,
+    // ... column families for plans, executions, episodes
+}
+
+#[async_trait]
+impl MemoryReader for RocksDBMemory { ... }
+
+#[async_trait]
+impl MemoryWriter for RocksDBMemory { ... }
+```
+
+**Benefits**:
+
+- Crash recovery
+- Historical analysis
+- Larger plan histories (>100 per session)
+
+#### 2. Semantic Memory (Vector Search)
+
+Add embedding-based retrieval:
+
+```rust
+#[async_trait]
+pub trait SemanticMemory: Send + Sync {
+    async fn embed_and_store(&self, session: &str, text: &str) -> Result<()>;
+    async fn semantic_search(&self, query: &str, k: usize) -> Result<Vec<String>>;
+}
+
+// Adapters: FAISS, Milvus, Qdrant, etc.
+```
+
+**Use cases**:
+
+- Find similar past decisions by reasoning (not just symbol/action)
+- Cross-symbol pattern matching
+- Knowledge base retrieval
+
+#### 3. Distributed Memory Service
+
+Run memory as a separate service:
+
+```
+┌─────────┐      ┌──────────────┐      ┌──────────────┐
+│ Agent   │─gRPC─│ Memory       │─────→│ Persistent   │
+│ (Python)│      │ Service      │      │ Backend      │
+└─────────┘      │ (Rust Core)  │      │ (RocksDB)    │
+                 └──────────────┘      └──────────────┘
+```
+
+**Benefits**:
+
+- Shared memory across agent processes
+- Independent scaling
+- Centralized observability
+
+#### 4. Memory Events
+
+Standardize memory operations as events:
+
+- `memory.{session_id}.plan.saved`
+- `memory.{session_id}.execution.recorded`
+- `memory.{session_id}.stats.updated`
+
+**Benefits**:
+
+- Dashboard visibility
+- Audit logging
+- Event-driven memory invalidation/refresh
