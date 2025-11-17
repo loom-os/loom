@@ -517,9 +517,10 @@ async def on_plan_event(ctx, topic: str, event):
                         plan_hash=plan_hash,
                         symbol=symbol,
                         action=action,
+                        confidence=confidence,  # 🔧 Added missing parameter
                         status=result["status"],
                         executed=result.get("executed", False),
-                        order_id=result.get("order_id"),
+                        order_id=result.get("order_id", ""),
                         order_size_usdt=result.get("order_size_usdt", 0.0),
                     )
                     print(f"[executor] ✅ Marked plan as executed in memory")

@@ -36,18 +36,19 @@ class PlannerBuffer:
         self.entries[symbol]["partials"][topic] = payload
 
     def ready(self, symbol: str) -> bool:
-        """Check if all analyses received or timeout expired."""
+        """Check if enough analyses received or timeout expired."""
         entry = self.entries.get(symbol)
         if not entry:
             return False
 
         partials = entry["partials"]
-        has_all = len(partials) >= 3  # trend + risk + sentiment
+        # 🔧 Allow planning with 2+ analyses (more flexible)
+        has_enough = len(partials) >= 2  # trend + risk is enough, sentiment optional
 
-        if has_all:
+        if has_enough:
             return True
 
-        # Check timeout
+        # Check timeout - will plan with whatever we have
         elapsed = time.time() - entry["first_ts"]
         return elapsed >= self.timeout_sec
 
