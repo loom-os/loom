@@ -28,6 +28,8 @@ Note: Use proper TOML tables (not string-encoded Python dictionaries).
 from __future__ import annotations
 
 import ast
+import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,6 +42,55 @@ else:
         import tomli as toml  # type: ignore
     except ImportError:
         toml = None  # type: ignore
+
+
+def _load_env_file(env_path: Path) -> None:
+    """Load environment variables from .env file."""
+    if not env_path.exists():
+        return
+
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                # Skip empty lines and comments
+                if not line or line.startswith("#"):
+                    continue
+
+                # Parse KEY=VALUE or KEY='VALUE' or KEY="VALUE"
+                if "=" in line:
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip()
+
+                    # Remove quotes if present
+                    if value and value[0] in ('"', "'") and value[-1] == value[0]:
+                        value = value[1:-1]
+
+                    # Only set if not already in environment
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+    except Exception as e:
+        print(f"[loom.config] Warning: Failed to load .env file: {e}")
+
+
+def _expand_env_vars(value: Any) -> Any:
+    """Recursively expand ${VAR} and $VAR environment variable references."""
+    if isinstance(value, str):
+        # Replace ${VAR} and $VAR patterns
+        def replace_var(match):
+            var_name = match.group(1) or match.group(2)
+            return os.environ.get(var_name, match.group(0))
+
+        # Match ${VAR} or $VAR (but not $$)
+        pattern = r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)"
+        return re.sub(pattern, replace_var, value)
+    elif isinstance(value, dict):
+        return {k: _expand_env_vars(v) for k, v in value.items()}
+    elif isinstance(value, list):
+        return [_expand_env_vars(item) for item in value]
+    else:
+        return value
 
 
 @dataclass
@@ -110,7 +161,15 @@ class ProjectConfig:
 
     @classmethod
     def load(cls, path: Path = Path("loom.toml")) -> ProjectConfig:
-        """Load configuration from loom.toml file."""
+        """Load configuration from loom.toml file.
+
+        Automatically searches for and loads .env files from:
+        1. Same directory as loom.toml
+        2. Parent directories up to project root
+        3. Current working directory
+
+        Expands ${VAR} environment variable references in the config.
+        """
         if not path.exists():
             return cls()
 
@@ -119,8 +178,28 @@ class ProjectConfig:
                 "tomli is required for Python < 3.11. Install with: pip install tomli"
             )
 
+        # Load .env files - search up the directory tree
+        env_search_paths = [
+            path.parent / ".env",  # Same dir as loom.toml
+            Path.cwd() / ".env",  # Current working directory
+        ]
+
+        # Also search parent directories
+        current = path.parent
+        while current != current.parent:
+            env_search_paths.append(current / ".env")
+            current = current.parent
+
+        # Load first .env file found
+        for env_path in env_search_paths:
+            if env_path.exists():
+                _load_env_file(env_path)
+                break
+
         try:
-            data = toml.loads(path.read_text(encoding="utf-8"))
+            raw_data = toml.loads(path.read_text(encoding="utf-8"))
+            # Expand environment variables in the entire config
+            data = _expand_env_vars(raw_data)
         except Exception as e:
             raise RuntimeError(f"Failed to parse {path}: {e}") from e
 

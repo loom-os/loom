@@ -46,7 +46,13 @@ def init_telemetry(
 
     # Add OTLP exporter with batch processor
     otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
-    span_processor = BatchSpanProcessor(otlp_exporter)
+    # 🔧 Configure batch processor with shorter intervals to avoid stale spans
+    span_processor = BatchSpanProcessor(
+        otlp_exporter,
+        max_queue_size=2048,  # Default 2048
+        schedule_delay_millis=1000,  # Flush every 1 second (default 5000)
+        max_export_batch_size=512,  # Default 512
+    )
     provider.add_span_processor(span_processor)
 
     # Set as global tracer provider

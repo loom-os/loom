@@ -1,0 +1,176 @@
+syntax = "proto3";
+
+package loom.v1;
+
+import "event.proto";
+
+// Memory operation types for different use cases
+enum MemoryOpType {
+  MEMORY_OP_SAVE_PLAN = 0;        // Save a trading plan/decision
+  MEMORY_OP_GET_RECENT_PLANS = 1; // Get recent plans for a symbol
+  MEMORY_OP_CHECK_DUPLICATE = 2;   // Check if plan is duplicate
+  MEMORY_OP_MARK_EXECUTED = 3;     // Mark plan as executed (idempotency)
+  MEMORY_OP_GET_EXECUTION_STATS = 4; // Get execution statistics
+  MEMORY_OP_APPEND_EVENT = 5;      // Generic event append
+  MEMORY_OP_RETRIEVE = 6;          // Generic retrieval
+  MEMORY_OP_SUMMARIZE = 7;         // Episode summarization
+}
+
+// Trading plan record for planner agent
+message PlanRecord {
+  int64 timestamp_ms = 1;
+  string symbol = 2;
+  string action = 3;  // BUY, SELL, HOLD
+  float confidence = 4;
+  string reasoning = 5;
+  string plan_hash = 6;  // For deduplication
+  string method = 7;     // "llm" or "rule-based"
+  map<string, string> metadata = 8;
+}
+
+// Execution record for executor agent
+message ExecutionRecord {
+  int64 timestamp_ms = 1;
+  string plan_hash = 2;
+  string symbol = 3;
+  string action = 4;
+  float confidence = 5;
+  string status = 6;     // "success", "error", "skipped"
+  bool executed = 7;
+  string order_id = 8;
+  float order_size_usdt = 9;
+  string error_message = 10;
+}
+
+// Save plan request
+message SavePlanRequest {
+  string session_id = 1;  // Agent session ID
+  PlanRecord plan = 2;
+}
+
+message SavePlanResponse {
+  bool success = 1;
+  string plan_hash = 2;
+  string error_message = 3;
+}
+
+// Get recent plans request
+message GetRecentPlansRequest {
+  string session_id = 1;
+  string symbol = 2;
+  int32 limit = 3;  // Max number of plans to return
+}
+
+message GetRecentPlansResponse {
+  repeated PlanRecord plans = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// Check duplicate plan request
+message CheckDuplicateRequest {
+  string session_id = 1;
+  PlanRecord plan = 2;
+  int32 time_window_sec = 3;  // Time window for duplicate check (default 300)
+}
+
+message CheckDuplicateResponse {
+  bool is_duplicate = 1;
+  PlanRecord duplicate_plan = 2;  // The duplicate plan found (if any)
+  int64 time_since_duplicate_ms = 3;
+}
+
+// Mark plan as executed request
+message MarkExecutedRequest {
+  string session_id = 1;
+  string plan_hash = 2;
+  ExecutionRecord execution = 3;
+}
+
+message MarkExecutedResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// Get execution statistics request
+message GetExecutionStatsRequest {
+  string session_id = 1;
+  string symbol = 2;
+}
+
+message GetExecutionStatsResponse {
+  int32 total_executions = 1;
+  int32 successful_executions = 2;
+  int32 failed_executions = 3;
+  float win_rate = 4;
+  int32 duplicate_prevented = 5;
+  repeated ExecutionRecord recent_executions = 6;  // Last N executions
+}
+
+// Generic memory write request (for event storage)
+message MemoryWriteRequest {
+  string session_id = 1;
+  Event event = 2;
+  map<string, string> metadata = 3;
+}
+
+message MemoryWriteResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// Generic memory retrieval request
+message MemoryRetrieveRequest {
+  string session_id = 1;
+  string query = 2;
+  int32 k = 3;  // Number of results
+  map<string, string> filters = 4;
+}
+
+message MemoryRetrieveResponse {
+  repeated string results = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+// Episode summarization request
+message MemorySummarizeRequest {
+  string session_id = 1;
+  int32 max_events = 2;  // Max events to include in summary
+}
+
+message MemorySummarizeResponse {
+  string summary = 1;
+  int32 event_count = 2;
+  bool success = 3;
+  string error_message = 4;
+}
+
+// Check if plan was already executed (idempotency)
+message CheckExecutedRequest {
+  string session_id = 1;
+  string plan_hash = 2;
+}
+
+message CheckExecutedResponse {
+  bool is_executed = 1;
+  ExecutionRecord execution = 2;  // The execution record (if found)
+}
+
+// Memory service - exposed via Bridge
+service MemoryService {
+  // Plan-specific operations
+  rpc SavePlan(SavePlanRequest) returns (SavePlanResponse);
+  rpc GetRecentPlans(GetRecentPlansRequest) returns (GetRecentPlansResponse);
+  rpc CheckDuplicate(CheckDuplicateRequest) returns (CheckDuplicateResponse);
+
+  // Execution-specific operations
+  rpc MarkExecuted(MarkExecutedRequest) returns (MarkExecutedResponse);
+  rpc CheckExecuted(CheckExecutedRequest) returns (CheckExecutedResponse);
+  rpc GetExecutionStats(GetExecutionStatsRequest) returns (GetExecutionStatsResponse);
+
+  // Generic memory operations
+  rpc AppendEvent(MemoryWriteRequest) returns (MemoryWriteResponse);
+  rpc Retrieve(MemoryRetrieveRequest) returns (MemoryRetrieveResponse);
+  rpc SummarizeEpisode(MemorySummarizeRequest) returns (MemorySummarizeResponse);
+}

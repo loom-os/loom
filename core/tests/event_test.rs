@@ -252,3 +252,92 @@ async fn shutdown_clears_subscriptions() -> Result<()> {
     assert!(r.is_err() || r.unwrap().is_none());
     Ok(())
 }
+
+#[tokio::test]
+async fn wildcard_subscription_matches_subtopics() -> Result<()> {
+    let bus = EventBus::new().await?;
+
+    // Subscribe with wildcard pattern
+    let (_sub_id, mut rx) = bus
+        .subscribe("market.price.*".to_string(), vec![], QoSLevel::QosBatched)
+        .await?;
+
+    // Publish to specific subtopics
+    let evt_btc = make_event("btc-price", "price.update");
+    bus.publish("market.price.BTC", evt_btc).await?;
+
+    let evt_eth = make_event("eth-price", "price.update");
+    bus.publish("market.price.ETH", evt_eth).await?;
+
+    // Verify both events received
+    let received1 = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+        .await
+        .expect("timeout waiting for BTC event")
+        .expect("channel closed");
+    assert_eq!(received1.id, "btc-price");
+
+    let received2 = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+        .await
+        .expect("timeout waiting for ETH event")
+        .expect("channel closed");
+    assert_eq!(received2.id, "eth-price");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn wildcard_does_not_match_wrong_prefix() -> Result<()> {
+    let bus = EventBus::new().await?;
+
+    // Subscribe to market.price.*
+    let (_sub_id, mut rx) = bus
+        .subscribe("market.price.*".to_string(), vec![], QoSLevel::QosBatched)
+        .await?;
+
+    // Publish to different prefix
+    let evt = make_event("wrong", "other");
+    bus.publish("market.volume.BTC", evt).await?;
+
+    // Should timeout - no event received
+    let result = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
+    assert!(
+        result.is_err(),
+        "Should not receive events from non-matching topic"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn exact_and_wildcard_both_receive() -> Result<()> {
+    let bus = EventBus::new().await?;
+
+    // Subscribe with exact topic
+    let (_sub_id1, mut rx1) = bus
+        .subscribe("market.price.BTC".to_string(), vec![], QoSLevel::QosBatched)
+        .await?;
+
+    // Subscribe with wildcard
+    let (_sub_id2, mut rx2) = bus
+        .subscribe("market.price.*".to_string(), vec![], QoSLevel::QosBatched)
+        .await?;
+
+    // Publish to specific topic
+    let evt = make_event("dual", "price.update");
+    bus.publish("market.price.BTC", evt).await?;
+
+    // Both should receive
+    let r1 = tokio::time::timeout(std::time::Duration::from_millis(500), rx1.recv())
+        .await
+        .expect("timeout rx1")
+        .expect("rx1 closed");
+    let r2 = tokio::time::timeout(std::time::Duration::from_millis(500), rx2.recv())
+        .await
+        .expect("timeout rx2")
+        .expect("rx2 closed");
+
+    assert_eq!(r1.id, "dual");
+    assert_eq!(r2.id, "dual");
+
+    Ok(())
+}

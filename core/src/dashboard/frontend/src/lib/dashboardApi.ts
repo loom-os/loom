@@ -177,3 +177,8 @@ export async function fetchFlow(): Promise<FlowGraph> {
 export function createEventStream(): EventSource {
   return new EventSource(buildUrl("/api/events/stream"));
 }
+
+export function createSpansStream(): EventSource {
+  // The server emits named events: "spans" for batches and "ping" heartbeats
+  return new EventSource(buildUrl("/api/spans/stream"));
+}

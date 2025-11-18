@@ -1,376 +1,363 @@
-# Roadmap (Loom OS 1.0)
+# Roadmap: Loom 1.0 Launch and Beyond# Roadmap (Loom OS 1.0)
 
-**Goal**: Enable developers to build a long-running, observable, and extensible event‑driven Multi‑Agent System in Python/JS within 10 minutes.
+**Vision**: Evolve Loom from a powerful core into a comprehensive, accessible AI agent operating system, culminating in the launch of Loom and its Python SDK v1.0. Our goal is to empower developers to build, deploy, and manage sophisticated multi-agent systems with ease and confidence.**Current Focus**: Fix Market Analyst demo and complete distributed tracing instrumentation.
 
-**Current Status** (as of 2025-11): Core runtime, Bridge, Python SDK, MCP client, Dashboard MVP, OpenTelemetry metrics **and initial Trace Timeline UI** are **production-ready**. Focus shifting to **trace UX refinement** (flamegraph/search/heatmaps) and **testing hardening**.
+---**Status** (2025-11): Core runtime complete. Tracing infrastructure complete. **Now fixing Market Analyst demo blockers**.
 
-## Architecture Overview
+## Phase 1: Launch Readiness (Immediate Focus: Next 4-6 Weeks)> See `docs/ARCHITECTURE.md` for system design. See `docs/observability/QUICKSTART.md` for tracing setup.
 
-See `docs/ARCHITECTURE.md` for detailed component documentation.
+**Objective**: Solidify the core platform, polish the developer experience, and prepare for a successful public launch.---
 
-- **Core** (Rust): EventBus, ActionBroker, ToolOrchestrator, Router, Agent Runtime, Directories
-- **Bridge** (gRPC): Cross-process event/action forwarding with reconnection support
-- **SDK** (Python): Agent/Context API with @capability decorator and collaboration primitives
-- **Ecosystem**: MCP client (✅ stdio), Dashboard (✅ React SSE), OpenTelemetry (✅ metrics, 🚧 tracing)
-- **CLI**: `loom run` orchestration, binary management, config system
+### 1. **Agent Memory & Context System (🔥 Top Priority)**## 🎯 Market Analyst Demo Issues (Priority Order)
+
+- **Problem**: Agents are stateless between invocations, leading to inconsistent decisions (e.g., Planner oscillating between BUY/SELL).
+
+- **Solution**:### **Issue 1: Topic Wildcard Subscription** — 🔥 CRITICAL
+
+  - **Short-Term Memory**: Implement a `deque`-based in-memory store for recent events and decisions within the agent's context.
+
+  - **Long-Term Memory**: Design and integrate a persistent memory backend (e.g., SQLite or a simple file-based log) to store key decisions and world-state summaries.**Problem**: Agents use `topics=["market.price.*"]` but only exact matching works → no events delivered.
+
+  - **Memory API**: Expose `ctx.memory.add()` and `ctx.memory.query()` in the Python SDK.
+
+- **Acceptance**: The `planner` agent can access its previous decisions and avoid issuing conflicting plans.**Files to modify**:
+
+### 2. **Dashboard & Observability Polish**- `core/src/event.rs` (line 295): Add pattern matching in `publish()`
+
+- **Problem**: The dashboard has minor data fidelity issues that hinder debugging.- `core/src/agent/runtime.rs` (line 166): Handle wildcard in `subscribe_agent()`
+
+- **Tasks**:
+
+  - **Fix Data Agent Status**: Implement a heartbeat mechanism in the `data-agent` so it correctly reports its status as "running" instead of "idle".**Quick Fix** (1-2 days):
+
+  - **Real QoS Metrics**: Connect the QoS Distribution panel to actual event bus metrics for latency, throughput, and delivery.
+
+  - **MCP Integration**: Ensure MCP tool calls are clearly visualized in the timeline and flow graphs.```rust
+
+// In EventBus::publish, match wildcards:
+
+### 3. **Python SDK v1.0 Finalization**let matching_topics: Vec<String> = self.subscriptions
+
+- **Problem**: The SDK is functional but needs refinement for a public release. .iter()
+
+- **Tasks**: .filter(|entry| {
+
+  - **API Review**: Finalize the `Agent` and `Context` APIs. Ensure method names are intuitive and consistent. let pattern = entry.key().as_str();
+
+  - **Documentation**: Write comprehensive tutorials, API references, and "Getting Started" guides. pattern.ends_with(".\*") && topic.starts_with(&pattern[..pattern.len()-2])
+
+  - **Packaging**: Ensure `pyproject.toml` is robust and the package can be easily installed via `pip`. || pattern == topic
+
+  })
+
+### 4. **Marketing & Launch Preparation** .map(|e| e.key().clone())
+
+- **Objective**: Prepare all materials for a coordinated launch announcement. .collect();
+
+- **Tasks**:```
+
+  - **Blog Post**: Draft a launch announcement blog post detailing Loom's vision, features, and the `market-analyst` demo.
+
+  - **Demo Video**: Record a high-quality video of the `market-analyst` demo, showcasing the dashboard, tracing, and real-time collaboration.**Acceptance**:
+
+  - **Website Update**: Prepare the official website with links to the blog, video, and documentation.
+
+- ✅ `market.price.*` receives `market.price.BTC`
+
+---- ✅ All 3 analysis agents receive price events
+
+## Phase 2: Ecosystem & Developer Experience (Mid-Term)---
+
+**Objective**: Lower the barrier to entry, expand capabilities, and grow the developer community.### **Issue 2: Python SDK Missing Agent Handler Spans** — 🔥 CRITICAL
+
+### 1. **"Loom Studio": The Dashboard Evolves\*\***Problem\*\*: Jaeger only shows 2 spans (`bridge.publish` + `publish`). No agent handler, LLM, or MCP tool spans.
+
+- **Vision**: Transform the dashboard from a passive observability tool into an interactive, low-code IDE for agent development.
+
+- **Features**:**Files to modify**:
+
+  - **Visual Agent Builder**: Drag-and-drop interface for creating new agents and wiring them together.
+
+  - **Event & Topic Explorer**: A UI to browse available topics, inspect event schemas, and publish test events.- `loom-py/src/loom/context.py` (line 48): Wrap `tool()` with span
+
+  - **Live Agent Editor**: Edit agent code (Python) directly in the browser and hot-reload it into the running system.- `loom-py/src/loom/llm.py` (line 67): Wrap `generate()` with span
+
+- `demo/market-analyst/agents/planner.py`: Add explicit spans for aggregation logic
+
+### 2. **Simplified Python SDK & CLI**
+
+- **Problem**: Writing agents still involves some boilerplate.**Quick Fix** (2-3 days):
+
+- **Solution**:
+
+  - **Decorator-based API**: Introduce `@on_event("topic.*")` and `@tool("name")` decorators to simplify agent creation.```python
+
+  - **`loom` CLI**: Create a powerful CLI tool (`loom init`, `loom create agent`, `loom deploy`) to scaffold projects and manage the agent lifecycle.# In context.py
+
+async def tool(self, name: str, ...) -> bytes:
+
+### 3. **Contract (SWAP) Trading & Advanced Execution** with tracer.start_as_current_span(
+
+- **Problem**: The `executor` currently only supports simple SPOT market orders. "capability.invoke",
+
+- **Tasks**: attributes={"capability.name": name, "agent.id": self.agent_id}
+
+  - **Leverage & Margin**: Add support for leveraged trading in the OKX capability. ):
+
+  - **Advanced Order Types**: Implement limit orders, stop-loss, and take-profit. result = await self.client.forward_action(call)
+
+  - **Position Management**: The `executor` needs to track open positions and manage them according to the plan. return bytes(result.output)
+
+````
+
+### 4. **JavaScript/TypeScript SDK**
+
+- **Objective**: Expand Loom's reach to the massive community of web and Node.js developers.**Acceptance**:
+
+- **Tasks**:
+
+    - Create `loom-js` with parity to the Python SDK.- ✅ 15+ spans per Market Analyst trace
+
+    - Enable building browser-based agents and Node.js backend agents.- ✅ LLM spans show provider/model/latency
+
+- ✅ Timeline shows per-agent lanes
 
 ---
 
-## P0 — Production Readiness ✅ MOSTLY COMPLETE
+---
 
-**Delivery target**: `pip install loom && loom run` works reliably with observable multi-agent systems.
+## Phase 3: Platform & Ubiquity (Long-Term)
 
-### ✅ Completed
+### **Issue 3: LLM Config Not Loaded from loom.toml** — 🔥 CRITICAL
 
-**Core Components** (see `docs/core/overview.md` for details):
+**Objective**: Make Loom the universal standard for building and running AI agents, from the cloud to the edge.
 
-- EventBus with QoS/backpressure, AgentRuntime, Router, ActionBroker, ToolOrchestrator
-- Envelope (thread/correlation/TTL), Collaboration primitives, Directories
-- MCP Client (JSON-RPC over stdio, qualified naming, error handling)
+**Problem**: `LLMProvider.from_name("deepseek")` uses hardcoded config, ignores `[llm.deepseek]` in `loom.toml`.
 
-**Bridge & SDK** (see `docs/BRIDGE.md`, `loom-py/docs/SDK_GUIDE.md`):
+### 1. **Cross-Platform SDKs (Mobile & Embedded)**
 
-- gRPC Bridge with RegisterAgent/EventStream/ForwardAction/Heartbeat
-- Python SDK with Agent/Context API, @capability decorator, reconnection logic
-- Example: `trio.py` (Planner/Researcher/Writer collaboration)
+- **Vision**: Run Loom agents anywhere.**Files to modify**:
 
-**Observability** (see `docs/observability/QUICKSTART.md`):
+- **Tasks**:
 
-- OpenTelemetry metrics (60+ metrics → Prometheus)
-- Grafana dashboards (throughput, latency, routing, tool invocations)
-- Dashboard MVP (React SSE): event stream, agent topology, flow graph, trace timeline (swimlanes v1)
+    - **Lightweight Rust Core**: Optimize the core runtime for minimal resource footprint.- `loom-py/src/loom/llm.py` (line 51): Load from `load_project_config()`
 
-**Developer Experience**:
+    - **Mobile SDKs**: Provide Swift (iOS) and Kotlin (Android) wrappers around a C-ABI core.
 
-- `loom run` orchestration (binary management, process lifecycle, config propagation)
-- `loom.toml` configuration with env var substitution
-- Market Analyst demo (5-agent async fan-out/fan-in with DeepSeek LLM)
+    - **Embedded SDK**: Target devices like the ESP32 with a MicroPython or C SDK for IoT and robotics use cases.**Quick Fix** (0.5-1 day):
 
-### 🔥 Critical Gaps (Blocking Production)
 
-#### ✅ **Distributed Tracing & Timeline** — COMPLETE (Phase 1)
 
-**Problem**: Trace context was lost at process boundaries (Bridge ↔ Python agents), making cross-process debugging impossible.
+### 2. **Advanced Security & Routing**```python
 
-**Solution**: Implemented end-to-end distributed tracing using the W3C Trace Context standard.
+- **Features**:@classmethod
 
-- **Envelope & Proto**: The `Envelope` and Protobuf `Event` definitions were updated to carry trace context (`traceparent` header). Helper methods `inject_trace_context` and `extract_trace_context` were added for propagation.
-- **Rust Bridge**: The gRPC bridge was instrumented to extract trace context from incoming Python events and inject it into events delivered to Python agents. It now creates its own spans (`bridge.publish`, `bridge.forward`) that are correctly parented to the remote Python spans, closing the gap in the trace.
-- **Python SDK**: The SDK now has a full OpenTelemetry integration. The `Agent` class automatically initializes tracing, and the `Context` object automatically handles trace context injection and extraction for all event operations (`emit`, `request`, `reply`).
-- **Developer Experience**: Telemetry setup is now automated. The `loom run` command injects default OpenTelemetry environment variables, and the `Agent` class handles initialization, removing the need for boilerplate code in agent logic.
+    - **Multi-Tenancy & ACLs**: Securely run agents from different users on shared infrastructure.def from_name(cls, ctx, provider_name):
 
-**Result**: End-to-end traces are visible in Jaeger and a condensed swimlane rendering appears in the Dashboard Timeline. Phase 2 will add flamegraph, search, deep-linking, and latency overlays.
+    - **Intelligent Router**: Evolve the router to make cost/latency-based decisions for LLM and tool routing.    from .config import load_project_config
+
+    config = load_project_config()
+
+### 3. **WASI Plugin Sandboxing**    if provider_name in config.llm:
+
+- **Vision**: Safely run untrusted, third-party tools and agents.        llm_cfg = config.llm[provider_name]
+
+- **Implementation**: Use WebAssembly (WASI) to provide a secure, sandboxed environment for plugin execution.        return cls(ctx, LLMConfig(
+
+            base_url=llm_cfg["api_base"],
+
+---            model=llm_cfg["model"],
+
+            api_key=llm_cfg.get("api_key"),
+
+## Launch Plan            temperature=llm_cfg.get("temperature", 0.7),
+
+            max_tokens=llm_cfg.get("max_tokens", 4096),
+
+1.  **Complete Phase 1**: Execute all tasks in the "Launch Readiness" phase.            timeout_ms=llm_cfg.get("timeout_sec", 30) * 1000,
+
+2.  **Internal Review**: Conduct a final review of the code, documentation, and marketing materials.        ))
+
+3.  **Public Launch**:    # Fallback to hardcoded defaults
+
+    - Publish the Python SDK to PyPI.    ...
+
+    - Publish the blog post.```
+
+    - Share the demo video on social media (Twitter/X, LinkedIn).
+
+4.  **Community Engagement**: Actively engage with the community on GitHub, Discord, and other channels to gather feedback and support new users.**Acceptance**:
+
+
+- ✅ DeepSeek API called with configured key
+- ✅ LLM spans in Jaeger
 
 ---
 
-#### 2. **Testing & Validation** — 🎯 HIGH PRIORITY
+### **Issue 4: MCP Tool Never Called** — 🔥 CRITICAL
 
-**Problem**: Complex multi-process async system lacks systematic testing, leading to regression risks and difficult debugging.
+**Problem**: `sentiment.py` simulates sentiment, never calls `web-search` MCP tool.
 
-**Current State**:
+**Files to modify**:
 
-- ✅ Core unit tests: event_bus, agent_runtime, router, action_broker
-- ✅ Integration tests: e2e_basic, e2e_collab, e2e_tool_use
-- ✅ Bridge tests: registration, heartbeat, forward_action
-- ❌ **NO end-to-end tests** for full Rust + Bridge + Python stack
-- ❌ **NO tests** for Market Analyst demo workflow
-- ❌ **NO stress tests** for concurrent agents or high-frequency events
-- ❌ **NO tests** for error scenarios (timeout, reconnection, partial failures)
+- `demo/market-analyst/agents/sentiment.py` (line 15-36)
 
-**Required Work**:
+**Quick Fix** (0.5-1 day):
 
+```python
+async def sentiment_handler(ctx, topic, event):
+    data = json.loads(event.payload.decode("utf-8"))
+
+    # Call MCP web-search
+    try:
+        result = await ctx.tool("web-search",
+            payload={"query": f"{data['symbol']} crypto news", "count": 5})
+        results = json.loads(result)
+
+        # Analyze keywords for sentiment
+        text = " ".join([r.get("title", "") + " " + r.get("snippet", "")
+                        for r in results.get("results", [])])
+
+        bullish = sum(text.lower().count(k) for k in ["surge", "bull", "rally"])
+        bearish = sum(text.lower().count(k) for k in ["crash", "bear", "drop"])
+
+        if bullish > bearish:
+            sentiment = "bullish"
+        elif bearish > bullish:
+            sentiment = "bearish"
+        else:
+            sentiment = "neutral"
+
+    except Exception as e:
+        # Fallback to simulation
+        sentiment = random.choice(["bullish", "neutral", "bearish"])
+````
+
+**Acceptance**:
+
+- ✅ MCP tool spans in Jaeger
+- ✅ Real news URLs in sentiment results
+
+---
+
+### **Issue 5: No E2E Tests for Market Analyst** — HIGH
+
+**Problem**: No automated tests for 5-agent collaboration workflow.
+
+**Files to create**:
+
+- `demo/market-analyst/tests/test_simple_flow.py`
+- `demo/market-analyst/tests/test_fanout_aggregation.py`
+- `demo/market-analyst/tests/test_llm_integration.py`
+
+**Quick Fix** (3-4 days):
+
+```python
+# test_simple_flow.py
+async def test_price_to_analysis():
+    # Start bridge + agents
+    async with BridgeContext() as bridge:
+        data_agent = MockDataAgent()
+        trend_agent = MockTrendAgent()
+
+        # Emit market.price.BTC
+        await data_agent.emit_price("BTC", 91500.0)
+
+        # Assert: analysis.trend emitted within 1s
+        trend_event = await wait_for_event("analysis.trend", timeout=1.0)
+        assert trend_event["symbol"] == "BTC"
+        assert trend_event["trend"] in ["up", "down", "sideways"]
 ```
-Priority 1: Market Analyst E2E tests
-  Location: demo/market-analyst/tests/
 
-  - test_simple_flow.py
-    • Start loom-bridge-server
-    • Mock data agent: emit BTC price event
-    • Mock trend agent: receive, analyze, reply
-    • Mock planner agent: receive analysis, emit plan
-    • Verify: event ordering, payload correctness, timing
+**Acceptance**:
 
-  - test_fanout_aggregation.py
-    • Start all 5 agents
-    • Emit market.price.BTC
-    • Verify: planner receives 3 analyses within timeout
-    • Verify: planner handles partial data (2/3 analyses)
-    • Verify: planner timeout logic (no responses)
-
-  - test_llm_integration.py
-    • Mock DeepSeek API responses
-    • Verify: planner uses LLM reasoning
-    • Verify: fallback to rule-based on LLM error
-
-Priority 2: Bridge stress tests
-  Location: bridge/tests/stress/
-
-  - test_concurrent_agents.rs
-    • 20 agents register simultaneously
-    • Each subscribes to 10 topics
-    • High-frequency event publishing (1000 events/sec)
-    • Verify: no dropped events, no deadlocks
-
-  - test_reconnection.rs
-    • Agent disconnects mid-stream
-    • Verify: graceful cleanup (subscriptions, flows)
-    • Agent reconnects with same agent_id
-    • Verify: re-registration, topic re-subscription
-
-Priority 3: Python SDK integration tests
-  Location: loom-py/tests/integration/
-
-  - test_bridge_roundtrip.py
-    • Python agent A emits event
-    • Python agent B receives via Bridge
-    • Verify: Envelope metadata preserved
-
-  - test_capability_invocation.py
-    • Python agent registers capability
-    • Rust ActionBroker invokes via Bridge
-    • Verify: timeout handling, error propagation
-
-Priority 4: Chaos engineering tests
-  Location: tests/chaos/
-
-  - Simulate: Bridge crash, EventBus backpressure, slow agents
-  - Verify: system recovers, no data loss, metrics accurate
-```
-
-**Acceptance Criteria (updated)**:
-
-- ✅ CI runs Market Analyst E2E tests on every commit
-- ✅ Code coverage > 70% for core, bridge, loom-py
-- ✅ Stress tests pass: 20 agents, 10k events/min, 1 hour runtime
-- ✅ Chaos tests demonstrate graceful degradation
-- ✅ Timeline v1 populated during demo runs (trace-test, market-analyst)
-
-**Estimated Effort**: 7-10 days
+- ✅ CI runs tests on every commit
+- ✅ Tests validate full event flow
+- ✅ Code coverage > 70%
 
 ---
 
-#### 3. **Binary Selection & Caching** — ✅ FIXED (2025-11-15)
+## 🎯 Execution Sprint (Week 1)
 
-**Problem**: `loom run` used stale cached binaries after local rebuild, causing confusion during development.
+| Day         | Task                              | Deliverable                         |
+| ----------- | --------------------------------- | ----------------------------------- |
+| **Mon**     | Issue 1: Wildcard subscription    | Risk/Trend/Sentiment receive events |
+| **Tue**     | Issue 3: LLM config loading       | DeepSeek API working                |
+| **Wed**     | Issue 4: MCP tool integration     | Sentiment uses real web search      |
+| **Thu-Fri** | Issue 2: SDK span instrumentation | Rich traces in Jaeger               |
 
-**Solution** (`loom-py/src/loom/embedded.py`):
-
-- ✅ **Version validation**: Calls `binary --version` to validate cached binaries before use
-- ✅ **Cache invalidation**: Automatically invalidates cache on version mismatch
-- ✅ **Priority order**: local builds → cached → download (developer-friendly)
-- ✅ **Release preference**: Prefers release over debug by default (`prefer_release=True`)
-- ✅ **CLI flags**: Added `--use-debug` and `--force-download` to `loom run` and `loom up`
-- ✅ **Visibility**: Logs which binary is being used (path + version)
-
-**Remaining Work** (moved to P1):
-
-- 🚧 Add `--clear-cache` command to CLI
-- 🚧 Search from current directory upwards (not just repo root)
+**Week 2**: E2E tests (Issue 5) + Dashboard polish
 
 ---
 
-## P1 — Developer Experience & Ecosystem
+## ✅ Already Complete (See Docs)
 
-**Focus**: Polish DX, complete Dashboard features, expand SDK language support.
+**Infrastructure** (100% done):
 
-### 1. Dashboard Enhancements (Phase 2)
+- Distributed tracing: Envelope, Bridge spans, SDK integration
+- Core runtime: EventBus, AgentRuntime, ActionBroker
+- Python SDK: Agent/Context API, @capability decorator
+- Dashboard: Timeline v1, topology, event stream
+- CLI: `loom run` orchestration, binary management
 
-**Current State**: Event stream + topology graph + flow graph + **Trace Timeline v1** (flat swimlanes, basic span attributes).
+**Documentation**:
 
-Required (Phase 2):
-
-- 🚧 **Flamegraph View**: Hierarchical span stacking (parent/child collapse)
-- 🚧 **Span Search & Filter**: By name, agent_id, topic, trace_id
-- 🚧 **Latency Heatmaps**: Per agent/component
-- 🚧 **Tool Call Overlay**: Annotate spans with capability invocation results
-- 🚧 **Prometheus Metrics Integration**: Replace placeholder `/api/metrics`
-- 🚧 **Thread Inspector**: Correlate collaboration patterns (fanout/fanin, barrier)
-- 🚧 **Event Playback**: Replay sequence from stored spans + event snapshots
-
-### 2. CLI Tooling
-
-**Required**:
-
-- 🚧 `loom dev`: Watch Python/JS files, hot-reload agents on change
-- 🚧 `loom list`: Show registered agents/capabilities with filtering
-- 🚧 `loom bench`: Run predefined performance tests (latency, throughput, concurrency)
-- 🚧 `loom logs`: Structured log viewer with grep-like filtering by agent/thread/correlation
-- 🚧 `loom trace <trace_id>`: Fetch and display full trace from Jaeger CLI
-
-### 3. JavaScript SDK (loom-js)
-
-**Goal**: Feature parity with loom-py
-
-**Required**:
-
-- `defineAgent()` with TypeScript types
-- `ctx.emit/request/reply/tool()` API
-- gRPC Bridge client with reconnection
-- Envelope extraction and metadata helpers
-- OpenTelemetry trace propagation (from day 1)
-
-### 4. SDK Improvements
-
-**Python**:
-
-- Streaming API for long-running tasks (async generators)
-- Memory plugin interface (Redis, PostgreSQL, in-memory backends)
-- Better type hints and Pydantic v2 validation
-- Middleware hooks (logging, tracing, auth)
-
-### 5. MCP Protocol Extensions
-
-**Current**: stdio transport only (see `docs/MCP.md`)
-
-**Required**:
-
-- SSE transport (HTTP-based for web integration)
-- Resources API (read/write/list)
-- Prompts API (list/get with arguments)
-- Sampling support (multi-turn tool use)
-- Notifications (server-initiated events)
+- `docs/ARCHITECTURE.md` - System design
+- `docs/observability/QUICKSTART.md` - Tracing setup
+- `loom-py/docs/SDK_GUIDE.md` - Python SDK guide
+- `docs/BRIDGE.md` - Cross-process communication
 
 ---
 
-## P2 — Enterprise & Production Hardening
+## P1 — Dashboard & Developer Tools (After Market Analyst Works)
 
-**Focus**: Security, scalability, advanced routing, persistence.
+### Dashboard Phase 2 (10-15 days)
 
-### 1. MCP Server Mode
+- Agent-level lanes with collapse
+- Flamegraph hierarchical view
+- Span search & filtering
+- Latency heatmaps
+- Event persistence & replay
 
-**Goal**: Expose Loom capabilities to external systems (n8n, Make, Zapier, custom MCP clients)
+### CLI Tools (3-5 days)
 
-**Required**:
+- `loom logs` - Structured log aggregation
+- `loom start/stop/restart <agent>` - Lifecycle management
+- `loom trace <trace_id>` - Jaeger CLI integration
 
-- Implement MCP server protocol (bidirectional: client ✅ + server)
-- Register Loom ActionBroker capabilities as MCP tools
-- Support SSE transport for web integration
-- Authentication and rate limiting
+### SDK Enhancements
 
-### 2. Router Evolution
-
-**Current**: Rule-based routing (privacy/latency/cost/quality policies)
-
-**Required**:
-
-- Historical metrics collection (success rate, latency, cost per route)
-- Learning-based routing (bandit/RL algorithms)
-- A/B testing framework for routing strategies
-- Cost optimization with provider pricing models
-- Dashboard UI for tuning routing policies
-
-### 3. Security & Multi-tenancy
-
-**Required**:
-
-- Namespaces/ACLs for agent isolation
-- Token-based authentication for Bridge connections
-- MCP endpoint allowlist (security policies)
-- Audit logs for all actions and capability invocations
-- Rate limiting per agent/namespace
-
-### 4. Event Persistence & Replay
-
-**Goal**: Durability, time-travel debugging, disaster recovery
-
-**Required**:
-
-- Write-Ahead Log (WAL) for EventBus
-- Event snapshots for recovery
-- Time-travel debugging (replay from timestamp)
-- Backup/restore tools
-- Standardized memory topics: `memory.update`, `memory.retrieve`
-
-### 5. WASI Plugin Isolation
-
-**Goal**: Sandboxed execution for untrusted tools/plugins
-
-**Required**:
-
-- WASM runtime integration (wasmtime/wasmer)
-- Resource limits (CPU/memory/network) per plugin
-- AOT compilation for edge/mobile
-- Plugin security policies and capability allowlists
+- JavaScript SDK (loom-js)
+- Streaming API for long-running tasks
+- Memory plugin interface
+- MCP protocol extensions (SSE, Resources, Prompts)
 
 ---
 
-## P3 — Edge & Mobile
+## P2 — Enterprise & Scale (Future)
 
-**Focus**: On-device deployment, deep optimization.
-
-### 1. Mobile Packaging
-
-**Required**:
-
-- iOS/Android POC (xcframework/AAR for Rust core)
-- Lightweight wrappers with minimal dependencies
-- On-device model inference (CoreML, TensorFlow Lite)
-- Background task management and power optimization
-- Push notification integration for event delivery
-
-### 2. Performance Optimization
-
-**Required**:
-
-- EventBus lock-free data structures
-- Tool execution parallelism and scheduling
-- Memory footprint reduction (arena allocators, zero-copy)
-- Power consumption profiling
-- GPU/NPU acceleration for local models
-
-### 3. Production SRE
-
-**Required**:
-
-- Graceful degradation under load (adaptive QoS)
-- Circuit breakers for external dependencies
-- Health checks and readiness probes
-- Blue-green deployment support
-- Canary releases for agents and capabilities
+- **Security**: Multi-tenancy, ACLs, authentication
+- **Router Evolution**: Learning-based routing, cost optimization
+- **Event Persistence**: WAL, time-travel debugging
+- **WASI Plugins**: Sandboxed tool execution
 
 ---
 
 ## Quality Gates
 
-**Metrics** (baseline targets for P0 completion):
+**Market Analyst Demo Must**:
 
-- **Time to First Message (TTFM)**: ≤ 10 minutes (Python SDK, fresh environment)
-- **Stability**: 24-hour continuous run without memory leaks or crashes
-- **Latency**: P99 event latency < 200ms under mixed QoS (realtime events)
-- **Throughput**: 1000+ events/sec per EventBus instance
-- **Tool Invocation**: Error rate < 2% (excludes external API failures)
-- **Observability**: Dashboard first paint < 2s, all traces visible in Jaeger
-- **Testing**: Code coverage > 70% (core + bridge + loom-py)
+- ✅ All 5 agents receive events and emit outputs
+- ✅ DeepSeek LLM generates real plans
+- ✅ Web search provides sentiment sources
+- ✅ 15+ spans visible in Jaeger per workflow
+- ✅ Timeline shows clear agent lanes
+- ✅ E2E tests pass in CI
 
-**Before declaring Phase 1 complete**:
+**Production Ready Means**:
 
-- ✅ All Phase 1 gaps resolved (tracing propagation, timeline v1, binary selection)
-- ✅ Market Analyst demo runs reliably with full observability + timeline spans
-- ✅ CI/CD pipeline includes E2E tests and chaos engineering
-- ✅ Documentation updated (quickstart, architecture, timeline, testing guide)
-- ✅ PyPI package published (`loom` v0.1.0)
-
----
-
-## Implementation Notes
-
-**Tracing Strategy** (P0 Critical Gap #1):
-
-1. Start with Envelope modifications (lowest risk, highest value)
-2. Bridge trace propagation (critical path for cross-process debugging)
-3. Python SDK integration (completes the loop)
-4. Dashboard timeline (user-visible impact)
-
-**Testing Strategy** (P0 Critical Gap #2):
-
-1. Market Analyst E2E tests first (validates core workflows)
-2. Bridge stress tests (validates scalability assumptions)
-3. Python SDK integration tests (validates SDK robustness)
-4. Chaos tests last (validates fault tolerance)
-
-**Focus Principle**:
-
-- Don't add new features until P0 critical gaps are closed
-- Distributed tracing is blocking for production debugging
-- Testing validates reliability claims
-- Everything else is polish or nice-to-have
+- 24-hour continuous run (no crashes/leaks)
+- P99 latency < 200ms (realtime events)
+- 1000+ events/sec throughput
+- Code coverage > 70%
+- Full documentation updated

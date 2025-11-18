@@ -7,9 +7,9 @@ version = "0.1.0"
 [agents.data-agent]
 topics = ["market.price.BTC", "market.price.ETH"]
 refresh_interval_sec = 3
-data_source = "cryptocompare"
-exchange = "cryptocompare"
-symbols = ["BTC", "ETH"]
+data_source = "okx"
+exchange = "okx"
+symbols = ["BTC-USDT", "ETH-USDT"]
 
 [agents.planner-agent]
 topics = ["analysis.trend", "analysis.risk", "analysis.sentiment"]
@@ -34,6 +34,12 @@ topics = ["market.price.*"]
 window_size = 20
 indicators = ["SMA", "EMA", "RSI"]
 
+[agents.executor-agent]
+topics = ["plan.ready"]
+enable_trading = true    # Safety switch - set to true to enable real trading
+min_order_usdt = 10.0    # Minimum order size in USDT
+max_order_usdt = 50.0    # Maximum order size in USDT
+
 [bridge]
 address = "127.0.0.1:50051"
 mode = "full"
@@ -49,7 +55,7 @@ port = 3030
 [llm.deepseek]
 type = "http"
 api_key = "${DEEPSEEK_API_KEY}"
-api_base = "https://api.deepseek.com"
+api_base = "https://api.deepseek.com/v1"
 model = "deepseek-chat"
 max_tokens = 4096
 temperature = 0.7

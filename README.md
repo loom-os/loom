@@ -18,11 +18,12 @@ Loom is a runtime that enables AI agents to continuously sense, reason, and act 
 ## What's in this repo
 
 - **loom-proto** — Shared protobuf definitions. We vendor `protoc` via `protoc-bin-vendored` in build.rs, so you don't need a system install.
-- **core** (loom-core) — Runtime: Event Bus, Agent Runtime, Router, ActionBroker, Tool Orchestrator, MCP Client, Collaboration primitives, Directories. Depends only on `loom-proto`.
+- **core** (loom-core) — Runtime: Event Bus, Agent Runtime, Router, ActionBroker, Tool Orchestrator, MCP Client, Collaboration primitives, Directories, Memory & Context System. Depends only on `loom-proto`.
 - **loom-audio** — Optional audio stack: mic, VAD, STT (whisper.cpp), wake detection, TTS (Piper/espeak-ng). Depends on `loom-proto` and `core`.
-- **bridge** — gRPC service for cross-process event/action streaming. Supports RegisterAgent, bidirectional EventStream, ForwardAction, Heartbeat. Enables Python/JS agents to participate in the Loom ecosystem.
-- **loom-py** — Python SDK with Agent/Context API, @capability decorator, Envelope support. Includes trio example (Planner/Researcher/Writer). PyPI-ready (`0.1.0a1`).
+- **bridge** — gRPC service for cross-process event/action streaming. Supports RegisterAgent, bidirectional EventStream, ForwardAction, Heartbeat, MemoryService. Enables Python/JS agents to participate in the Loom ecosystem.
+- **loom-py** — Python SDK with Agent/Context API, @capability decorator, Envelope support, memory methods. Includes trio example (Planner/Researcher/Writer) and market-analyst demo. PyPI-ready (`0.1.0a1`).
 - **demo/voice_agent** — First complete E2E demo app wiring audio stack through the core runtime.
+- **demo/market-analyst** — Multi-agent trading system (Planner/Executor pattern) demonstrating memory-based deduplication and idempotency.
 
 Dependency directions: `loom-proto` → `core` → (optionally) app; `loom-audio` depends on both `loom-proto` and `core`. `core` does not depend on `loom-audio` to keep the runtime slim and portable.
 
@@ -34,10 +35,13 @@ Event Sources (Camera, Audio, Sensors, UI, Network, Python/JS Agents)
    Event Bus (Pub/Sub with QoS & Backpressure)
             ↓
  Agents (Stateful, Actor-based with Mailboxes)
-      ↓           ↓
-  Router      ActionBroker (Capability Registry)
-      ↓           ↓
- Local/Cloud   Tools/APIs (Native, MCP, Plugins)
+      ↓           ↓                ↓
+  Router      ActionBroker    Memory & Context
+      ↓           ↓                ↓
+ Local/Cloud   Tools/APIs    (Deduplication,
+                (Native,      Idempotency,
+                 MCP,         Statistics)
+                 Plugins)
       ↓
   Actions & Results (with correlation)
 ```
@@ -183,6 +187,32 @@ Asynchronous pub/sub with QoS levels (`Realtime`, `Batched`, `Background`), back
 ### Agent Runtime
 
 Actor-based stateful agents with lifecycle management (create/start/stop/delete), dynamic topic subscriptions, persistent state (RocksDB), ephemeral context (in-memory), and mailbox-based event distribution.
+
+### Memory & Context System
+
+Dual-layer memory supporting both general-purpose episodic memory and agent-specific decision tracking:
+
+**General-purpose API**:
+
+- `MemoryWriter`: append_event(), summarize_episode()
+- `MemoryReader`: retrieve(query, k, filters)
+- Used by `ContextBuilder` to assemble LLM-ready prompts
+
+**Agent Decision API** (for Planner/Executor patterns):
+
+- `save_plan()`: Store decisions with MD5-based deduplication
+- `check_duplicate()`: Detect duplicate plans within time windows (default: 5 min)
+- `mark_executed()` / `check_executed()`: Execution idempotency tracking
+- `get_execution_stats()`: Calculate win rates and performance metrics
+
+**Key Features**:
+
+- DashMap-based concurrent storage for high-performance multi-agent access
+- Session isolation for safe multi-agent/multi-thread operation
+- gRPC Bridge integration for Python SDK access
+- 25 comprehensive tests (Rust + Python) — all passing ✅
+
+Used extensively in `demo/market-analyst` for preventing duplicate trading decisions and ensuring idempotent order execution.
 
 ### Envelope
 
@@ -348,12 +378,14 @@ Component-level documentation in `docs/core/`:
 - `docs/core/router.md` — Router (policy-based Local/Cloud/Hybrid selection)
 - `docs/core/action_broker.md` — ActionBroker (capability registry and invocation)
 - `docs/core/llm.md` — LLM Client (streaming, retries, provider adapters)
+- `docs/core/memory.md` — Memory & Context (episodic + agent decision tracking, deduplication, idempotency)
 - `docs/core/plugin_system.md` — Plugin System (WASM, out-of-process)
 - `docs/core/storage.md` — Storage (RocksDB, Vector DB)
 - `docs/core/telemetry.md` — Telemetry (metrics, tracing, structured logs)
 - `docs/core/envelope.md` — Envelope (thread/correlation metadata)
 - `docs/core/collaboration.md` — Collaboration primitives (request/reply, fanout/fanin, contract-net)
 - `docs/core/directory.md` — Directories (agent & capability discovery)
+- `docs/core/cognitive_runtime.md` — Cognitive Agent Pattern (perceive-think-act loop)
 
 Additional documentation:
 

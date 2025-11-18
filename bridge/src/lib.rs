@@ -1,6 +1,8 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+pub mod memory_handler;
+
 use dashmap::DashMap;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
@@ -10,9 +12,10 @@ use tracing::info;
 use loom_core::{ActionBroker, AgentDirectory, AgentInfo, EventBus};
 use loom_proto::{
     bridge_server::{Bridge, BridgeServer},
-    client_event, server_event, ActionCall, ActionResult, AgentRegisterRequest,
-    AgentRegisterResponse, CapabilityDescriptor, ClientEvent, Delivery, HeartbeatRequest,
-    HeartbeatResponse, ServerEvent,
+    client_event,
+    memory_service_server::MemoryServiceServer,
+    server_event, ActionCall, ActionResult, AgentRegisterRequest, AgentRegisterResponse,
+    CapabilityDescriptor, ClientEvent, Delivery, HeartbeatRequest, HeartbeatResponse, ServerEvent,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -476,8 +479,14 @@ pub async fn start_server(
     info!(addr = %addr, "Starting Loom Bridge gRPC server");
 
     let svc = BridgeService::new(BridgeState::new(event_bus, action_broker, agent_directory));
+
+    // Create memory store and handler
+    let memory_store = loom_core::context::memory::InMemoryMemory::new();
+    let memory_handler = memory_handler::MemoryHandler::new(memory_store);
+
     tonic::transport::Server::builder()
         .add_service(BridgeServer::new(svc))
+        .add_service(MemoryServiceServer::new(memory_handler))
         .serve(addr)
         .await
         .map_err(|e| BridgeError::Internal(e.to_string()))
@@ -505,8 +514,14 @@ pub async fn start_server_with_dashboard(
     }
 
     let svc = BridgeService::new(state);
+
+    // Create memory store and handler
+    let memory_store = loom_core::context::memory::InMemoryMemory::new();
+    let memory_handler = memory_handler::MemoryHandler::new(memory_store);
+
     tonic::transport::Server::builder()
         .add_service(BridgeServer::new(svc))
+        .add_service(MemoryServiceServer::new(memory_handler))
         .serve(addr)
         .await
         .map_err(|e| BridgeError::Internal(e.to_string()))

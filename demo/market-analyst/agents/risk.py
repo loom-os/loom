@@ -7,36 +7,52 @@ import asyncio
 import json
 import random
 
+from opentelemetry import trace
+
 from loom import Agent, load_project_config
+
+tracer = trace.get_tracer(__name__)
 
 
 async def risk_handler(ctx, topic: str, event) -> None:
     """Calculate risk from price update."""
-    data = json.loads(event.payload.decode("utf-8"))
-    price = data["price"]
-    symbol = data["symbol"]
+    with tracer.start_as_current_span(
+        "risk.analyze",
+        attributes={"risk.topic": topic},
+    ) as span:
+        data = json.loads(event.payload.decode("utf-8"))
+        price = data["price"]
+        symbol = data["symbol"]
 
-    # Simulate risk calculation (TODO: Real VaR, volatility, etc.)
-    await asyncio.sleep(random.uniform(0.1, 0.3))  # Simulate computation
+        # Simulate risk calculation (TODO: Real VaR, volatility, etc.)
+        await asyncio.sleep(random.uniform(0.1, 0.3))  # Simulate computation
 
-    risk_score = random.uniform(0.2, 0.8)
-    volatility = random.uniform(0.15, 0.45)
+        risk_score = random.uniform(0.2, 0.8)
+        volatility = random.uniform(0.15, 0.45)
 
-    result = {
-        "symbol": symbol,
-        "price": price,
-        "risk_score": risk_score,
-        "volatility": volatility,
-        "timestamp_ms": data["timestamp_ms"],
-    }
+        result = {
+            "symbol": symbol,
+            "price": price,
+            "risk_score": risk_score,
+            "volatility": volatility,
+            "timestamp_ms": data["timestamp_ms"],
+        }
 
-    print(f"[risk] {symbol} risk: {risk_score:.2f}, vol: {volatility:.2f}")
+        # Record risk metrics
+        span.set_attribute("risk.symbol", symbol)
+        span.set_attribute("risk.price", price)
+        span.set_attribute("risk.score", risk_score)
+        span.set_attribute("risk.volatility", volatility)
 
-    await ctx.emit(
-        "analysis.risk",
-        type="analysis.risk",
-        payload=json.dumps(result).encode("utf-8"),
-    )
+        print(f"[risk] {symbol} risk: {risk_score:.2f}, vol: {volatility:.2f}")
+
+        await ctx.emit(
+            "analysis.risk",
+            type="analysis.risk",
+            payload=json.dumps(result).encode("utf-8"),
+        )
+
+        span.set_status(trace.Status(trace.StatusCode.OK))
 
 
 async def main():

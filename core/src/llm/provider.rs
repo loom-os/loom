@@ -7,6 +7,7 @@ use crate::proto::{
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing::{info_span, Span};
 
 use super::client::LlmClient;
 
@@ -31,6 +32,23 @@ impl LlmGenerateProvider {
         call: ActionCall,
         client: &LlmClient,
     ) -> crate::Result<ActionResult> {
+        // Extract envelope for richer tracing attributes (sender/thread)
+        let env = crate::Envelope::from_metadata(&call.headers, &call.id);
+
+        // Start a span to capture LLM invocation details and outputs
+        let span = info_span!(
+            "llm.generate",
+            capability = %call.capability,
+            call_id = %call.id,
+            thread_id = %env.thread_id,
+            sender = %env.sender,
+            model = tracing::field::Empty,
+            provider = tracing::field::Empty,
+            output_preview = tracing::field::Empty,
+            status = tracing::field::Empty
+        );
+        let _guard = span.enter();
+
         let payload: GeneratePayload = match serde_json::from_slice(&call.payload) {
             Ok(v) => v,
             Err(e) => {
@@ -62,28 +80,45 @@ impl LlmGenerateProvider {
 
         let res = client.generate(&bundle, payload.budget).await;
         match res {
-            Ok(r) => Ok(ActionResult {
-                id: call.id.clone(),
-                status: ActionStatus::ActionOk as i32,
-                output: serde_json::to_vec(&serde_json::json!({
-                    "text": r.text,
-                    "model": r.model,
-                    "provider": r.provider,
-                    "usage": r.usage,
-                }))
-                .unwrap_or_default(),
-                error: None,
-            }),
-            Err(e) => Ok(ActionResult {
-                id: call.id.clone(),
-                status: ActionStatus::ActionError as i32,
-                output: Vec::new(),
-                error: Some(ActionError {
-                    code: "LLM_ERROR".to_string(),
-                    message: e.to_string(),
-                    details: Default::default(),
-                }),
-            }),
+            Ok(r) => {
+                // Record attributes on span: model/provider/output preview/status
+                if let Some(model) = &r.model {
+                    Span::current().record("model", model.as_str());
+                }
+                if let Some(provider) = &r.provider {
+                    Span::current().record("provider", provider.as_str());
+                }
+                let preview: String = r.text.chars().take(160).collect();
+                Span::current().record("output_preview", preview.as_str());
+                Span::current().record("status", "ok");
+
+                Ok(ActionResult {
+                    id: call.id.clone(),
+                    status: ActionStatus::ActionOk as i32,
+                    output: serde_json::to_vec(&serde_json::json!({
+                        "text": r.text,
+                        "model": r.model,
+                        "provider": r.provider,
+                        "usage": r.usage,
+                    }))
+                    .unwrap_or_default(),
+                    error: None,
+                })
+            }
+            Err(e) => {
+                Span::current().record("status", "error");
+                Span::current().record("output_preview", "");
+                Ok(ActionResult {
+                    id: call.id.clone(),
+                    status: ActionStatus::ActionError as i32,
+                    output: Vec::new(),
+                    error: Some(ActionError {
+                        code: "LLM_ERROR".to_string(),
+                        message: e.to_string(),
+                        details: Default::default(),
+                    }),
+                })
+            }
         }
     }
 }
@@ -111,7 +146,7 @@ impl CapabilityProvider for LlmGenerateProvider {
 
     async fn invoke(&self, call: ActionCall) -> crate::Result<ActionResult> {
         // Allow headers to override config dynamically
-        // Keys: model, base_url, temperature, request_timeout_ms
+        // Keys: model, base_url, api_key, temperature, request_timeout_ms
         if !call.headers.is_empty() {
             let mut cfg = self.client.cfg.clone();
             if let Some(v) = call.headers.get("model") {
@@ -119,6 +154,9 @@ impl CapabilityProvider for LlmGenerateProvider {
             }
             if let Some(v) = call.headers.get("base_url") {
                 cfg.base_url = v.clone();
+            }
+            if let Some(v) = call.headers.get("api_key") {
+                cfg.api_key = Some(v.clone());
             }
             if let Some(v) = call
                 .headers

@@ -92,8 +92,10 @@ impl EventExt for Event {
     }
 
     fn sender(&self) -> Option<&str> {
+        // Try without prefix first (Rust native), then with "loom." prefix (Python SDK)
         self.metadata
             .get(crate::envelope::keys::SENDER)
+            .or_else(|| self.metadata.get("loom.sender"))
             .map(|s| s.as_str())
     }
 }
@@ -260,6 +262,13 @@ impl EventBus {
             });
         }
 
+        // 🔧 Record flow from sender to EventBus (for Dashboard visibility)
+        if let Some(ref flow_tracker) = self.flow_tracker {
+            if let Some(sender) = event.sender() {
+                flow_tracker.record_flow(sender, "EventBus", topic).await;
+            }
+        }
+
         // Record published metric
         self.published_counter.add(
             1,
@@ -296,12 +305,34 @@ impl EventBus {
             );
         }
 
-        // Get subscribers
+        // Get subscribers: match both exact topics and wildcard patterns
+        let mut all_matching_subs: Vec<Subscription> = Vec::new();
+
+        // First, check for exact match
         if let Some(subs) = self.subscriptions.get(topic) {
+            all_matching_subs.extend(subs.value().iter().cloned());
+        }
+
+        // Then, check for wildcard patterns (e.g., "market.price.*" matches "market.price.BTC")
+        for entry in self.subscriptions.iter() {
+            let pattern = entry.key().as_str();
+            if let Some(prefix) = pattern.strip_suffix(".*") {
+                // Check if topic starts with this prefix followed by a dot
+                if topic.len() > prefix.len()
+                    && topic.starts_with(prefix)
+                    && topic.as_bytes().get(prefix.len()) == Some(&b'.')
+                {
+                    // This pattern matches the topic
+                    all_matching_subs.extend(entry.value().iter().cloned());
+                }
+            }
+        }
+
+        if !all_matching_subs.is_empty() {
             let mut delivered = 0;
             let mut dropped = 0;
 
-            for sub in subs.value() {
+            for sub in &all_matching_subs {
                 // Check event type filtering
                 if !sub.event_types.is_empty() && !sub.event_types.contains(&event.r#type) {
                     continue;
@@ -405,7 +436,13 @@ impl EventBus {
                             }
                             Err(_) => {
                                 dropped += 1;
-                                warn!("Failed to send event to subscription {}", sub.id);
+                                // 🔧 More detailed logging for channel full errors
+                                warn!(
+                                    subscription_id = %sub.id,
+                                    topic = %topic,
+                                    qos = ?sub.qos,
+                                    "Failed to send event to subscription - channel may be full"
+                                );
                             }
                         }
                     }
@@ -484,9 +521,9 @@ impl EventBus {
         Span::current().record("subscription_id", &subscription_id);
 
         let cap = match qos {
-            QoSLevel::QosRealtime => 64,
-            QoSLevel::QosBatched => 1024,
-            QoSLevel::QosBackground => 4096,
+            QoSLevel::QosRealtime => 512,    // Raise from 64 to 512
+            QoSLevel::QosBatched => 2048,    // Raise from 1024 to 2048
+            QoSLevel::QosBackground => 4096, // Keep unchanged
         };
         let (tx, rx) = mpsc::channel(cap);
 

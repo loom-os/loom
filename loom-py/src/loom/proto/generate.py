@@ -34,6 +34,7 @@ FILES = [
     "action.proto",
     "agent.proto",
     "plugin.proto",
+    "memory.proto",
 ]
 
 
