@@ -135,7 +135,7 @@ impl AgentRuntime {
 
         // Auto-subscribe to private agent reply topic
         // This enables point-to-point agent communication
-        let private_reply_topic = crate::envelope::agent_reply_topic(&agent_id);
+        let private_reply_topic = crate::messaging::agent_reply_topic(&agent_id);
         {
             let (sub_id, mut rx) = self
                 .event_bus
@@ -222,7 +222,7 @@ impl AgentRuntime {
         info!(
             "Created agent {} with private reply topic {}",
             agent_id,
-            crate::envelope::agent_reply_topic(&agent_id)
+            crate::messaging::agent_reply_topic(&agent_id)
         );
 
         Ok(agent_id)

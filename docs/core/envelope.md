@@ -1,8 +1,8 @@
 # Envelope: Coordination & Tracing Metadata
 
-Envelope is the unified coordination header that rides inside `Event.metadata` and `ActionCall.headers`. It standardizes thread/correlation, reply routing, hop/TTL safety, timestamps, and distributed tracing across the runtime.
+The **Envelope** is a coordination layer that unifies thread/correlation/sender/reply routing, TTL/hop, timestamps, and OpenTelemetry trace context in a single structure (`Envelope`) attached to Events via `Event.metadata`.
 
-It is implemented in `core/src/envelope.rs` and consumed broadly (Event Bus, Agents, Action Broker, Bridge).
+It is implemented in `core/src/messaging/envelope.rs` and consumed broadly (Event Bus, Agents, Action Broker, Bridge).
 
 ## Reserved Keys
 

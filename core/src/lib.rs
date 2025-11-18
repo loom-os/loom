@@ -6,15 +6,31 @@ pub mod cognitive; // LLM + Cognitive Loop (perceive-think-act)
 pub mod collab; // Collaboration primitives built on EventBus + Envelope
 pub mod context;
 pub mod dashboard; // Real-time event flow visualization
-pub mod envelope; // Unified metadata envelope for events/actions threads
-pub mod event;
+pub mod directory; // Agent & Capability directories
+pub mod llm;
+pub mod mcp; // Model Context Protocol client and adapters
+pub mod messaging; // Event Bus, Envelope, and Event extensions
+pub mod plugin;
+pub mod providers;
+pub mod router;
+pub mod storage;
 pub mod telemetry;
 pub mod tools; // Unified tool system (Native + MCP)
 
 // Export core types
 pub use agent::directory::{AgentDirectory, AgentInfo, AgentStatus, CapabilityDirectory};
 pub use agent::{Agent, AgentRuntime, AgentState};
-pub use cognitive::llm::router::{
+pub use collab::{types as collab_types, Collaborator};
+pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
+pub use directory::{AgentDirectory, AgentInfo, AgentStatus, CapabilityDirectory};
+pub use llm::{LlmClient, LlmClientConfig, LlmResponse};
+pub use mcp::{McpClient, McpManager, McpToolAdapter};
+pub use messaging::{
+    agent_reply_topic, Envelope, EventBus, EventBusStats, EventExt, EventHandler, ThreadTopicKind,
+};
+pub use plugin::{Plugin, PluginManager};
+pub use providers::{WeatherProvider, WebSearchProvider};
+pub use router::{
     ConfidenceEstimator, DummyConfidenceEstimator, ModelRouter, Route, RoutingDecision,
 };
 pub use cognitive::llm::{LlmClient, LlmClientConfig, LlmResponse};
@@ -26,6 +42,9 @@ pub use telemetry::{init_telemetry, shutdown_telemetry, SpanCollector, SpanData}
 pub use tools::{Tool, ToolError, ToolRegistry};
 // Re-export MCP types from tools
 pub use tools::mcp::{McpClient, McpManager, McpToolAdapter};
+
+// Re-export proto types (Event, QoSLevel, etc.)
+pub use proto::{Event, QoSLevel};
 
 // Generated proto code
 // Re-export proto types from the shared crate so existing paths `crate::proto::...` continue to work.

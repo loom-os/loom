@@ -8,8 +8,8 @@
 /// - Different QoS levels
 /// - Latency measurements
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use loom_core::event::EventBus;
 use loom_core::proto::{Event, QoSLevel};
+use loom_core::EventBus;
 use std::sync::Arc;
 
 fn make_event(id: u64, event_type: &str) -> Event {

@@ -5,7 +5,9 @@
 use loom_core::{
     agent::directory::AgentDirectory,
     dashboard::{DashboardConfig, DashboardServer, EventBroadcaster, FlowTracker},
-    event::{Event, EventBus, EventExt, QoSLevel},
+    directory::AgentDirectory,
+    proto::{Event, QoSLevel},
+    EventBus, EventExt,
 };
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};

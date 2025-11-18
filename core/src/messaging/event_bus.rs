@@ -1,104 +1,20 @@
-// Event bus implementation
+//! Event Bus implementation with QoS-aware backpressure and topic routing.
+
+use crate::messaging::event_ext::EventExt;
+use crate::proto::{Event, QoSLevel};
 use crate::Result;
 use async_trait::async_trait;
 use dashmap::DashMap;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::time::Instant;
-use tokio::sync::{broadcast, mpsc};
-use tracing::{debug, info, warn, Span};
-
-pub use crate::proto::{Event, QoSLevel};
-
-// OpenTelemetry imports
 use opentelemetry::{
     global,
     metrics::{Counter, Histogram, UpDownCounter},
     KeyValue,
 };
-
-/// Extension trait for Event providing fluent helpers for envelope metadata.
-///
-/// Simplifies reading and writing envelope metadata without verbose Envelope::from_event() calls.
-pub trait EventExt {
-    /// Sets the thread_id metadata and returns self for chaining.
-    fn with_thread(self, thread_id: String) -> Self;
-
-    /// Sets the correlation_id metadata and returns self for chaining.
-    fn with_correlation(self, correlation_id: String) -> Self;
-
-    /// Sets the reply_to metadata and returns self for chaining.
-    fn with_reply_to(self, reply_to: String) -> Self;
-
-    /// Sets the sender metadata and returns self for chaining.
-    fn with_sender(self, sender: String) -> Self;
-
-    /// Reads thread_id from metadata.
-    fn thread_id(&self) -> Option<&str>;
-
-    /// Reads correlation_id from metadata.
-    fn correlation_id(&self) -> Option<&str>;
-
-    /// Reads reply_to from metadata.
-    fn reply_to(&self) -> Option<&str>;
-
-    /// Reads sender from metadata.
-    fn sender(&self) -> Option<&str>;
-}
-
-impl EventExt for Event {
-    fn with_thread(mut self, thread_id: String) -> Self {
-        self.metadata
-            .insert(crate::envelope::keys::THREAD_ID.to_string(), thread_id);
-        self
-    }
-
-    fn with_correlation(mut self, correlation_id: String) -> Self {
-        self.metadata.insert(
-            crate::envelope::keys::CORRELATION_ID.to_string(),
-            correlation_id,
-        );
-        self
-    }
-
-    fn with_reply_to(mut self, reply_to: String) -> Self {
-        self.metadata
-            .insert(crate::envelope::keys::REPLY_TO.to_string(), reply_to);
-        self
-    }
-
-    fn with_sender(mut self, sender: String) -> Self {
-        self.metadata
-            .insert(crate::envelope::keys::SENDER.to_string(), sender);
-        self
-    }
-
-    fn thread_id(&self) -> Option<&str> {
-        self.metadata
-            .get(crate::envelope::keys::THREAD_ID)
-            .map(|s| s.as_str())
-    }
-
-    fn correlation_id(&self) -> Option<&str> {
-        self.metadata
-            .get(crate::envelope::keys::CORRELATION_ID)
-            .map(|s| s.as_str())
-    }
-
-    fn reply_to(&self) -> Option<&str> {
-        self.metadata
-            .get(crate::envelope::keys::REPLY_TO)
-            .map(|s| s.as_str())
-    }
-
-    fn sender(&self) -> Option<&str> {
-        // Try without prefix first (Rust native), then with "loom." prefix (Python SDK)
-        self.metadata
-            .get(crate::envelope::keys::SENDER)
-            .or_else(|| self.metadata.get("loom.sender"))
-            .map(|s| s.as_str())
-    }
-}
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::{broadcast, mpsc};
+use tracing::{debug, info, warn, Span};
 
 /// Event handler trait
 #[async_trait]
@@ -156,6 +72,7 @@ pub struct EventBus {
     active_subscriptions_gauge: UpDownCounter<i64>,
     publish_latency: Histogram<f64>,
 }
+
 impl EventBus {
     pub async fn new() -> Result<Self> {
         let (broadcast_tx, _) = broadcast::channel(1000);
@@ -236,7 +153,7 @@ impl EventBus {
         let start_time = Instant::now();
 
         // Inject trace context into event metadata for distributed tracing
-        let mut envelope = crate::Envelope::from_event(&event);
+        let mut envelope = crate::messaging::Envelope::from_event(&event);
         envelope.inject_trace_context();
         envelope.attach_to_event(&mut event);
 

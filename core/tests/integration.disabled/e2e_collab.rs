@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use loom_core::agent::AgentBehavior;
-use loom_core::envelope::ThreadTopicKind;
+use loom_core::messaging::ThreadTopicKind;
 use loom_core::proto::{Action, AgentConfig, AgentState, Event};
 use loom_core::Result;
 use loom_core::{

@@ -1,5 +1,5 @@
-use loom_core::event::EventBus;
 use loom_core::proto::{Event, QoSLevel};
+use loom_core::EventBus;
 use loom_core::Result;
 
 // Helper to create a test event
@@ -107,8 +107,9 @@ async fn qos_realtime_drops_under_backpressure() -> Result<()> {
         .subscribe("topic.rt".to_string(), vec![], QoSLevel::QosRealtime)
         .await?;
 
-    // Publish many events without consuming to fill the channel
-    for i in 0..500 {
+    // Publish more events than the Realtime channel capacity (512)
+    // Without consuming, this should cause drops via try_send failures
+    for i in 0..1000 {
         let evt = make_event(&format!("rt{}", i), "unit");
         let _ = bus.publish("topic.rt", evt).await;
     }
@@ -125,7 +126,7 @@ async fn qos_realtime_drops_under_backpressure() -> Result<()> {
         stats.dropped_events > 0,
         "expected drops for realtime QoS under backpressure"
     );
-    assert!(received_count < 500, "not all events should be received");
+    assert!(received_count < 1000, "not all events should be received");
     Ok(())
 }
 

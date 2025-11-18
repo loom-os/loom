@@ -3,8 +3,8 @@
 //! Tests verifying the accuracy of EventBus statistics under load.
 
 use super::make_event;
-use loom_core::event::EventBus;
 use loom_core::proto::QoSLevel;
+use loom_core::EventBus;
 use loom_core::Result;
 use serial_test::serial;
 

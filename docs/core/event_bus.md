@@ -7,7 +7,7 @@ This page explains responsibilities, key concepts, delivery guarantees, metrics,
 ## Overview
 
 - Purpose: decouple producers/consumers via topics; enforce QoS policies; surface health/latency with metrics; propagate distributed tracing context via Envelopes.
-- Where it lives: `core/src/event.rs` as `EventBus` and `EventExt`.
+- Where it lives: `core/src/messaging/` module (event_bus.rs, event_ext.rs, envelope.rs).
 - Interop: Events carry coordination metadata in `Event.metadata`, managed by `Envelope` (see `docs/core/envelope.md`).
 
 ## Concepts
@@ -180,7 +180,9 @@ Responsibility
 
 Key files
 
-- `core/src/event.rs` — canonical event types, envelopes, and helper extensions (EventExt trait).
+- `core/src/messaging/event_bus.rs` — EventBus implementation with QoS and backpressure.
+- `core/src/messaging/event_ext.rs` — EventExt trait for fluent envelope helpers.
+- `core/src/messaging/envelope.rs` — Envelope coordination metadata.
 - `core/benches/event_bus_benchmark.rs` — benchmarks for throughput and latency.
 
 Key concepts
