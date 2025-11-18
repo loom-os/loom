@@ -1,85 +1,161 @@
-# Envelope: Thread & Correlation Semantics
+# Envelope: Coordination & Tracing Metadata
 
-The Envelope is a small, unified metadata block that travels with every Event and ActionCall. It provides thread and correlation semantics so multi‑agent workflows can coordinate reliably.
+Envelope is the unified coordination header that rides inside `Event.metadata` and `ActionCall.headers`. It standardizes thread/correlation, reply routing, hop/TTL safety, timestamps, and distributed tracing across the runtime.
 
-Fields:
+It is implemented in `core/src/envelope.rs` and consumed broadly (Event Bus, Agents, Action Broker, Bridge).
 
-- thread_id: Stable conversation/request id; scopes broadcast/replies.
-- correlation_id: Per‑message correlation token (defaults to thread_id). Used to tie responses to requests.
-- sender: Logical identity of the emitter, e.g., `agent.voice` or `broker.weather`.
-- reply_to: Topic to receive replies for this thread. Convention: `thread.{thread_id}.reply` for thread-scoped replies, or `agent.{agent_id}.replies` for agent-specific private replies.
-- ttl: Remaining hop budget. Decremented by each agent hop; messages are dropped when ttl <= 0.
-- hop: Hop counter, incremented on each agent.
-- ts: Millisecond timestamp of envelope creation.
+## Reserved Keys
 
-Topic conventions:
+Envelope fields are stored as string keys in metadata. The canonical keys are exposed as `envelope::keys::*`:
 
-**Thread-scoped topics** (multi-agent collaboration):
+- `thread_id`: groups related messages in a collaboration session
+- `correlation_id`: links replies/proposals to the originating request (default = `thread_id`)
+- `sender`: logical identity of the sender (e.g., `agent.worker-1`, `broker.translate`)
+- `reply_to`: canonical reply topic (defaults to `thread.{thread_id}.reply`)
+- `ttl`: remaining hop budget (int). Prevents infinite loops
+- `hop`: hop counter (uint), incremented on each forwarding
+- `ts`: creation timestamp (ms since epoch)
+- `trace_id`, `span_id`, `trace_flags`: OpenTelemetry context for distributed tracing
 
-- `thread.{id}.broadcast` — multicast to all participants in a thread
-- `thread.{id}.reply` — unicast replies back to the requester or coordinator
+Notes:
 
-**Agent-specific topics** (point-to-point communication):
+- Trace keys are only written when non-empty to preserve backward compatibility.
+- Python SDK compatibility: some producers may use `loom.sender`. `EventExt::sender()` reads either `sender` or `loom.sender`.
 
-- `agent.{agent_id}.replies` — private mailbox for direct agent-to-agent messages
-- Every agent is automatically subscribed to its private reply topic at creation
+## Topic Conventions
 
-## Reply Topic Semantics
+Thread-scoped topics (multi-agent collaboration):
 
-### Thread Reply (collaboration)
+- `thread.{thread_id}.broadcast` — fan-out to participants of a thread
+- `thread.{thread_id}.reply` — canonical reply path for the thread
 
-Use when replies should go to all participants or the thread coordinator:
+Agent mailbox topics (point-to-point):
 
-```rust
-let env = Envelope::new("task-123", "agent.worker");
-// env.reply_to = "thread.task-123.reply"
-```
+- `agent.{agent_id}.replies` — private mailbox per agent
+- Helper: `agent_reply_topic(agent_id)` builds this topic
 
-### Agent Reply (point-to-point)
+`ThreadTopicKind::{Broadcast, Reply}.topic(thread_id)` provides safe builders for thread topics.
 
-Use when replies should go directly to a specific agent:
+## Envelope API
 
-```rust
-let env = Envelope::with_agent_reply("task-123", "agent.worker", "coordinator");
-// env.reply_to = "agent.coordinator.replies"
-```
-
-### Dynamic Reply Selection
-
-Extract reply topic from sender:
+### Create
 
 ```rust
-let env = Envelope::new("req-1", "agent.helper");
-let agent_topic = env.agent_reply_topic(); // "agent.helper.replies"
-let thread_topic = env.reply_topic();      // "thread.req-1.reply"
+use loom_core::Envelope;
+
+let env = Envelope::new("task-42", "agent.coordinator");
+// Defaults: correlation_id=thread_id, ttl=16, hop=0,
+// reply_to=thread.{thread_id}.reply, timestamp_ms=now
 ```
 
-Lifecycle:
+### Create with agent reply
 
-- Events: Envelope is stored in `Event.metadata`. Agents ensure it exists, increment `hop`, decrement `ttl`, and drop when exhausted, then write it back.
-- Actions: Envelope is stored in `ActionCall.headers` and `ActionCall.correlation_id` is set; the ActionBroker and providers can use it for tracing.
+```rust
+let env = Envelope::with_agent_reply("task-1", "agent.coordinator", "coordinator");
+// reply_to = agent.coordinator.replies
+```
 
-Helpers:
+### Attach / Extract from Event
 
-- `Envelope::new(thread_id, sender)` - Creates envelope with thread reply topic
-- `Envelope::with_agent_reply(thread_id, sender, agent_id)` - Creates envelope with agent reply topic
-- `Envelope::from_event(&Event)` / `from_metadata(&HashMap)`
-- `Envelope::attach_to_event(&mut Event)`
-- `Envelope::apply_to_action_call(&mut ActionCall)`
-- `Envelope::next_hop()` -> bool (increments hop, decrements ttl, returns ttl > 0)
-- `Envelope::agent_reply_topic()` -> String - Extracts agent private topic from sender
-- `Envelope::broadcast_topic()` -> String - Returns thread broadcast topic
-- `Envelope::reply_topic()` -> String - Returns thread reply topic
-- `ThreadTopicKind::{Broadcast, Reply}.topic(thread_id)`
-- `agent_reply_topic(agent_id)` - Standalone helper for building agent reply topics
+```rust
+use loom_core::{Envelope, proto::Event};
+use std::collections::HashMap;
 
-Interaction with collaboration:
+let mut evt = Event { /* ... */ metadata: HashMap::new(), /* ... */ };
+let mut env = Envelope::new("thread-1", "agent.sender");
+env.inject_trace_context();        // capture current trace into the envelope
+env.attach_to_event(&mut evt);     // write envelope into evt.metadata
 
-- The Collaborator APIs publish control events (request/reply/cfp/proposal/award) on `thread.{id}.broadcast`/`reply` and use Envelope to ensure correlation and TTL management.
-- Agents automatically receive messages on their private `agent.{id}.replies` topic for direct communication.
+let env2 = Envelope::from_event(&evt); // parse from evt.metadata with fallback
+```
 
-Testing guidance:
+### Apply to ActionCall
 
-- Unit tests: roundtrip via metadata; topic helpers; next_hop TTL behavior; agent_reply_topic extraction.
-- Integration tests: agent drops TTL=1 before behavior; ActionBroker receives headers with correlation_id == call.id; private reply topic isolation.
-- See `tests/integration/e2e_agent_reply.rs` for point-to-point communication tests.
+```rust
+use loom_core::{Envelope, proto::ActionCall};
+
+let env = Envelope::new("thread-1", "agent.sender");
+let mut call = ActionCall { /* ... */ headers: Default::default(), correlation_id: String::new(), /* ... */ };
+env.apply_to_action_call(&mut call);
+assert_eq!(call.correlation_id, env.correlation_id);
+```
+
+### Hop / TTL guard
+
+```rust
+let mut env = Envelope::new("thread-1", "agent.sender");
+if !env.next_hop() { /* drop expired */ }
+// increments hop, decrements ttl; returns false when ttl <= 0
+```
+
+### Topic helpers
+
+```rust
+let env = Envelope::new("req-1", "agent.worker-1");
+env.broadcast_topic(); // => thread.req-1.broadcast
+env.reply_topic();     // => thread.req-1.reply
+env.agent_reply_topic(); // => agent.worker-1.replies (derived from sender)
+```
+
+## Tracing Integration (OpenTelemetry)
+
+Cross-process tracing is first-class:
+
+- Inject on produce: `inject_trace_context()` copies the current span’s OTel context (`trace_id`, `span_id`, `trace_flags`) into the envelope before sending across the Bridge or Event Bus.
+- Extract on consume: `extract_trace_context()` parses the envelope and sets the current span’s parent to the remote context. This stitches traces across services.
+
+```rust
+let mut env = Envelope::new("thread-1", "agent.sender");
+env.inject_trace_context();
+// ... send ...
+let env = Envelope::from_event(&evt);
+env.extract_trace_context(); // returns true on success
+```
+
+Implementation details:
+
+- Uses `opentelemetry` + `tracing_opentelemetry` under the hood.
+- If trace fields are absent or invalid hex, extraction is a no-op (returns `false`).
+
+## Metadata Roundtrip & Defaults
+
+`Envelope::from_metadata(meta, fallback_event_id)` is robust to missing fields:
+
+- `thread_id`: from metadata or `fallback_event_id`
+- `correlation_id`: defaults to `thread_id`
+- `sender`: empty string if missing
+- `reply_to`: defaults to `thread.{thread_id}.reply`
+- `ttl`: parsed int or default `16`
+- `hop`: parsed uint or default `0`
+- `timestamp_ms`: parsed or `now()`
+- `trace_*`: empty if absent
+
+`apply_to_metadata(map)` writes all basic fields and only writes trace fields when non-empty.
+
+## Patterns
+
+Common collaboration patterns enabled by Envelope:
+
+- Request–Reply (thread-scoped): producer sets `reply_to=thread.{id}.reply`; responders preserve `correlation_id`.
+- Fan-out/Fan-in: publish proposals to `thread.{id}.broadcast`, reply via `thread.{id}.reply`.
+- Direct Mailbox: for targeted responses, set `reply_to=agent.{id}.replies` (via `with_agent_reply`).
+
+## Best Practices
+
+- Always attach an Envelope before publishing or invoking tools; prefer `Envelope` APIs over manual map edits.
+- On forwarding, call `next_hop()` and drop expired messages to avoid loops.
+- Choose reply routing deliberately: thread replies for coordination; agent mailbox for P2P.
+- Keep metadata modest; large data belongs in `payload`.
+- For cross-language interop, ensure `sender` is present; readers should tolerate `loom.sender`.
+
+## Pitfalls & Troubleshooting
+
+- Missing replies: verify `reply_to` selection (thread vs agent mailbox) and topic names.
+- TTL expired: events silently dropped by your agent loop if `next_hop()` returns false; tune TTL if needed (default 16).
+- Traces not linked: ensure `inject_trace_context()` on produce and `extract_trace_context()` on consume, and initialize OTel exporter.
+- Inconsistent sender key: ensure producers set `sender`; consumers may rely on it to compute mailbox topic.
+
+## See Also
+
+- Event Bus delivery, QoS, and backpressure: `docs/core/event_bus.md`
+- Event structure and lifecycle: `docs/core/event.md`
