@@ -1,5 +1,47 @@
+//! Context Engineering System
+//!
+//! This module provides a modern context pipeline for building LLM-ready prompts
+//! from agent state, memory, and tool traces.
+//!
+//! # Architecture
+//!
+//! - **Types**: Core types (ContextItem, ContextContent, ContextMetadata)
+//! - **Memory**: Storage and retrieval of context items
+//! - **Retrieval**: Strategies for finding relevant context
+//! - **Ranking**: Strategies for ordering context by relevance
+//! - **Builder**: Legacy prompt bundle builder (will be replaced by pipeline)
+//!
+//! # Design Principles
+//!
+//! 1. **Everything is Retrievable**: No irreversible summarization
+//! 2. **Full Traceability**: All items linked via OpenTelemetry traces
+//! 3. **Tool-First**: Tool calls and results are first-class citizens
+//! 4. **Intelligent Selection**: Dynamic context windowing based on relevance
+
 pub mod builder;
 pub mod memory;
+pub mod pipeline;
+pub mod ranking;
+pub mod retrieval;
+pub mod types;
+pub mod window;
+
+pub use types::{
+    ContextContent, ContextItem, ContextItemType, ContextMetadata, MemoryQuery, MessageRole,
+};
+
+pub use memory::{InMemoryStore, MemoryStore};
+
+pub use retrieval::{
+    CompositeRetrieval, ImportanceRetrieval, RecencyRetrieval, RetrievalStrategy, RetrievalTrigger,
+    TypeFilteredRetrieval,
+};
+
+pub use ranking::{CompositeRanker, ContextRanker, ImportanceRanker, TemporalRanker};
+
+pub use window::{TiktokenCounter, TokenCounter, WindowConfig, WindowManager};
+
+pub use pipeline::{ContextPipeline, PipelineConfig, PipelineResult};
 
 use serde::{Deserialize, Serialize};
 
