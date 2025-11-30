@@ -1,147 +1,267 @@
-## Cognitive Runtime & Agent Pattern (Design Draft)
+## Cognitive Runtime & Agent Pattern
 
-**Status**: Design / draft — this document describes the planned cognitive layer on top of the existing Agent Runtime. It does not reflect a fully implemented feature set yet.
+**Status**: ✅ Implemented — The cognitive layer is fully implemented in `core/src/agent/cognitive/`.
 
 ---
 
 ### Goals
 
 - **Lift agents from purely reactive callbacks to an explicit perceive–think–act loop** without breaking the existing `AgentRuntime` and `AgentBehavior` abstractions.
-- **Keep the core runtime simple**: EventBus + AgentRuntime remain general-purpose infrastructure; cognitive behavior is an opt‑in pattern.
+- **Keep the core runtime simple**: EventBus + AgentRuntime remain general-purpose infrastructure; cognitive behavior is an opt-in pattern.
 - **Make cognition observable**: planning steps, policy decisions, and memory usage should be inspectable from logs, traces, and the Dashboard.
 - **Reuse existing building blocks**: `ContextBuilder`, `MemoryReader/Writer`, `ModelRouter`, `ActionBroker`, and collaboration primitives.
 
 ---
 
-### High‑Level Design
+### Module Structure
 
-The cognitive layer is modeled as a **pattern** and a small set of traits that sit *on top of* the Agent Runtime:
+The cognitive module is organized as follows:
 
-- A `CognitiveLoop` trait describing the perceive/think/act stages.
-- A `CognitiveAgent` adapter that implements `AgentBehavior` by delegating to a `CognitiveLoop` implementation.
-- Optional helpers for integrating memory, planning, and routing into the loop.
-
-The existing components keep their responsibilities:
-
-- `AgentRuntime` still owns lifecycle, mailboxing, and topic subscriptions.
-- `AgentBehavior` remains the core callback interface for non‑cognitive agents.
-- The cognitive API is a convenience layer that composes with `AgentBehavior`, not a replacement.
+```
+core/src/agent/cognitive/
+├── mod.rs              # Public exports
+├── config.rs           # CognitiveConfig with builder pattern
+├── loop_trait.rs       # CognitiveLoop trait and core types
+├── thought.rs          # ThoughtStep, Plan, ToolCall, Observation
+├── working_memory.rs   # WorkingMemory for in-loop context
+├── agent_adapter.rs    # CognitiveAgent bridging to AgentBehavior
+├── simple_loop.rs      # SimpleCognitiveLoop with ReAct pattern
+└── README.md           # Module documentation
+```
 
 ---
 
-### Core Interfaces (proposed)
+### Core Interfaces
 
-The core of the design is a **loop trait**:
+#### CognitiveLoop Trait
+
+The core of the design is the **loop trait** with five methods:
 
 ```rust
-/// High-level cognitive loop: perceive events, think, then act.
 #[async_trait::async_trait]
 pub trait CognitiveLoop: Send + Sync {
-    async fn perceive(&mut self, event: crate::Event);
-    async fn think(&mut self) -> crate::Result<()>;
-    async fn act(&mut self) -> crate::Result<Vec<crate::proto::Action>>;
+    /// Gather and interpret incoming information
+    async fn perceive(&mut self, perception: Perception) -> Result<()>;
+
+    /// Reason about the current situation and form a plan
+    async fn think(&mut self) -> Result<Plan>;
+
+    /// Execute the plan and produce actions
+    async fn act(&mut self, plan: &Plan) -> Result<ExecutionResult>;
+
+    /// Learn from the execution result (optional)
+    async fn reflect(&mut self, result: &ExecutionResult) -> Result<()>;
+
+    /// Run a complete cognitive cycle
+    async fn run_cycle(&mut self, perception: Perception) -> Result<ExecutionResult>;
 }
 ```
 
-This trait is deliberately minimal:
-
-- It does **not** dictate how memory, planning, or tools are wired; those are provided via dependencies passed into the loop implementation.
-- Implementations can choose to be strictly single‑event, batched, or maintain their own internal state machine.
-
-A `CognitiveAgent` adapter can then bridge this trait with the existing `AgentBehavior`:
+#### Key Types
 
 ```rust
-/// Adapter that lets a CognitiveLoop be used as an AgentBehavior.
+/// Input to the cognitive loop
+pub struct Perception {
+    pub event: Option<Event>,
+    pub context: HashMap<String, String>,
+    pub timestamp: Instant,
+}
+
+/// Result of executing a plan
+pub struct ExecutionResult {
+    pub actions: Vec<Action>,
+    pub tool_results: Vec<ToolResult>,
+    pub success: bool,
+    pub error: Option<String>,
+}
+```
+
+#### CognitiveAgent Adapter
+
+The adapter bridges `CognitiveLoop` with the existing `AgentBehavior`:
+
+```rust
 pub struct CognitiveAgent<L: CognitiveLoop> {
-    loop_impl: L,
+    cognitive_loop: L,
+    config: CognitiveConfig,
 }
 
 #[async_trait::async_trait]
-impl<L: CognitiveLoop> crate::agent::AgentBehavior for CognitiveAgent<L> {
+impl<L: CognitiveLoop + 'static> AgentBehavior for CognitiveAgent<L> {
     async fn on_event(
         &mut self,
-        event: crate::Event,
-        _state: &mut crate::proto::AgentState,
-    ) -> crate::Result<Vec<crate::proto::Action>> {
-        self.loop_impl.perceive(event).await;
-        self.loop_impl.think().await?;
-        self.loop_impl.act().await
+        event: Event,
+        _state: &mut AgentState,
+    ) -> Result<Vec<Action>> {
+        let perception = Perception::from_event(event);
+        let result = self.cognitive_loop.run_cycle(perception).await?;
+        Ok(result.actions)
     }
-
-    async fn on_init(&mut self, _config: &crate::proto::AgentConfig) -> crate::Result<()> {
-        Ok(())
-    }
-
-    async fn on_shutdown(&mut self) -> crate::Result<()> {
-        Ok(())
-    }
+    // ...
 }
 ```
 
-> **Note**: The exact signatures may evolve; the goal is to keep the adapter thin and avoid constraining application‑level cognitive architectures.
+---
+
+### Configuration
+
+`CognitiveConfig` provides flexible configuration via builder pattern:
+
+```rust
+let config = CognitiveConfig::builder()
+    .agent_id("analyst-agent")
+    .thinking_strategy(ThinkingStrategy::ReAct)  // or ChainOfThought, SingleShot
+    .max_iterations(10)
+    .iteration_timeout(Duration::from_secs(30))
+    .enable_reflection(true)
+    .memory_capacity(1000)
+    .build();
+```
+
+**Thinking Strategies:**
+
+- `ReAct` — Interleaved reasoning and acting (default, recommended)
+- `ChainOfThought` — Complete reasoning before acting
+- `SingleShot` — No explicit reasoning trace
 
 ---
 
-### Dependencies and Composition
+### Working Memory
 
-A typical cognitive agent will depend on several core services:
+`WorkingMemory` provides in-loop context management:
 
-- **Memory**: via `context::MemoryReader` and `MemoryWriter`.
-- **Context building**: via `context::builder::ContextBuilder` to assemble LLM‑ready prompts.
-- **Planning / LLM calls**: via `llm::LlmClient` and the Tool Orchestrator.
-- **Routing**: via `router::ModelRouter` to choose between local/cloud/hybrid inference.
-- **Actions & tools**: via `ActionBroker` to invoke capabilities and tools.
+```rust
+let mut memory = WorkingMemory::new(100); // capacity
 
-The `CognitiveLoop` implementation is free to hold these as fields and orchestrate them internally:
+// Store and retrieve items
+memory.store("user_intent", json!({"goal": "analyze data"}));
+let intent = memory.retrieve("user_intent");
 
-- `perceive` can write to memory (append events, update episodic context).
-- `think` can run planning logic (LLM prompts, rule‑based policies, tool suggestions).
-- `act` can emit actions (including downstream events, tool calls, or replies).
+// Task state tracking
+memory.set_task_state(TaskState::InProgress);
+
+// Search by key pattern
+let results = memory.search("user");
+```
 
 ---
 
-### Example: Planner‑Style Cognitive Agent (conceptual)
+### Thought & Planning
 
-This is an **illustrative** flow, not a fixed API:
+The module provides structured types for reasoning:
 
-1. **Perceive**
-   - Receive an event on a thread topic.
-   - Append a textual summary to episodic memory via `MemoryWriter`.
-2. **Think**
-   - Use `ContextBuilder` with the current thread/session id and goal string to build a `PromptBundle`.
-   - Call `LlmClient` with the bundle, optionally enabling tools.
-   - Parse the model output into a simple plan or next action description.
-3. **Act**
-   - Translate the plan into concrete `Action` values (tool calls, emit/reply, etc.).
-   - Optionally update internal state to remember progress on multi‑step plans.
+```rust
+// Create a plan
+let mut plan = Plan::new("analyze-task");
 
-Over time, more sophisticated patterns (hierarchical planners, policy graphs, etc.) can be layered on the same interface.
+// Add reasoning steps
+plan.add_step(ThoughtStep::reasoning(1, "User wants data analysis"));
+plan.add_step(ThoughtStep::action(2, "query_database"));
+
+// Add tool calls
+plan.add_tool_call(ToolCall {
+    name: "sql_query".to_string(),
+    arguments: json!({"query": "SELECT * FROM data"}),
+    id: Some("call-1".to_string()),
+});
+```
+
+---
+
+### SimpleCognitiveLoop
+
+The default implementation with ReAct pattern support:
+
+```rust
+// Create with LLM client
+let cognitive_loop = SimpleCognitiveLoop::new(llm_client, config);
+
+// Or with action broker for tool execution
+let cognitive_loop = SimpleCognitiveLoop::with_action_broker(
+    llm_client,
+    action_broker,
+    config,
+);
+
+// Run a cognitive cycle
+let perception = Perception::from_event(event);
+let result = cognitive_loop.run_cycle(perception).await?;
+```
+
+The `SimpleCognitiveLoop` includes:
+
+- ReAct-style reasoning with explicit Thought/Action/Observation traces
+- Tool call parsing from LLM output
+- Configurable iteration limits and timeouts
+- OpenTelemetry tracing integration
+- Optional reflection phase for learning
 
 ---
 
 ### Observability
 
-To make cognition debuggable and observable:
+The cognitive module integrates with OpenTelemetry:
 
-- Emit tracing spans for `perceive`, `think`, and `act`, including:
-  - Thread id / correlation id (from `Envelope`).
-  - Planning decisions (chosen tools, routes, or policies).
-  - Memory usage (which summaries or retrieved items were used).
-- Integrate with the Dashboard:
-  - Mark cognitive agents in the topology graph.
-  - Surface “current phase” or recent plan steps in the agent detail view (future work).
+- Tracing spans for `perceive`, `think`, `act`, and `reflect` phases
+- Thread/correlation IDs from `Envelope` metadata
+- Tool call and result tracking
+- Planning decision logging
 
-These hooks will be added incrementally as the cognitive pattern solidifies.
+Dashboard integration (future work):
+
+- Cognitive agents marked in topology graph
+- Current phase and recent plan steps in agent detail view
 
 ---
 
-### Rollout Plan
+### Usage Example
 
-1. **P1 (experimental)**
-   - Land the `CognitiveLoop` trait and `CognitiveAgent` adapter in `core`.
-   - Provide a minimal example cognitive agent (e.g., planner/orchestrator) for demos.
-   - Document the pattern and constraints here and in the main `ROADMAP.md`.
-2. **P2+**
-   - Add richer helper utilities (plan serialization, policy configuration).
-   - Tighten observability integration (Dashboard, OpenTelemetry spans and metrics).
-   - Explore higher‑level “cognitive templates” for common agent roles.
+```rust
+use loom_core::agent::cognitive::{
+    CognitiveAgent, CognitiveConfig, SimpleCognitiveLoop,
+    ThinkingStrategy, Perception,
+};
+
+// 1. Create configuration
+let config = CognitiveConfig::builder()
+    .agent_id("my-cognitive-agent")
+    .thinking_strategy(ThinkingStrategy::ReAct)
+    .max_iterations(5)
+    .build();
+
+// 2. Create cognitive loop with LLM
+let cognitive_loop = SimpleCognitiveLoop::new(llm_client, config.clone());
+
+// 3. Wrap in CognitiveAgent for AgentRuntime compatibility
+let agent = CognitiveAgent::new(cognitive_loop, config);
+
+// 4. Register with AgentRuntime as usual
+runtime.register_behavior("cognitive-agent", agent).await?;
+```
+
+---
+
+### Implementation Status
+
+| Component                | Status    | Notes                               |
+| ------------------------ | --------- | ----------------------------------- |
+| `CognitiveLoop` trait    | ✅ Done   | Core abstraction with 5 methods     |
+| `CognitiveAgent` adapter | ✅ Done   | Bridges to `AgentBehavior`          |
+| `SimpleCognitiveLoop`    | ✅ Done   | ReAct pattern implementation        |
+| `CognitiveConfig`        | ✅ Done   | Builder pattern with strategies     |
+| `WorkingMemory`          | ✅ Done   | Capacity limits, search, task state |
+| `ThoughtStep` / `Plan`   | ✅ Done   | Structured reasoning types          |
+| Unit tests               | ✅ Done   | 31 tests in `cognitive_test.rs`     |
+| Documentation            | ✅ Done   | README.md + this design doc         |
+| Dashboard integration    | 🔲 Future | P2 milestone                        |
+| Higher-level templates   | 🔲 Future | P2 milestone                        |
+
+---
+
+### Future Work (P2+)
+
+- **Dashboard Integration**: Surface cognitive agent state in the UI
+- **Cognitive Templates**: Pre-built patterns for common agent roles
+- **Enhanced Memory**: Integration with `MemoryReader`/`MemoryWriter`
+- **Policy Configuration**: Declarative behavior policies
+- **Metrics**: OpenTelemetry metrics for cognitive loop performance
