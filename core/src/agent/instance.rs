@@ -5,11 +5,11 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
-use crate::action_broker::ActionBroker;
 use crate::proto::{Action, AgentConfig, AgentState};
 use crate::router::{
     AgentContext, ModelRouter, PrivacyLevel, Route, RoutingDecision, RoutingPolicy,
 };
+use crate::tools::ToolRegistry;
 use crate::{Envelope, Event, EventBus, Result};
 
 use super::behavior::AgentBehavior;
@@ -20,7 +20,7 @@ pub struct Agent {
     pub(crate) state: Arc<RwLock<AgentState>>,
     pub(crate) behavior: Box<dyn AgentBehavior>,
     pub(crate) event_rx: tokio::sync::mpsc::Receiver<Event>,
-    pub(crate) action_broker: Arc<ActionBroker>,
+    pub(crate) tool_registry: Arc<ToolRegistry>,
     pub(crate) event_bus: Arc<EventBus>,
     pub(crate) model_router: ModelRouter,
     // OpenTelemetry metrics
@@ -35,7 +35,7 @@ impl Agent {
         config: AgentConfig,
         behavior: Box<dyn AgentBehavior>,
         event_rx: tokio::sync::mpsc::Receiver<Event>,
-        action_broker: Arc<ActionBroker>,
+        tool_registry: Arc<ToolRegistry>,
         event_bus: Arc<EventBus>,
         model_router: ModelRouter,
     ) -> Self {
@@ -75,7 +75,7 @@ impl Agent {
             state: Arc::new(RwLock::new(state)),
             behavior,
             event_rx,
-            action_broker,
+            tool_registry,
             event_bus,
             model_router,
             events_processed_counter,
@@ -356,48 +356,20 @@ impl Agent {
 
     #[tracing::instrument(skip(self, action), fields(agent_id = %self.config.agent_id, action_type = %action.action_type, priority = action.priority))]
     async fn execute_action(&self, action: Action) -> Result<()> {
-        use crate::proto::{ActionCall, ActionStatus, QoSLevel};
         debug!("Executing action: {}", action.action_type);
 
-        // Map priority to QoS
-        let qos = if action.priority >= 70 {
-            QoSLevel::QosRealtime
-        } else if action.priority >= 30 {
-            QoSLevel::QosBatched
+        // Parse payload as JSON
+        let args: serde_json::Value = if action.payload.is_empty() {
+            serde_json::Value::Null
         } else {
-            QoSLevel::QosBackground
+            serde_json::from_slice(&action.payload).unwrap_or(serde_json::Value::Null)
         };
 
-        // Convert parameters into headers for the call
-        let headers = action.parameters.clone();
-
-        // Build ActionCall
-        let now = chrono::Utc::now();
-        let call_id = format!(
-            "act_{}",
-            now.timestamp_nanos_opt()
-                .unwrap_or_else(|| now.timestamp_millis() * 1_000_000)
-        );
-        let mut call = ActionCall {
-            id: call_id.clone(),
-            capability: action.action_type.clone(),
-            version: "".to_string(), // resolve first provider by name if version unspecified
-            payload: action.payload.clone(),
-            headers,
-            timeout_ms: 0, // broker default (30s)
-            correlation_id: self.config.agent_id.clone(),
-            qos: qos as i32,
-        };
-
-        // Attach envelope into call headers
-        let mut env = Envelope::new(call_id.clone(), format!("agent.{}", self.config.agent_id));
-        env.correlation_id = call_id.clone();
-        env.apply_to_action_call(&mut call);
-
-        let res = self.action_broker.invoke(call).await?;
+        let _start_time = Instant::now();
+        let res = self.tool_registry.call(&action.action_type, args).await;
 
         // Optionally publish result event for observability
-        let mut evt = Event {
+        let evt = Event {
             id: format!(
                 "evt_action_result_{}",
                 chrono::Utc::now().timestamp_millis()
@@ -410,22 +382,22 @@ impl Agent {
                 m.insert("action_type".into(), action.action_type.clone());
                 m.insert(
                     "status".into(),
-                    match res.status {
-                        x if x == ActionStatus::ActionOk as i32 => "ok".into(),
-                        x if x == ActionStatus::ActionTimeout as i32 => "timeout".into(),
-                        x if x == ActionStatus::ActionRetryable as i32 => "retryable".into(),
-                        _ => "error".into(),
+                    match &res {
+                        Ok(_) => "ok".into(),
+                        Err(_) => "error".into(),
                     },
                 );
                 m
             },
-            payload: res.output.clone(),
+            payload: match &res {
+                Ok(v) => serde_json::to_vec(v).unwrap_or_default(),
+                Err(e) => format!("{{\"error\": \"{}\"}}", e).into_bytes(),
+            },
             confidence: 1.0,
             tags: vec!["action".into()],
             priority: action.priority,
         };
-        // Reuse envelope from action call to maintain thread/correlation consistency
-        env.attach_to_event(&mut evt);
+
         // Best-effort publish; ignore delivery count
         let _ = self
             .event_bus
@@ -440,11 +412,9 @@ impl Agent {
                 KeyValue::new("action_type", action.action_type.clone()),
                 KeyValue::new(
                     "status",
-                    match res.status {
-                        x if x == ActionStatus::ActionOk as i32 => "ok",
-                        x if x == ActionStatus::ActionTimeout as i32 => "timeout",
-                        x if x == ActionStatus::ActionRetryable as i32 => "retryable",
-                        _ => "error",
+                    match &res {
+                        Ok(_) => "ok",
+                        Err(_) => "error",
                     },
                 ),
             ],

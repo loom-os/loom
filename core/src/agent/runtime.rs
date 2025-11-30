@@ -5,9 +5,9 @@ use opentelemetry::metrics::{Counter, UpDownCounter};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use crate::action_broker::ActionBroker;
 use crate::proto::AgentConfig;
 use crate::router::ModelRouter;
+use crate::tools::ToolRegistry;
 use crate::{proto, Event, EventBus, LoomError, Result};
 
 use super::behavior::AgentBehavior;
@@ -39,7 +39,7 @@ struct AgentMetadata {
 pub struct AgentRuntime {
     agents: Arc<DashMap<String, AgentMetadata>>,
     event_bus: Arc<EventBus>,
-    action_broker: Arc<ActionBroker>,
+    tool_registry: Arc<ToolRegistry>,
     model_router: ModelRouter,
     // OpenTelemetry metrics
     agents_active_gauge: UpDownCounter<i64>,
@@ -52,7 +52,7 @@ pub struct AgentRuntime {
 impl AgentRuntime {
     pub async fn new(
         event_bus: Arc<EventBus>,
-        action_broker: Arc<ActionBroker>,
+        tool_registry: Arc<ToolRegistry>,
         model_router: ModelRouter,
     ) -> Result<Self> {
         // Initialize OpenTelemetry metrics
@@ -86,7 +86,7 @@ impl AgentRuntime {
         Ok(Self {
             agents: Arc::new(DashMap::new()),
             event_bus,
-            action_broker,
+            tool_registry,
             model_router,
             agents_active_gauge,
             agents_created_counter,
@@ -193,7 +193,7 @@ impl AgentRuntime {
             config,
             behavior,
             event_rx,
-            Arc::clone(&self.action_broker),
+            Arc::clone(&self.tool_registry),
             Arc::clone(&self.event_bus),
             self.model_router.clone(),
         );

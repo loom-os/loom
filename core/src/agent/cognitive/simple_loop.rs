@@ -10,10 +10,10 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::{debug, info, warn};
 
-use crate::action_broker::ActionBroker;
 use crate::context::PromptBundle;
 use crate::llm::LlmClient;
-use crate::proto::{ActionCall, ActionStatus, AgentState, Event, QoSLevel};
+use crate::proto::{AgentState, Event};
+use crate::tools::ToolRegistry;
 use crate::Result;
 
 use super::config::{CognitiveConfig, ThinkingStrategy};
@@ -51,8 +51,8 @@ pub struct SimpleCognitiveLoop {
     /// LLM client for generating thoughts
     llm: Arc<LlmClient>,
 
-    /// ActionBroker for tool execution
-    broker: Arc<ActionBroker>,
+    /// ToolRegistry for tool execution
+    tools: Arc<ToolRegistry>,
 
     /// Working memory for this agent
     memory: WorkingMemory,
@@ -63,12 +63,12 @@ pub struct SimpleCognitiveLoop {
 
 impl SimpleCognitiveLoop {
     /// Create a new SimpleCognitiveLoop
-    pub fn new(config: CognitiveConfig, llm: Arc<LlmClient>, broker: Arc<ActionBroker>) -> Self {
+    pub fn new(config: CognitiveConfig, llm: Arc<LlmClient>, tools: Arc<ToolRegistry>) -> Self {
         let memory = WorkingMemory::new(config.memory_window_size);
         Self {
             config,
             llm,
-            broker,
+            tools,
             memory,
             correlation_id: None,
         }
@@ -269,59 +269,35 @@ impl SimpleCognitiveLoop {
         Some(ToolCall::new(name, args))
     }
 
-    /// Execute a single tool call via ActionBroker
+    /// Execute a single tool call via ToolRegistry
     async fn execute_tool(&self, tool_call: &ToolCall) -> Observation {
         let started = Instant::now();
 
-        let call = ActionCall {
-            id: format!(
-                "call_{}",
-                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
-            ),
-            capability: tool_call.name.clone(),
-            version: String::new(),
-            payload: serde_json::to_vec(&tool_call.arguments).unwrap_or_default(),
-            headers: self
-                .correlation_id
-                .as_ref()
-                .map(|id| {
-                    let mut m = std::collections::HashMap::new();
-                    m.insert("correlation_id".to_string(), id.clone());
-                    m
-                })
-                .unwrap_or_default(),
-            timeout_ms: self.config.tool_timeout_ms as i64,
-            correlation_id: self.correlation_id.clone().unwrap_or_default(),
-            qos: QoSLevel::QosBatched as i32,
-        };
-
-        let latency_ms = started.elapsed().as_millis() as u64;
-
-        match self.broker.invoke(call).await {
+        match self
+            .tools
+            .call(&tool_call.name, tool_call.arguments.clone())
+            .await
+        {
             Ok(result) => {
                 let latency_ms = started.elapsed().as_millis() as u64;
-                if result.status == ActionStatus::ActionOk as i32 {
-                    let output = String::from_utf8_lossy(&result.output).to_string();
-                    Observation::success(&tool_call.name, output, latency_ms)
-                } else {
-                    let error = result
-                        .error
-                        .map(|e| e.message)
-                        .unwrap_or_else(|| "Unknown error".to_string());
-                    Observation::error(&tool_call.name, error, latency_ms)
-                }
+                let output =
+                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
+                Observation::success(&tool_call.name, output, latency_ms)
             }
-            Err(e) => Observation::error(&tool_call.name, e.to_string(), latency_ms),
+            Err(e) => {
+                let latency_ms = started.elapsed().as_millis() as u64;
+                Observation::error(&tool_call.name, e.to_string(), latency_ms)
+            }
         }
     }
 
     /// Get available tools from ActionBroker
     fn get_available_tools(&self) -> Vec<String> {
-        self.broker
-            .list_capabilities()
+        self.tools
+            .list_tools()
             .into_iter()
             .take(self.config.max_tools_exposed)
-            .map(|cap| cap.name)
+            .map(|tool| tool.name())
             .collect()
     }
 }

@@ -1,11 +1,11 @@
 /// MCP Manager
 ///
 /// Manages multiple MCP server connections and registers their tools
-/// with the ActionBroker. Handles lifecycle (connect/disconnect/reconnect).
+/// with the ToolRegistry. Handles lifecycle (connect/disconnect/reconnect).
 use super::adapter::McpToolAdapter;
 use super::client::McpClient;
 use super::types::{McpError, McpServerConfig};
-use crate::action_broker::ActionBroker;
+use crate::tools::ToolRegistry;
 use opentelemetry::metrics::{Counter, UpDownCounter};
 use opentelemetry::KeyValue;
 use std::collections::HashMap;
@@ -18,13 +18,13 @@ use tracing::{debug, error, info, warn};
 /// Responsible for:
 /// - Managing connections to multiple MCP servers
 /// - Discovering tools from connected servers
-/// - Registering tools as capabilities with ActionBroker
+/// - Registering tools as capabilities with ToolRegistry
 /// - Handling reconnection on failures
 pub struct McpManager {
     /// Active MCP clients: server_name -> client
     clients: Arc<RwLock<HashMap<String, Arc<McpClient>>>>,
-    /// Reference to ActionBroker for registering capabilities
-    broker: Arc<ActionBroker>,
+    /// Reference to ToolRegistry for registering capabilities
+    registry: Arc<ToolRegistry>,
     // OpenTelemetry metrics
     servers_active_gauge: UpDownCounter<i64>,
     servers_connected_counter: Counter<u64>,
@@ -35,7 +35,7 @@ pub struct McpManager {
 
 impl McpManager {
     /// Create a new MCP manager
-    pub fn new(broker: Arc<ActionBroker>) -> Self {
+    pub fn new(registry: Arc<ToolRegistry>) -> Self {
         // Initialize OpenTelemetry metrics
         let meter = opentelemetry::global::meter("loom.mcp_manager");
 
@@ -66,7 +66,7 @@ impl McpManager {
 
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
-            broker,
+            registry,
             servers_active_gauge,
             servers_connected_counter,
             servers_disconnected_counter,
@@ -191,7 +191,7 @@ impl McpManager {
         self.clients.read().await.keys().cloned().collect()
     }
 
-    /// Register tools from a client with the ActionBroker
+    /// Register tools from a client with the ToolRegistry
     #[tracing::instrument(skip(self, client), fields(server = %server_name))]
     async fn register_tools(
         &self,
@@ -221,7 +221,7 @@ impl McpManager {
                 server_name.to_string(),
             ));
 
-            self.broker.register_provider(adapter);
+            self.registry.register(adapter).await;
             registered += 1;
 
             debug!(
@@ -320,12 +320,12 @@ impl Drop for McpManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action_broker::ActionBroker;
+    use crate::tools::ToolRegistry;
 
     #[tokio::test]
     async fn test_manager_creation() {
-        let broker = Arc::new(ActionBroker::new());
-        let manager = McpManager::new(broker);
+        let registry = Arc::new(ToolRegistry::new());
+        let manager = McpManager::new(registry);
 
         let servers = manager.list_servers().await;
         assert!(servers.is_empty());
@@ -333,8 +333,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_empty_servers() {
-        let broker = Arc::new(ActionBroker::new());
-        let manager = McpManager::new(broker);
+        let registry = Arc::new(ToolRegistry::new());
+        let manager = McpManager::new(registry);
 
         let servers = manager.list_servers().await;
         assert_eq!(servers.len(), 0);

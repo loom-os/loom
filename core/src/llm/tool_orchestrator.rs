@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{debug, info, warn, Span};
 
-use crate::action_broker::ActionBroker;
 use crate::context::{PromptBundle, TokenBudget};
-use crate::proto::{ActionCall, ActionResult, ActionStatus, CapabilityDescriptor, QoSLevel};
+use crate::proto::{ActionCall, ActionResult, ActionStatus, QoSLevel};
+use crate::tools::{Tool, ToolRegistry};
 use crate::{LoomError, Result};
 
 use super::adapter::promptbundle_to_messages_and_text;
@@ -89,72 +89,65 @@ pub struct ToolOrchestratorStats {
     pub avg_tool_latency_ms: f64,
 }
 
-/// Orchestrates LLM tool use with the ActionBroker
+/// Orchestrates LLM tool use with the ToolRegistry
+#[derive(Clone)]
 pub struct ToolOrchestrator {
     llm: Arc<LlmClient>,
-    broker: Arc<ActionBroker>,
-    pub stats: ToolOrchestratorStats,
+    tools: Arc<ToolRegistry>,
+    _options: OrchestratorOptions,
 
-    // OpenTelemetry metrics
+    // Metrics
     runs_counter: Counter<u64>,
     tool_calls_counter: Counter<u64>,
     tool_errors_counter: Counter<u64>,
-    refine_cycles_counter: Counter<u64>,
     tool_latency: Histogram<f64>,
     discovery_latency: Histogram<f64>,
+    refine_cycles_counter: Counter<u64>,
     llm_latency: Histogram<f64>,
 }
 
 impl ToolOrchestrator {
-    pub fn new(llm: Arc<LlmClient>, broker: Arc<ActionBroker>) -> Self {
-        // Initialize OpenTelemetry metrics
-        let meter = global::meter("loom.tool_orchestrator");
-
+    pub fn new(llm: Arc<LlmClient>, tools: Arc<ToolRegistry>) -> Self {
+        let meter = global::meter("loom.llm.orchestrator");
         let runs_counter = meter
-            .u64_counter("loom.tool_orch.runs_total")
+            .u64_counter("loom.llm.runs_total")
             .with_description("Total number of orchestrator runs")
             .init();
-
         let tool_calls_counter = meter
-            .u64_counter("loom.tool_orch.tool_calls_total")
-            .with_description("Total number of tool calls")
+            .u64_counter("loom.llm.tool_calls_total")
+            .with_description("Total number of tool calls orchestrated")
             .init();
-
         let tool_errors_counter = meter
-            .u64_counter("loom.tool_orch.tool_errors_total")
-            .with_description("Total number of tool errors")
+            .u64_counter("loom.llm.tool_errors_total")
+            .with_description("Total number of tool execution errors")
             .init();
-
+        let tool_latency = meter
+            .f64_histogram("loom.llm.tool_latency_ms")
+            .with_description("Latency of tool execution")
+            .init();
+        let discovery_latency = meter
+            .f64_histogram("loom.llm.discovery_latency_ms")
+            .with_description("Latency of tool discovery")
+            .init();
         let refine_cycles_counter = meter
-            .u64_counter("loom.tool_orch.refine_cycles_total")
+            .u64_counter("loom.llm.refine_cycles_total")
             .with_description("Total number of refine cycles")
             .init();
-
-        let tool_latency = meter
-            .f64_histogram("loom.tool_orch.tool_latency_ms")
-            .with_description("Tool invocation latency in milliseconds")
-            .init();
-
-        let discovery_latency = meter
-            .f64_histogram("loom.tool_orch.discovery_latency_ms")
-            .with_description("Tool discovery latency in milliseconds")
-            .init();
-
         let llm_latency = meter
-            .f64_histogram("loom.tool_orch.llm_latency_ms")
-            .with_description("LLM API latency in milliseconds")
+            .f64_histogram("loom.llm.latency_ms")
+            .with_description("Latency of LLM calls")
             .init();
 
         Self {
             llm,
-            broker,
-            stats: ToolOrchestratorStats::default(),
+            tools,
+            _options: OrchestratorOptions::default(),
             runs_counter,
             tool_calls_counter,
             tool_errors_counter,
-            refine_cycles_counter,
             tool_latency,
             discovery_latency,
+            refine_cycles_counter,
             llm_latency,
         }
     }
@@ -172,7 +165,8 @@ impl ToolOrchestrator {
         correlation_id: Option<String>,
     ) -> Result<FinalAnswer> {
         let budget = budget.unwrap_or_default();
-        self.stats.total_invocations += 1;
+        // Record invocation metric
+        // self.stats.total_invocations += 1; // Removed in favor of OTel
 
         // Record run metric
         self.runs_counter.add(
@@ -185,7 +179,7 @@ impl ToolOrchestrator {
 
         // Build tools array from capabilities
         let discovery_started = Instant::now();
-        let caps = self.broker.list_capabilities();
+        let caps = self.tools.list_tools();
         let tools = self.build_tools_for_llm(&caps, options.max_tools_exposed);
         let discovery_elapsed_ms = discovery_started.elapsed().as_secs_f64() * 1000.0;
 
@@ -242,24 +236,34 @@ impl ToolOrchestrator {
         let mut results: Vec<ActionResult> = Vec::new();
         for call in &parsed_calls {
             let started = Instant::now();
-            let action_call =
-                build_action_call(call, options.per_tool_timeout_ms, correlation_id.clone());
-            let res = self.broker.invoke(action_call).await?;
+
+            let result = self.tools.call(&call.name, call.arguments.clone()).await;
             let elapsed = started.elapsed().as_secs_f64() * 1000.0;
 
-            // Update counters
-            self.stats.total_tool_calls += 1;
-            let status_str = if (res.status) == (ActionStatus::ActionOk as i32) {
-                "success"
-            } else {
-                self.stats.total_tool_errors += 1;
-                "error"
+            let res = match result {
+                Ok(val) => ActionResult {
+                    id: call.id.clone().unwrap_or_default(),
+                    status: ActionStatus::ActionOk as i32,
+                    output: serde_json::to_vec(&val).unwrap_or_default(),
+                    error: None,
+                },
+                Err(e) => ActionResult {
+                    id: call.id.clone().unwrap_or_default(),
+                    status: ActionStatus::ActionError as i32,
+                    output: Vec::new(),
+                    error: Some(crate::proto::ActionError {
+                        code: "500".to_string(),
+                        message: e.to_string(),
+                        details: std::collections::HashMap::new(),
+                    }),
+                },
             };
 
-            // Welford-like avg update
-            let n = self.stats.total_tool_calls as f64;
-            self.stats.avg_tool_latency_ms =
-                ((self.stats.avg_tool_latency_ms * (n - 1.0)) + elapsed) / n;
+            let status_str = if res.status == (ActionStatus::ActionOk as i32) {
+                "success"
+            } else {
+                "error"
+            };
 
             // Record metrics
             self.tool_calls_counter.add(
@@ -323,27 +327,14 @@ impl ToolOrchestrator {
         })
     }
 
-    fn build_tools_for_llm(&self, caps: &[CapabilityDescriptor], limit: usize) -> Vec<Value> {
+    fn build_tools_for_llm(&self, tools_list: &[Arc<dyn Tool>], limit: usize) -> Vec<Value> {
         let mut tools = Vec::new();
-        for cap in caps.iter().take(limit) {
-            // Expect JSON schema for parameters in metadata["schema"], description in metadata["desc"]
-            let desc = cap
-                .metadata
-                .get("desc")
-                .cloned()
-                .unwrap_or_else(|| cap.name.clone());
-            let params: Value = cap
-                .metadata
-                .get("schema")
-                .and_then(|s| serde_json::from_str::<Value>(s).ok())
-                .unwrap_or_else(
-                    || json!({"type":"object","properties":{},"additionalProperties":true}),
-                );
+        for tool in tools_list.iter().take(limit) {
             tools.push(json!({
                 "type": "function",
-                "name": cap.name,
-                "description": desc,
-                "parameters": params,
+                "name": tool.name(),
+                "description": tool.description(),
+                "parameters": tool.parameters(),
             }));
         }
         tools

@@ -1,7 +1,6 @@
 // Loom Core Library
 // Event-driven AI operating system runtime
 
-pub mod action_broker;
 pub mod agent;
 pub mod collab; // Collaboration primitives built on EventBus + Envelope
 pub mod context;
@@ -10,15 +9,13 @@ pub mod directory; // Agent & Capability directories
 pub mod envelope; // Unified metadata envelope for events/actions threads
 pub mod event;
 pub mod llm;
-pub mod mcp; // Model Context Protocol client and adapters
 pub mod plugin;
-pub mod providers;
 pub mod router;
 pub mod storage;
 pub mod telemetry;
+pub mod tools; // Unified tool system (Native + MCP)
 
 // Export core types
-pub use action_broker::{ActionBroker, CapabilityProvider};
 pub use agent::{Agent, AgentRuntime, AgentState};
 pub use collab::{types as collab_types, Collaborator};
 pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
@@ -26,13 +23,14 @@ pub use directory::{AgentDirectory, AgentInfo, AgentStatus, CapabilityDirectory}
 pub use envelope::{agent_reply_topic, Envelope, ThreadTopicKind};
 pub use event::{Event, EventBus, EventExt, EventHandler, QoSLevel};
 pub use llm::{LlmClient, LlmClientConfig, LlmResponse};
-pub use mcp::{McpClient, McpManager, McpToolAdapter};
 pub use plugin::{Plugin, PluginManager};
-pub use providers::{WeatherProvider, WebSearchProvider};
 pub use router::{
     ConfidenceEstimator, DummyConfidenceEstimator, ModelRouter, Route, RoutingDecision,
 };
 pub use telemetry::{init_telemetry, shutdown_telemetry, SpanCollector, SpanData};
+pub use tools::{Tool, ToolError, ToolRegistry};
+// Re-export MCP types from tools
+pub use tools::mcp::{McpClient, McpManager, McpToolAdapter};
 
 // Generated proto code
 // Re-export proto types from the shared crate so existing paths `crate::proto::...` continue to work.
@@ -72,8 +70,8 @@ pub struct Loom {
     pub agent_runtime: AgentRuntime,
     pub model_router: ModelRouter,
     pub plugin_manager: PluginManager,
-    pub action_broker: std::sync::Arc<ActionBroker>,
-    pub mcp_manager: std::sync::Arc<mcp::McpManager>,
+    pub tool_registry: std::sync::Arc<ToolRegistry>,
+    pub mcp_manager: std::sync::Arc<tools::mcp::McpManager>,
     pub agent_directory: std::sync::Arc<AgentDirectory>,
 }
 
@@ -84,42 +82,67 @@ impl Loom {
         // This ensures the global tracing subscriber is set up correctly.
 
         let event_bus = std::sync::Arc::new(EventBus::new().await?);
-        let action_broker = std::sync::Arc::new(ActionBroker::new());
+        let tool_registry = std::sync::Arc::new(ToolRegistry::new());
         let agent_directory = std::sync::Arc::new(AgentDirectory::new());
         // Initialize router first so we can pass a clone to the agent runtime
         let model_router = ModelRouter::new().await?;
-        // Register built-in capability providers
+
+        // Register built-in tools
         {
             use crate::llm::LlmGenerateProvider;
+            use crate::tools::native::{ReadFileTool, ShellTool, WeatherTool, WebSearchTool};
             use std::sync::Arc as SyncArc;
+
             if let Ok(provider) = LlmGenerateProvider::new(None) {
-                action_broker.register_provider(SyncArc::new(provider));
+                tool_registry.register(SyncArc::new(provider)).await;
             } else {
                 tracing::warn!(
                     target = "loom",
-                    "Failed to initialize LLM provider from env; llm.generate not registered"
+                    "Failed to initialize LLM provider from env; llm:generate not registered"
                 );
             }
 
-            // Note: Audio (e.g., TTS) providers have moved to the separate crate `loom-audio`.
-            // Core no longer registers audio providers by default to avoid circular dependencies.
+            // Register native tools
+            // TODO: Get workspace root from config
+            let workspace_root = std::env::current_dir().unwrap_or_default();
+            tool_registry
+                .register(SyncArc::new(ReadFileTool::new(workspace_root)))
+                .await;
+
+            // Shell tool with limited commands for safety
+            tool_registry
+                .register(SyncArc::new(ShellTool::new(vec![
+                    "ls".to_string(),
+                    "echo".to_string(),
+                    "cat".to_string(),
+                    "grep".to_string(),
+                ])))
+                .await;
+
+            tool_registry
+                .register(SyncArc::new(WeatherTool::new()))
+                .await;
+            tool_registry
+                .register(SyncArc::new(WebSearchTool::new()))
+                .await;
         }
 
         // Initialize MCP manager
-        let mcp_manager =
-            std::sync::Arc::new(mcp::McpManager::new(std::sync::Arc::clone(&action_broker)));
+        let mcp_manager = std::sync::Arc::new(tools::mcp::McpManager::new(std::sync::Arc::clone(
+            &tool_registry,
+        )));
 
         Ok(Self {
             agent_runtime: AgentRuntime::new(
                 std::sync::Arc::clone(&event_bus),
-                std::sync::Arc::clone(&action_broker),
+                std::sync::Arc::clone(&tool_registry),
                 model_router.clone(),
             )
             .await?,
             model_router,
             plugin_manager: PluginManager::new().await?,
             event_bus,
-            action_broker,
+            tool_registry,
             mcp_manager,
             agent_directory,
         })
