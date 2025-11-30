@@ -12,14 +12,14 @@ This page explains responsibilities, key concepts, delivery guarantees, metrics,
 
 ## Concepts
 
-- Topic: string channel used to route events. Supports exact match and simple wildcard prefixes (`prefix.*` matches topics that start with `prefix.` and have one more segment).
-- Subscription: a bounded queue (`tokio::mpsc`) receiving events for a given topic (and optionally filtered by event type). Each subscription has a unique `subscription_id`.
-- QoS (Quality of Service): controls latency vs. reliability trade-offs per subscription.
-  - `QosRealtime`: low-latency; drop on pressure or full queue; never block.
-  - `QosBatched`: throughput oriented; wait for queue capacity (bounded, backpressure applies).
-  - `QosBackground`: similar to batched with larger queue for bulk/low-priority work.
-- Backpressure: global per-topic backlog threshold that, when exceeded, causes realtime deliveries to be dropped aggressively to protect the system.
-- Envelope: standardized metadata for thread/correlation/reply routing/TTL/tracing. EventBus injects current trace context into the Envelope on publish. See `docs/core/envelope.md`.
+- **Topic**: string channel used to route events. Supports exact match and simple wildcard prefixes (`prefix.*` matches topics that start with `prefix.` and have one more segment).
+- **Subscription**: a bounded queue (`tokio::mpsc`) receiving events for a given topic (and optionally filtered by event type). Each subscription has a unique `subscription_id`.
+- **QoS (Quality of Service)**: **per-subscription** policy controlling latency vs. reliability trade-offs. Each subscriber chooses independently:
+  - `QosRealtime` (cap: 512): low-latency; drops on backpressure OR full queue; never blocks publish.
+  - `QosBatched` (cap: 2048): throughput oriented; awaits queue capacity (bounded mpsc, natural backpressure).
+  - `QosBackground` (cap: 4096): similar to batched with larger queue for bulk/low-priority work.
+- **Backpressure threshold**: **per-topic global** counter (default: 10,000). When `topic_backlog >= threshold`, _all_ Realtime subscriptions to that topic start dropping events aggressively (Batched/Background still block for capacity).
+- **Envelope**: standardized metadata for thread/correlation/reply routing/TTL/tracing. EventBus injects current trace context into the Envelope on publish. See `docs/core/envelope.md`.
 
 ## Delivery model
 
@@ -30,18 +30,76 @@ This page explains responsibilities, key concepts, delivery guarantees, metrics,
    - Exact topic matches and wildcard prefix matches (`pattern.*`).
    - Optional event-type filter: a subscriber may specify `event_types`; non-matching events are skipped for that subscriber.
 3. Deliver with QoS policy
-   - Realtime: if global backlog is above threshold or the subscriber queue is full, the event is dropped (no await).
-   - Batched/Background: enqueue with `send().await` (bounded mpsc); may await for capacity, applying natural backpressure.
+   - **Realtime**: if per-topic backlog is above threshold OR subscriber's own queue is full, the event is dropped (no await, non-blocking).
+   - **Batched/Background**: enqueue with `send().await` (bounded mpsc); awaits for capacity if queue full, applying natural backpressure to publisher.
 4. Visualize & trace
    - Optionally emits Dashboard events (`EventPublished`, `EventDelivered`) and FlowTracker edges (`sender -> EventBus -> subscriber`).
    - Records publish latency histogram; increments delivered/dropped counters with reasons.
 
 ## Backpressure
 
-- Threshold: `backpressure_threshold` (default `10_000`) measures per-topic backlog. When `>= threshold`, realtime deliveries are dropped aggressively.
-- Span annotation: the current span records `backpressure=true` when threshold is exceeded.
-- Drop reasons: exported as metric attribute `reason` with values `backpressure` or `queue_full`.
-- Tuning: adjust in code today (field on `EventBus`); consider exposing via config if your deployment needs dynamic tuning.
+**Scope: Per-topic (global across all subscriptions to that topic)**
+
+- **Threshold**: `backpressure_threshold` (default `10,000`) tracks per-topic backlog counter.
+- **Trigger**: When `topic_backlog >= threshold`, the topic enters backpressure state.
+- **Impact**:
+  - **Realtime QoS**: All Realtime subscriptions to this topic immediately drop new events (reason: `backpressure`).
+  - **Batched/Background QoS**: Unaffected; continue to await queue capacity (may slow down publisher).
+- **Span annotation**: Current span records `backpressure=true` when threshold exceeded.
+- **Metrics**: Dropped events exported with `reason={backpressure|queue_full}`.
+- **Tuning**: Field on `EventBus` struct; consider config exposure for dynamic tuning.
+
+**Why per-topic?**
+
+- Different topics have different load patterns (e.g., `market.tick.*` vs. `admin.health`).
+- Prevents one saturated topic from affecting others.
+- Agents subscribe to multiple topics; per-topic isolation ensures targeted backpressure.
+
+## QoS vs Backpressure: Dimension Summary
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ EventBus                                                        │
+│                                                                 │
+│  Topic: "market.price.BTC"  (backlog: 12,000 > threshold)     │
+│  ┌───────────────────────────────────────────────────────────┐ │
+│  │ Backpressure State: ACTIVE (per-topic global)            │ │
+│  └───────────────────────────────────────────────────────────┘ │
+│         │                    │                    │             │
+│         ▼                    ▼                    ▼             │
+│  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐    │
+│  │ Subscriber A│      │ Subscriber B│      │ Subscriber C│    │
+│  │ QoS:Realtime│      │ QoS:Batched │      │QoS:Background│   │
+│  │ (cap: 512)  │      │ (cap: 2048) │      │ (cap: 4096)  │   │
+│  │ ❌ DROPS    │      │ ✅ BLOCKS   │      │ ✅ BLOCKS    │   │
+│  └─────────────┘      └─────────────┘      └─────────────┘    │
+│   per-sub queue       per-sub queue        per-sub queue      │
+│                                                                 │
+│  Topic: "admin.health"  (backlog: 50 < threshold)             │
+│  ┌───────────────────────────────────────────────────────────┐ │
+│  │ Backpressure State: NORMAL                                │ │
+│  └───────────────────────────────────────────────────────────┘ │
+│         │                                                       │
+│         ▼                                                       │
+│  ┌─────────────┐                                              │
+│  │ Subscriber D│                                              │
+│  │ QoS:Realtime│                                              │
+│  │ ✅ DELIVERS │                                              │
+│  └─────────────┘                                              │
+└─────────────────────────────────────────────────────────────────┘
+
+Legend:
+- Backpressure threshold: Per-topic global (affects ALL Realtime subs)
+- QoS level: Per-subscription (each subscriber chooses independently)
+- Queue capacity: Per-subscription (512/2048/4096 based on QoS)
+```
+
+**Key insights:**
+
+1. **Backpressure threshold** = per-topic "circuit breaker" (protects EventBus from topic saturation)
+2. **QoS level** = per-subscription delivery contract (subscriber's choice: speed vs reliability)
+3. **Queue capacity** = per-subscription buffer (independent of other subscribers)
+4. **Agents** can subscribe to multiple topics with different QoS per topic
 
 ## Metrics (OpenTelemetry)
 
