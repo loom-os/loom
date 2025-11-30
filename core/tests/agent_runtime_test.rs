@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use loom_core::agent::{AgentBehavior, AgentRuntime};
 use loom_core::proto::{Action, AgentConfig, AgentState, Event};
-use loom_core::{ActionBroker, EventBus, ModelRouter, Result};
+use loom_core::{EventBus, ModelRouter, Result, ToolRegistry};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -71,9 +71,9 @@ async fn create_agent_subscribes_and_receives_events() -> Result<()> {
     let bus = Arc::new(EventBus::new().await?);
     bus.start().await?;
 
-    let broker = Arc::new(ActionBroker::new());
+    let registry = Arc::new(ToolRegistry::new());
     let router = ModelRouter::new().await?;
-    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&broker), router).await?;
+    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&registry), router).await?;
 
     let counter = Arc::new(Mutex::new(0));
     let cfg = AgentConfig {
@@ -109,9 +109,9 @@ async fn delete_agent_stops_receiving_events() -> Result<()> {
     let bus = Arc::new(EventBus::new().await?);
     bus.start().await?;
 
-    let broker = Arc::new(ActionBroker::new());
+    let registry = Arc::new(ToolRegistry::new());
     let router = ModelRouter::new().await?;
-    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&broker), router).await?;
+    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&registry), router).await?;
 
     let counter = Arc::new(Mutex::new(0));
     let cfg = AgentConfig {
@@ -146,9 +146,9 @@ async fn delete_agent_stops_receiving_events() -> Result<()> {
 #[tokio::test]
 async fn delete_nonexistent_agent_errors() -> Result<()> {
     let bus = Arc::new(EventBus::new().await?);
-    let broker = Arc::new(ActionBroker::new());
+    let registry = Arc::new(ToolRegistry::new());
     let router = ModelRouter::new().await?;
-    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&broker), router).await?;
+    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&registry), router).await?;
 
     let result = runtime.delete_agent("nonexistent").await;
     assert!(result.is_err(), "deleting nonexistent agent should error");
@@ -160,9 +160,9 @@ async fn multiple_agents_receive_from_same_topic() -> Result<()> {
     let bus = Arc::new(EventBus::new().await?);
     bus.start().await?;
 
-    let broker = Arc::new(ActionBroker::new());
+    let registry = Arc::new(ToolRegistry::new());
     let router = ModelRouter::new().await?;
-    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&broker), router).await?;
+    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&registry), router).await?;
 
     let counter1 = Arc::new(Mutex::new(0));
     let counter2 = Arc::new(Mutex::new(0));
@@ -216,9 +216,9 @@ async fn agent_subscribes_to_multiple_topics() -> Result<()> {
     let bus = Arc::new(EventBus::new().await?);
     bus.start().await?;
 
-    let broker = Arc::new(ActionBroker::new());
+    let registry = Arc::new(ToolRegistry::new());
     let router = ModelRouter::new().await?;
-    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&broker), router).await?;
+    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&registry), router).await?;
 
     let counter = Arc::new(Mutex::new(0));
     let cfg = AgentConfig {
@@ -253,9 +253,9 @@ async fn shutdown_aborts_all_agents() -> Result<()> {
     let bus = Arc::new(EventBus::new().await?);
     bus.start().await?;
 
-    let broker = Arc::new(ActionBroker::new());
+    let registry = Arc::new(ToolRegistry::new());
     let router = ModelRouter::new().await?;
-    let mut runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&broker), router).await?;
+    let mut runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&registry), router).await?;
 
     let counter = Arc::new(Mutex::new(0));
     let cfg = AgentConfig {
@@ -296,9 +296,9 @@ async fn agent_can_emit_actions() -> Result<()> {
     let bus = Arc::new(EventBus::new().await?);
     bus.start().await?;
 
-    let broker = Arc::new(ActionBroker::new());
+    let registry = Arc::new(ToolRegistry::new());
     let router = ModelRouter::new().await?;
-    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&broker), router).await?;
+    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&registry), router).await?;
 
     let cfg = AgentConfig {
         agent_id: "agent_action".to_string(),
@@ -331,9 +331,9 @@ async fn create_duplicate_agent_id_replaces_previous() -> Result<()> {
     let bus = Arc::new(EventBus::new().await?);
     bus.start().await?;
 
-    let broker = Arc::new(ActionBroker::new());
+    let registry = Arc::new(ToolRegistry::new());
     let router = ModelRouter::new().await?;
-    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&broker), router).await?;
+    let runtime = AgentRuntime::new(Arc::clone(&bus), Arc::clone(&registry), router).await?;
 
     let counter1 = Arc::new(Mutex::new(0));
     let counter2 = Arc::new(Mutex::new(0));

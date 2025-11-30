@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use dashmap::DashMap;
 
-use crate::action_broker::ActionBroker;
-use crate::proto::CapabilityDescriptor;
+use crate::proto::{CapabilityDescriptor, ProviderKind};
+use crate::tools::ToolRegistry;
 
 /// Information about a registered agent including subscriptions and capabilities.
 ///
@@ -461,35 +461,41 @@ impl CapabilityDirectory {
         Self::default()
     }
 
-    /// Refreshes the internal snapshot from an `ActionBroker`.
+    /// Refreshes the internal snapshot from a `ToolRegistry`.
     ///
-    /// Clears the existing snapshot and rebuilds it from the broker's current
-    /// list of registered capabilities. This operation is atomic from the
-    /// perspective of concurrent readers.
+    /// This pulls all currently registered tools from the registry and updates
+    /// the directory's snapshot. This is typically called periodically or
+    /// when new tools are loaded.
     ///
     /// # Arguments
     ///
-    /// * `broker` - The ActionBroker to snapshot capabilities from
+    /// * `registry` - The ToolRegistry to snapshot capabilities from
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```
-    /// use loom_core::{CapabilityDirectory, ActionBroker};
     /// use std::sync::Arc;
+    /// use loom_core::{CapabilityDirectory, ToolRegistry};
     ///
-    /// let broker = Arc::new(ActionBroker::new());
+    /// let registry = Arc::new(ToolRegistry::new());
     /// let dir = CapabilityDirectory::new();
     ///
     /// // Initial snapshot
-    /// dir.refresh_from_broker(&broker);
-    ///
-    /// // Later, after registering more providers...
-    /// // broker.register_provider(...);
-    /// dir.refresh_from_broker(&broker);  // Update snapshot
+    /// dir.refresh_from_registry(&registry);
     /// ```
-    pub fn refresh_from_broker(&self, broker: &ActionBroker) {
+    pub fn refresh_from_registry(&self, registry: &ToolRegistry) {
         self.snapshot.clear();
-        for d in broker.list_capabilities() {
+        for tool in registry.list_tools() {
+            let mut metadata = HashMap::new();
+            metadata.insert("description".to_string(), tool.description());
+            metadata.insert("parameters".to_string(), tool.parameters().to_string());
+
+            let d = CapabilityDescriptor {
+                name: tool.name(),
+                version: "1.0.0".to_string(),
+                provider: ProviderKind::ProviderNative as i32,
+                metadata,
+            };
             let key = format!("{}:{}", d.name, d.version);
             self.snapshot.insert(key, d);
         }

@@ -95,15 +95,15 @@ Example
 Basic agent with dynamic subscription:
 
 ```rust
-use loom_core::{AgentRuntime, AgentConfig, EventBus, ActionBroker, ModelRouter};
+use loom_core::{AgentRuntime, AgentConfig, EventBus, ToolRegistry, ModelRouter};
 use std::sync::Arc;
 
 async fn example() -> loom_core::Result<()> {
     let event_bus = Arc::new(EventBus::new().await?);
-    let action_broker = Arc::new(ActionBroker::new());
+    let tool_registry = Arc::new(ToolRegistry::new());
     let model_router = ModelRouter::new().await?;
 
-    let runtime = AgentRuntime::new(event_bus, action_broker, model_router).await?;
+    let runtime = AgentRuntime::new(event_bus, tool_registry, model_router).await?;
 
     // Create agent with initial subscription
     let config = AgentConfig {

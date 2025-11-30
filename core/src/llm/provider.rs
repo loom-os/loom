@@ -1,13 +1,10 @@
-use crate::action_broker::CapabilityProvider;
 use crate::context::PromptBundle;
 use crate::context::TokenBudget;
-use crate::proto::{
-    ActionCall, ActionError, ActionResult, ActionStatus, CapabilityDescriptor, ProviderKind,
-};
+use crate::tools::{Tool, ToolError, ToolResult};
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde_json::{json, Value};
 use std::sync::Arc;
-use tracing::{info_span, Span};
 
 use super::client::LlmClient;
 
@@ -26,44 +23,49 @@ impl LlmGenerateProvider {
             client: Arc::new(c),
         })
     }
+}
 
-    async fn invoke_with_client(
-        &self,
-        call: ActionCall,
-        client: &LlmClient,
-    ) -> crate::Result<ActionResult> {
-        // Extract envelope for richer tracing attributes (sender/thread)
-        let env = crate::Envelope::from_metadata(&call.headers, &call.id);
+#[derive(Debug, Deserialize)]
+struct GeneratePayload {
+    input: String,
+    bundle: Option<PromptBundle>,
+    budget: Option<TokenBudget>,
+}
 
-        // Start a span to capture LLM invocation details and outputs
-        let span = info_span!(
-            "llm.generate",
-            capability = %call.capability,
-            call_id = %call.id,
-            thread_id = %env.thread_id,
-            sender = %env.sender,
-            model = tracing::field::Empty,
-            provider = tracing::field::Empty,
-            output_preview = tracing::field::Empty,
-            status = tracing::field::Empty
-        );
-        let _guard = span.enter();
+#[async_trait]
+impl Tool for LlmGenerateProvider {
+    fn name(&self) -> String {
+        "llm:generate".to_string()
+    }
 
-        let payload: GeneratePayload = match serde_json::from_slice(&call.payload) {
-            Ok(v) => v,
-            Err(e) => {
-                return Ok(ActionResult {
-                    id: call.id.clone(),
-                    status: ActionStatus::ActionError as i32,
-                    output: Vec::new(),
-                    error: Some(ActionError {
-                        code: "DESERIALIZATION_ERROR".to_string(),
-                        message: format!("Failed to deserialize payload: {}", e),
-                        details: Default::default(),
-                    }),
-                });
-            }
-        };
+    fn description(&self) -> String {
+        "Generate text using an LLM".to_string()
+    }
+
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": "Input text or instructions"
+                },
+                "bundle": {
+                    "type": "object",
+                    "description": "Full prompt bundle (optional)"
+                },
+                "budget": {
+                    "type": "object",
+                    "description": "Token budget (optional)"
+                }
+            },
+            "required": ["input"]
+        })
+    }
+
+    async fn call(&self, arguments: Value) -> ToolResult<Value> {
+        let payload: GeneratePayload = serde_json::from_value(arguments)
+            .map_err(|e| ToolError::InvalidArguments(format!("Invalid arguments: {}", e)))?;
 
         let bundle = if let Some(b) = payload.bundle {
             b
@@ -78,104 +80,17 @@ impl LlmGenerateProvider {
             }
         };
 
-        let res = client.generate(&bundle, payload.budget).await;
-        match res {
-            Ok(r) => {
-                // Record attributes on span: model/provider/output preview/status
-                if let Some(model) = &r.model {
-                    Span::current().record("model", model.as_str());
-                }
-                if let Some(provider) = &r.provider {
-                    Span::current().record("provider", provider.as_str());
-                }
-                let preview: String = r.text.chars().take(160).collect();
-                Span::current().record("output_preview", preview.as_str());
-                Span::current().record("status", "ok");
+        let res = self
+            .client
+            .generate(&bundle, payload.budget)
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("LLM generation failed: {}", e)))?;
 
-                Ok(ActionResult {
-                    id: call.id.clone(),
-                    status: ActionStatus::ActionOk as i32,
-                    output: serde_json::to_vec(&serde_json::json!({
-                        "text": r.text,
-                        "model": r.model,
-                        "provider": r.provider,
-                        "usage": r.usage,
-                    }))
-                    .unwrap_or_default(),
-                    error: None,
-                })
-            }
-            Err(e) => {
-                Span::current().record("status", "error");
-                Span::current().record("output_preview", "");
-                Ok(ActionResult {
-                    id: call.id.clone(),
-                    status: ActionStatus::ActionError as i32,
-                    output: Vec::new(),
-                    error: Some(ActionError {
-                        code: "LLM_ERROR".to_string(),
-                        message: e.to_string(),
-                        details: Default::default(),
-                    }),
-                })
-            }
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct GeneratePayload {
-    #[serde(default)]
-    input: String,
-    #[serde(default)]
-    bundle: Option<PromptBundle>,
-    #[serde(default)]
-    budget: Option<TokenBudget>,
-}
-
-#[async_trait]
-impl CapabilityProvider for LlmGenerateProvider {
-    fn descriptor(&self) -> CapabilityDescriptor {
-        CapabilityDescriptor {
-            name: "llm.generate".to_string(),
-            version: "0.1.0".to_string(),
-            provider: ProviderKind::ProviderNative as i32,
-            metadata: Default::default(),
-        }
-    }
-
-    async fn invoke(&self, call: ActionCall) -> crate::Result<ActionResult> {
-        // Allow headers to override config dynamically
-        // Keys: model, base_url, api_key, temperature, request_timeout_ms
-        if !call.headers.is_empty() {
-            let mut cfg = self.client.cfg.clone();
-            if let Some(v) = call.headers.get("model") {
-                cfg.model = v.clone();
-            }
-            if let Some(v) = call.headers.get("base_url") {
-                cfg.base_url = v.clone();
-            }
-            if let Some(v) = call.headers.get("api_key") {
-                cfg.api_key = Some(v.clone());
-            }
-            if let Some(v) = call
-                .headers
-                .get("temperature")
-                .and_then(|s| s.parse::<f32>().ok())
-            {
-                cfg.temperature = v;
-            }
-            if let Some(v) = call
-                .headers
-                .get("request_timeout_ms")
-                .and_then(|s| s.parse::<u64>().ok())
-            {
-                cfg.request_timeout_ms = v;
-            }
-            // rebuild client with new cfg for this call
-            let temp_client = LlmClient::new(cfg)?;
-            return self.invoke_with_client(call, &temp_client).await;
-        }
-        self.invoke_with_client(call, self.client.as_ref()).await
+        Ok(json!({
+            "text": res.text,
+            "model": res.model,
+            "provider": res.provider,
+            "usage": res.usage
+        }))
     }
 }

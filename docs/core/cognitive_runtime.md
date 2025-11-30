@@ -9,7 +9,7 @@
 - **Lift agents from purely reactive callbacks to an explicit perceive–think–act loop** without breaking the existing `AgentRuntime` and `AgentBehavior` abstractions.
 - **Keep the core runtime simple**: EventBus + AgentRuntime remain general-purpose infrastructure; cognitive behavior is an opt-in pattern.
 - **Make cognition observable**: planning steps, policy decisions, and memory usage should be inspectable from logs, traces, and the Dashboard.
-- **Reuse existing building blocks**: `ContextBuilder`, `MemoryReader/Writer`, `ModelRouter`, `ActionBroker`, and collaboration primitives.
+- **Reuse existing building blocks**: `ContextBuilder`, `MemoryReader/Writer`, `ModelRouter`, `ToolRegistry`, and collaboration primitives.
 
 ---
 

@@ -1,10 +1,9 @@
 /// Integration tests for MCP functionality
-use loom_core::mcp::{
-    client::McpClient,
+use loom_core::tools::mcp::{
     manager::McpManager,
     types::{McpServerConfig, McpTool},
 };
-use loom_core::ActionBroker;
+use loom_core::ToolRegistry;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -37,7 +36,7 @@ fn test_mcp_server_config_serialization() {
 /// Test protocol version handling
 #[test]
 fn test_protocol_version_defaults() {
-    use loom_core::mcp::{DEFAULT_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS};
+    use loom_core::tools::mcp::{DEFAULT_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS};
 
     // Config without explicit version should use default
     let config = McpServerConfig {
@@ -101,8 +100,8 @@ fn test_mcp_tool_definition() {
 /// Test MCP manager creation
 #[tokio::test]
 async fn test_mcp_manager_creation() {
-    let broker = Arc::new(ActionBroker::new());
-    let manager = McpManager::new(broker);
+    let registry = Arc::new(ToolRegistry::new());
+    let manager = McpManager::new(registry);
 
     let servers = manager.list_servers().await;
     assert!(servers.is_empty());
@@ -111,8 +110,8 @@ async fn test_mcp_manager_creation() {
 /// Test adding invalid server configuration
 #[tokio::test]
 async fn test_add_invalid_server() {
-    let broker = Arc::new(ActionBroker::new());
-    let manager = McpManager::new(broker);
+    let registry = Arc::new(ToolRegistry::new());
+    let manager = McpManager::new(registry);
 
     let config = McpServerConfig {
         name: "invalid-server".to_string(),
@@ -131,8 +130,8 @@ async fn test_add_invalid_server() {
 /// Test manager shutdown
 #[tokio::test]
 async fn test_manager_shutdown() {
-    let broker = Arc::new(ActionBroker::new());
-    let manager = McpManager::new(broker);
+    let registry = Arc::new(ToolRegistry::new());
+    let manager = McpManager::new(registry);
 
     // Shutdown should succeed even with no servers
     manager.shutdown().await;
@@ -144,8 +143,8 @@ async fn test_manager_shutdown() {
 /// Test removing non-existent server
 #[tokio::test]
 async fn test_remove_nonexistent_server() {
-    let broker = Arc::new(ActionBroker::new());
-    let manager = McpManager::new(broker);
+    let registry = Arc::new(ToolRegistry::new());
+    let manager = McpManager::new(registry);
 
     // Removing a server that doesn't exist should not panic
     let result = manager.remove_server("nonexistent").await;
@@ -172,9 +171,6 @@ fn test_qualified_tool_names() {
 /// Test MCP tool adapter metadata
 #[test]
 fn test_tool_adapter_metadata() {
-    use loom_core::action_broker::CapabilityProvider;
-    use loom_core::mcp::adapter::McpToolAdapter;
-
     let tool = McpTool {
         name: "test_tool".to_string(),
         description: Some("A test tool".to_string()),
@@ -229,7 +225,7 @@ fn test_load_mcp_config_from_toml() {
 /// Test error code mapping
 #[test]
 fn test_mcp_error_codes() {
-    use loom_core::mcp::types::McpError;
+    use loom_core::tools::mcp::types::McpError;
 
     let timeout_error = McpError::Timeout;
     assert_eq!(timeout_error.code(), "TIMEOUT");
@@ -244,7 +240,7 @@ fn test_mcp_error_codes() {
 /// Test JSON-RPC request/response structures
 #[test]
 fn test_jsonrpc_structures() {
-    use loom_core::mcp::types::{JsonRpcRequest, JsonRpcResponse};
+    use loom_core::tools::mcp::types::{JsonRpcRequest, JsonRpcResponse};
 
     let request = JsonRpcRequest {
         jsonrpc: "2.0".to_string(),

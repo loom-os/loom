@@ -18,7 +18,7 @@ async fn request_reply_basic() {
         .await
         .unwrap();
     tokio::spawn(async move {
-        while let Some(mut req) = rx.recv().await {
+        while let Some(req) = rx.recv().await {
             // Build reply
             let env = Envelope::from_event(&req);
             let mut md = std::collections::HashMap::new();

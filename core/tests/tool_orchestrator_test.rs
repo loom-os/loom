@@ -1,35 +1,39 @@
 use async_trait::async_trait;
-use loom_core::action_broker::{ActionBroker, CapabilityProvider};
 use loom_core::context::PromptBundle;
 use loom_core::llm::{
-    build_action_call, make_refine_bundle, parse_tool_calls_from_chat,
-    parse_tool_calls_from_responses, NormalizedToolCall,
+    make_refine_bundle, parse_tool_calls_from_chat, parse_tool_calls_from_responses,
+    NormalizedToolCall,
 };
-use loom_core::proto::{ActionCall, ActionResult, ActionStatus, CapabilityDescriptor};
+use loom_core::proto::{ActionResult, ActionStatus};
+use loom_core::tools::{Tool, ToolRegistry, ToolResult};
 use loom_core::Result;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::Arc;
 
-struct EchoProvider;
+struct EchoTool;
 
 #[async_trait]
-impl CapabilityProvider for EchoProvider {
-    fn descriptor(&self) -> CapabilityDescriptor {
-        CapabilityDescriptor {
-            name: "unit.echo".into(),
-            version: "0.1.0".into(),
-            provider: loom_core::proto::ProviderKind::ProviderNative as i32,
-            metadata: Default::default(),
-        }
+impl Tool for EchoTool {
+    fn name(&self) -> String {
+        "unit.echo".to_string()
     }
 
-    async fn invoke(&self, call: ActionCall) -> Result<ActionResult> {
-        Ok(ActionResult {
-            id: call.id,
-            status: ActionStatus::ActionOk as i32,
-            output: call.payload,
-            error: None,
+    fn description(&self) -> String {
+        "Echo back the input".to_string()
+    }
+
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "data": {"type": "string"},
+                "k": {"type": "number"}
+            }
         })
+    }
+
+    async fn call(&self, arguments: Value) -> ToolResult<Value> {
+        Ok(arguments)
     }
 }
 
@@ -142,46 +146,29 @@ fn test_parse_chat_no_tool_calls() {
 
 #[tokio::test]
 async fn test_build_and_invoke_action_call() -> Result<()> {
-    let broker = Arc::new(ActionBroker::new());
-    broker.register_provider(Arc::new(EchoProvider));
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register(Arc::new(EchoTool)).await;
 
-    let call = NormalizedToolCall {
-        id: None,
-        name: "unit.echo".into(),
-        arguments: json!({"k": 1}),
-    };
-    let action = build_action_call(&call, 1000, Some("cid-1".into()));
-
-    assert_eq!(action.capability, "unit.echo");
-    assert_eq!(action.timeout_ms, 1000);
-    assert_eq!(
-        action.headers.get("correlation_id").map(|s| s.as_str()),
-        Some("cid-1")
-    );
-
-    let res = broker.invoke(action).await?;
-    assert_eq!(res.status, ActionStatus::ActionOk as i32);
+    // Test the tool directly via registry
+    let result = registry
+        .call("unit.echo", json!({"k": 1}))
+        .await
+        .map_err(|e| loom_core::LoomError::PluginError(e.to_string()))?;
+    assert_eq!(result, json!({"k": 1}));
     Ok(())
 }
 
 #[tokio::test]
 async fn test_action_call_without_correlation_id() -> Result<()> {
-    let broker = Arc::new(ActionBroker::new());
-    broker.register_provider(Arc::new(EchoProvider));
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register(Arc::new(EchoTool)).await;
 
-    let call = NormalizedToolCall {
-        id: Some("test_id".into()),
-        name: "unit.echo".into(),
-        arguments: json!({"data": "test"}),
-    };
-    let action = build_action_call(&call, 5000, None);
-
-    assert_eq!(action.capability, "unit.echo");
-    assert_eq!(action.timeout_ms, 5000);
-    assert!(action.headers.get("correlation_id").is_none());
-
-    let res = broker.invoke(action).await?;
-    assert_eq!(res.status, ActionStatus::ActionOk as i32);
+    // Test the tool directly via registry
+    let result = registry
+        .call("unit.echo", json!({"data": "test"}))
+        .await
+        .map_err(|e| loom_core::LoomError::PluginError(e.to_string()))?;
+    assert_eq!(result, json!({"data": "test"}));
     Ok(())
 }
 
