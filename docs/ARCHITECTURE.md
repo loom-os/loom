@@ -17,7 +17,7 @@ apps / demos (e.g., demo/voice_agent) ──▶ depend on core and optionally lo
 ```
 
 - `loom-proto` contains only protobuf definitions and generated Rust. `protoc` is vendored; no system install is required.
-- `core` depends on `loom-proto` and implements the runtime (Event Bus, Agent Runtime, Router, LLM client, ActionBroker, Plugin Manager, MCP Client, Collaboration, Directories, Envelope). It intentionally does not depend on `loom-audio`.
+- `core` depends on `loom-proto` and implements the runtime (Event Bus, Agent Runtime, Router, LLM client, ToolRegistry, Plugin Manager, MCP Client, Collaboration, Directories, Envelope). It intentionally does not depend on `loom-audio`.
 - `loom-audio` is a capability provider set with mic/VAD/STT/wake/TTS and depends on both `loom-proto` and `core`. Applications can opt‑in to audio features.
 - `bridge` is a gRPC service for forwarding events and actions across process or network boundaries (e.g., to Python/JS agents, mobile clients, or web workers) using the shared proto contracts. Supports RegisterAgent, bidirectional EventStream, ForwardAction, and Heartbeat.
 - `loom-py` provides Python bindings and Agent/Context API for writing agents in Python. Includes @capability decorator, Envelope support, and examples (trio.py). Communicates with Loom core via the bridge service.
@@ -82,7 +82,7 @@ This demo validates several core architectural principles:
 
 - **Event-First Collaboration**: Agents communicate exclusively through the event bus, ensuring loose coupling.
 - **Polyglot Agents**: A Rust core orchestrates Python agents via the gRPC Bridge.
-- **Capability Abstraction**: LLM, web search (MCP), and trading APIs are all exposed as uniform "tools" or "capabilities" through the ActionBroker.
+- **Tool Abstraction**: LLM, web search (MCP), and trading APIs are all exposed as uniform tools through the ToolRegistry.
 - **Memory-Aware Decision Making**: Planner and Executor use shared memory to prevent duplicate decisions and double-execution, ensuring idempotent trading operations.
 - **Observability**: The entire workflow, from data ingestion to trade execution, is captured in a single distributed trace, providing deep visibility into the system's behavior.
 
@@ -146,7 +146,7 @@ On top of the Envelope, Loom provides collaboration primitives (request/reply, f
 **Directories (✅ IMPLEMENTED)**:
 
 - **AgentDirectory**: Discover agents by id, topics, or capabilities; auto-registers on agent creation
-- **CapabilityDirectory**: Snapshot of all registered capability providers from ActionBroker; query by name or provider type
+- **CapabilityDirectory**: Snapshot of all registered tools from ToolRegistry; query by name or tool type
 
 ### MCP (Model Context Protocol) Client
 
@@ -157,11 +157,11 @@ On top of the Envelope, Loom provides collaboration primitives (request/reply, f
   - list_tools with pagination support
   - call_tool with timeout and comprehensive error handling
   - Background reader task for response correlation
-- **McpToolAdapter**: Implements `CapabilityProvider` trait
-  - Adapts MCP tools to ActionBroker interface
+- **McpToolAdapter**: Implements `Tool` trait
+  - Adapts MCP tools to ToolRegistry interface
   - Qualified naming (server:tool) to avoid conflicts
   - Automatic JSON schema extraction for tool metadata
-  - Error code mapping (INVALID_PARAMS, TIMEOUT, TOOL_ERROR, etc.)
+  - Error mapping (InvalidArguments, Timeout, ExecutionFailed, etc.)
 - **McpManager**: Lifecycle management for multiple MCP servers
   - add_server/remove_server with validation
   - Auto-discovery and registration of tools
@@ -295,38 +295,38 @@ Exposed via `MemoryService` with 9 RPC methods:
 
 See `docs/core/memory.md` for detailed implementation and `core/src/context/README.md` for API usage.
 
-### Action System (ActionBroker + Tool Orchestrator)
+### Tools System (ToolRegistry + Tool Orchestrator)
 
-**ActionBroker (✅ IMPLEMENTED)**: Unified capability registry and invocation layer
+**ToolRegistry (✅ IMPLEMENTED)**: Unified tool registry and invocation layer
 
-- **Capability Registration**: Providers implement `CapabilityProvider` trait
-  - Native Rust providers (WeatherProvider, WebSearchProvider, LlmGenerateProvider)
+- **Tool Registration**: Tools implement `Tool` trait
+  - Native Rust tools (FilesystemTool, ShellTool, WeatherTool, WebSearchTool)
   - MCP tools via McpToolAdapter
   - Custom plugins via Plugin system
+  - LLM generation via provider tools
 - **Invocation API**:
-  - `invoke(call: ActionCall) -> ActionResult`
-  - Timeout handling, idempotency keys
-  - Result correlation via correlation_id
-- **Provider Types**:
-  - `ProviderNative`: Built-in Rust capabilities
-  - `ProviderMcp`: MCP server tools
-  - `ProviderPlugin`: WASM/external plugins
-  - `ProviderRemote`: Bridge-connected remote agents
+  - `call(tool_name: &str, args: Value) -> Result<Value, ToolError>`
+  - 30-second default timeout with cancellation
+  - Concurrent access via DashMap
+- **Tool Types**:
+  - Native: Built-in Rust capabilities in `core/src/tools/native/`
+  - MCP: MCP server tools via adapter in `core/src/tools/mcp/`
+  - Plugin: WASM/external plugins (future)
+  - Remote: Bridge-connected remote agents (future)
 
 **Tool Orchestrator (✅ IMPLEMENTED)**: Unified tool call parsing and execution
 
 - Parse tool calls from LLM responses (function_call or structured format)
-- Route to ActionBroker with appropriate provider
+- Route to ToolRegistry with appropriate tool name
 - Aggregate results for multi-tool scenarios
 - Emit tool execution metrics (latency, success/failure)
 
-**Error Codes** (standardized across all providers):
+**Error Types** (standardized across all tools):
 
-- `ACTION_OK`: Success
-- `ACTION_ERROR`: Generic error
-- `ACTION_TIMEOUT`: Execution timeout
-- `INVALID_PARAMS`: Invalid tool arguments
-- `CAPABILITY_ERROR`: Provider-specific error
+- `NotFound`: Tool not registered
+- `InvalidArguments`: Invalid tool arguments
+- `ExecutionFailed`: Tool execution error
+- `Timeout`: Execution timeout (30s default)
 - `PROVIDER_UNAVAILABLE`: Provider not found or offline
 
 ### Bridge (gRPC)
@@ -339,10 +339,10 @@ See `docs/core/memory.md` for detailed implementation and `core/src/context/READ
   - Outbound: Loom pushes matching events to external agents
   - Ack-first handshake for connection confirmation
 - **ForwardAction**: Client-initiated action invocation
-  - External agents invoke Loom capabilities via ActionBroker
+  - External agents invoke Loom tools via ToolRegistry
   - Result correlation and timeout handling
 - **ActionCall** (server-initiated): Internal push API
-  - Loom pushes action invocations to external agent capabilities
+  - Loom pushes tool invocations to external agent capabilities
   - Result correlation map for async responses
 - **Heartbeat**: Keep-alive mechanism for connection health
 - **Stateless Reconnection**: Agents can reconnect and resume subscriptions
@@ -687,7 +687,7 @@ Mic → AudioChunk Event
         ├─ Local: whisper-tiny → "what's the weather" (0.7 conf)
         │   → UI shows immediate feedback
         └─ Cloud: GPT-4 → refined intent
-            → Tool calls via ActionBroker (e.g., Weather API)
+            → Tool calls via ToolRegistry (e.g., Weather API)
               → TTS provider (Piper preferred, falls back to espeak-ng)
               → Optional cross-process forwarding via bridge
 ```

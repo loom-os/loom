@@ -10,8 +10,8 @@ The `core` crate implements runtime primitives for agents, routing, capability i
 
 1. An event is published to the EventBus.
 2. The EventBus delivers to AgentRuntime and the Model Router as applicable.
-3. AgentRuntime executes behavior and invokes capabilities via ActionBroker.
-4. The capability executes and returns a result.
+3. AgentRuntime executes behavior and invokes tools via ToolRegistry.
+4. The tool executes and returns a result.
 5. The result is published back to the EventBus.
 
 ### Workspace dependencies (at a glance)
@@ -35,8 +35,8 @@ graph LR
 - EventBus — `docs/core/event_bus.md`
 - Agent Runtime — `docs/core/agent_runtime.md`
 - Router — `docs/core/router.md`
-- ActionBroker — `docs/core/action_broker.md`
-- Providers — `docs/core/providers.md`
+- ToolRegistry — `docs/core/tools.md`
+- Tools — `docs/core/tools.md`
 - LLM Client — `docs/core/llm.md`
 - Plugin System — `docs/core/plugin_system.md`
 - Storage — `docs/core/storage.md`
