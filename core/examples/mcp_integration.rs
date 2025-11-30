@@ -13,7 +13,7 @@
 /// ```bash
 /// cargo run --example mcp_integration
 /// ```
-use loom_core::{mcp::types::McpServerConfig, Loom, QoSLevel};
+use loom_core::{tools::mcp::types::McpServerConfig, Loom, QoSLevel};
 use serde_json::json;
 use std::collections::HashMap;
 use tracing::{info, warn};
@@ -97,14 +97,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let servers = loom.mcp_manager.list_servers().await;
     info!("Connected MCP servers: {:?}", servers);
 
-    // List all available capabilities (including MCP tools)
-    let capabilities = loom.action_broker.list_capabilities();
-    info!("Available capabilities:");
-    for cap in &capabilities {
-        if cap.provider == loom_core::proto::ProviderKind::ProviderMcp as i32 {
-            let desc = cap.metadata.get("desc").cloned().unwrap_or_default();
-            info!("  [MCP] {} - {}", cap.name, desc);
-        }
+    // List all available tools (including MCP tools)
+    let tools = loom.tool_registry.list_tools();
+    info!("Available tools:");
+    for tool in &tools {
+        info!("  {} - {}", tool.name(), tool.description());
     }
 
     // Start Loom
@@ -133,16 +130,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             qos: QoSLevel::QosRealtime as i32,
         };
 
-        match loom.action_broker.invoke(call).await {
-            Ok(result) => {
-                if result.status == loom_core::proto::ActionStatus::ActionOk as i32 {
-                    let output: serde_json::Value = serde_json::from_slice(&result.output)?;
-                    info!("MCP tool result: {}", output);
-                } else if let Some(error) = result.error {
-                    warn!("MCP tool error: {} - {}", error.code, error.message);
-                }
+        // Convert payload to JSON value for tool call
+        let args: serde_json::Value = serde_json::from_slice(&call.payload)?;
+        match loom.tool_registry.call("brave_web_search", args).await {
+            Ok(output) => {
+                info!("MCP tool result: {}", output);
             }
             Err(e) => {
+                warn!("MCP tool error: {}", e);
                 warn!("Failed to invoke MCP tool: {}", e);
             }
         }

@@ -1,7 +1,6 @@
-/// Unit tests for capability providers
-use loom_core::action_broker::CapabilityProvider;
-use loom_core::proto::{ActionCall, ActionStatus};
-use loom_core::providers::{WeatherProvider, WebSearchProvider};
+/// Unit tests for tool providers
+use loom_core::tools::native::{WeatherTool, WebSearchTool};
+use loom_core::tools::Tool;
 use serde_json::json;
 
 mod web_search {

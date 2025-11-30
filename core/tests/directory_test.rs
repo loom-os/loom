@@ -2,30 +2,33 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use loom_core::directory::AgentStatus as DirectoryAgentStatus;
-use loom_core::proto::{ActionCall, ActionResult, ActionStatus, CapabilityDescriptor};
-use loom_core::Result;
-use loom_core::{ActionBroker, AgentDirectory, AgentInfo, CapabilityDirectory, CapabilityProvider};
+use loom_core::tools::{Tool, ToolResult};
+use loom_core::{AgentDirectory, AgentInfo, CapabilityDirectory, ToolRegistry};
+use serde_json::{json, Value};
 
-struct EchoProvider;
+struct EchoTool;
 
 #[async_trait]
-impl CapabilityProvider for EchoProvider {
-    fn descriptor(&self) -> CapabilityDescriptor {
-        CapabilityDescriptor {
-            name: "echo".into(),
-            version: "v1".into(),
-            provider: loom_core::proto::ProviderKind::ProviderNative as i32,
-            metadata: std::collections::HashMap::new(),
-        }
+impl Tool for EchoTool {
+    fn name(&self) -> String {
+        "echo".to_string()
     }
 
-    async fn invoke(&self, call: ActionCall) -> Result<ActionResult> {
-        Ok(ActionResult {
-            id: call.id,
-            status: ActionStatus::ActionOk as i32,
-            output: call.payload,
-            error: None,
+    fn description(&self) -> String {
+        "Echo back the input".to_string()
+    }
+
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "message": {"type": "string"}
+            }
         })
+    }
+
+    async fn call(&self, arguments: Value) -> ToolResult<Value> {
+        Ok(arguments)
     }
 }
 
@@ -58,10 +61,10 @@ async fn agent_directory_indexing() {
 
 #[tokio::test]
 async fn capability_directory_snapshot() {
-    let broker = Arc::new(ActionBroker::new());
-    broker.register_provider(Arc::new(EchoProvider));
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register(Arc::new(EchoTool)).await;
     let cap_dir = CapabilityDirectory::new();
-    cap_dir.refresh_from_broker(&broker);
+    cap_dir.refresh_from_registry(&registry);
     let list = cap_dir.list();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].name, "echo");

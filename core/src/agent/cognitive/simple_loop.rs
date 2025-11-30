@@ -571,15 +571,15 @@ impl CognitiveLoop for SimpleCognitiveLoop {
 mod tests {
     use super::*;
 
-    // Note: Full integration tests require mocking LlmClient and ActionBroker.
+    // Note: Full integration tests require mocking LlmClient and ToolRegistry.
     // These unit tests focus on parsing and helper functions.
 
     #[test]
     fn test_parse_final_answer() {
         let config = CognitiveConfig::default();
         let llm = Arc::new(LlmClient::from_env().unwrap());
-        let broker = Arc::new(ActionBroker::new());
-        let loop_impl = SimpleCognitiveLoop::new(config, llm, broker);
+        let tools = Arc::new(ToolRegistry::new());
+        let loop_impl = SimpleCognitiveLoop::new(config, llm, tools);
 
         let text = "After considering the options, FINAL ANSWER: The capital of France is Paris.";
         match loop_impl.parse_llm_response(text) {
@@ -594,8 +594,8 @@ mod tests {
     fn test_parse_tool_call() {
         let config = CognitiveConfig::default();
         let llm = Arc::new(LlmClient::from_env().unwrap());
-        let broker = Arc::new(ActionBroker::new());
-        let loop_impl = SimpleCognitiveLoop::new(config, llm, broker);
+        let tools = Arc::new(ToolRegistry::new());
+        let loop_impl = SimpleCognitiveLoop::new(config, llm, tools);
 
         let text =
             r#"I need to check the weather. {"tool": "weather.get", "args": {"city": "Tokyo"}}"#;
@@ -616,8 +616,8 @@ mod tests {
     fn test_parse_reasoning() {
         let config = CognitiveConfig::default();
         let llm = Arc::new(LlmClient::from_env().unwrap());
-        let broker = Arc::new(ActionBroker::new());
-        let loop_impl = SimpleCognitiveLoop::new(config, llm, broker);
+        let tools = Arc::new(ToolRegistry::new());
+        let loop_impl = SimpleCognitiveLoop::new(config, llm, tools);
 
         let text = "Let me think about this problem step by step...";
         match loop_impl.parse_llm_response(text) {
@@ -632,8 +632,8 @@ mod tests {
     fn test_extract_tool_call_variants() {
         let config = CognitiveConfig::default();
         let llm = Arc::new(LlmClient::from_env().unwrap());
-        let broker = Arc::new(ActionBroker::new());
-        let loop_impl = SimpleCognitiveLoop::new(config, llm, broker);
+        let tools = Arc::new(ToolRegistry::new());
+        let loop_impl = SimpleCognitiveLoop::new(config, llm, tools);
 
         // Pattern 1: tool/args
         let tc = loop_impl
