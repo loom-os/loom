@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use loom_core::context::PromptBundle;
-use loom_core::llm::{
+use loom_core::cognitive::llm::{
     make_refine_bundle, parse_tool_calls_from_chat, parse_tool_calls_from_responses,
     NormalizedToolCall,
 };
+use loom_core::context::PromptBundle;
 use loom_core::proto::{ActionResult, ActionStatus};
 use loom_core::tools::{Tool, ToolRegistry, ToolResult};
 use loom_core::Result;
@@ -153,7 +153,7 @@ async fn test_build_and_invoke_action_call() -> Result<()> {
     let result = registry
         .call("unit.echo", json!({"k": 1}))
         .await
-        .map_err(|e| loom_core::LoomError::PluginError(e.to_string()))?;
+        .map_err(|e| loom_core::LoomError::AgentError(e.to_string()))?;
     assert_eq!(result, json!({"k": 1}));
     Ok(())
 }
@@ -167,7 +167,7 @@ async fn test_action_call_without_correlation_id() -> Result<()> {
     let result = registry
         .call("unit.echo", json!({"data": "test"}))
         .await
-        .map_err(|e| loom_core::LoomError::PluginError(e.to_string()))?;
+        .map_err(|e| loom_core::LoomError::AgentError(e.to_string()))?;
     assert_eq!(result, json!({"data": "test"}));
     Ok(())
 }

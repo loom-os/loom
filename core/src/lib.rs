@@ -2,31 +2,26 @@
 // Event-driven AI operating system runtime
 
 pub mod agent;
+pub mod cognitive; // LLM + Cognitive Loop (perceive-think-act)
 pub mod collab; // Collaboration primitives built on EventBus + Envelope
 pub mod context;
 pub mod dashboard; // Real-time event flow visualization
-pub mod directory; // Agent & Capability directories
 pub mod envelope; // Unified metadata envelope for events/actions threads
 pub mod event;
-pub mod llm;
-pub mod plugin;
-pub mod router;
-pub mod storage;
 pub mod telemetry;
 pub mod tools; // Unified tool system (Native + MCP)
 
 // Export core types
+pub use agent::directory::{AgentDirectory, AgentInfo, AgentStatus, CapabilityDirectory};
 pub use agent::{Agent, AgentRuntime, AgentState};
-pub use collab::{types as collab_types, Collaborator};
-pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
-pub use directory::{AgentDirectory, AgentInfo, AgentStatus, CapabilityDirectory};
-pub use envelope::{agent_reply_topic, Envelope, ThreadTopicKind};
-pub use event::{Event, EventBus, EventExt, EventHandler, QoSLevel};
-pub use llm::{LlmClient, LlmClientConfig, LlmResponse};
-pub use plugin::{Plugin, PluginManager};
-pub use router::{
+pub use cognitive::llm::router::{
     ConfidenceEstimator, DummyConfidenceEstimator, ModelRouter, Route, RoutingDecision,
 };
+pub use cognitive::llm::{LlmClient, LlmClientConfig, LlmResponse};
+pub use collab::{types as collab_types, Collaborator};
+pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
+pub use envelope::{agent_reply_topic, Envelope, ThreadTopicKind};
+pub use event::{Event, EventBus, EventExt, EventHandler, QoSLevel};
 pub use telemetry::{init_telemetry, shutdown_telemetry, SpanCollector, SpanData};
 pub use tools::{Tool, ToolError, ToolRegistry};
 // Re-export MCP types from tools
@@ -50,9 +45,6 @@ pub enum LoomError {
     #[error("Router error: {0}")]
     RouterError(String),
 
-    #[error("Plugin error: {0}")]
-    PluginError(String),
-
     #[error("Storage error: {0}")]
     StorageError(String),
 
@@ -69,7 +61,6 @@ pub struct Loom {
     pub event_bus: std::sync::Arc<EventBus>,
     pub agent_runtime: AgentRuntime,
     pub model_router: ModelRouter,
-    pub plugin_manager: PluginManager,
     pub tool_registry: std::sync::Arc<ToolRegistry>,
     pub mcp_manager: std::sync::Arc<tools::mcp::McpManager>,
     pub agent_directory: std::sync::Arc<AgentDirectory>,
@@ -89,7 +80,7 @@ impl Loom {
 
         // Register built-in tools
         {
-            use crate::llm::LlmGenerateProvider;
+            use crate::cognitive::llm::LlmGenerateProvider;
             use crate::tools::native::{ReadFileTool, ShellTool, WeatherTool, WebSearchTool};
             use std::sync::Arc as SyncArc;
 
@@ -140,7 +131,6 @@ impl Loom {
             )
             .await?,
             model_router,
-            plugin_manager: PluginManager::new().await?,
             event_bus,
             tool_registry,
             mcp_manager,
@@ -154,7 +144,6 @@ impl Loom {
         self.event_bus.start().await?;
         self.agent_runtime.start().await?;
         self.model_router.start().await?;
-        self.plugin_manager.start().await?;
 
         tracing::info!("Loom started successfully");
         Ok(())
@@ -164,7 +153,6 @@ impl Loom {
         tracing::info!("Shutting down Loom...");
 
         self.mcp_manager.shutdown().await;
-        self.plugin_manager.shutdown().await?;
         self.model_router.shutdown().await?;
         self.agent_runtime.shutdown().await?;
         self.event_bus.shutdown().await?;

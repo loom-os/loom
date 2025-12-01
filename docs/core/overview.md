@@ -4,7 +4,7 @@ This document summarizes the `core` crate: responsibilities, data flow, dependen
 
 ### Purpose
 
-The `core` crate implements runtime primitives for agents, routing, capability invocation, event handling, storage, and telemetry. It serves as the foundation for demos and external integrations.
+The `core` crate implements runtime primitives for agents, routing, capability invocation, event handling, context management, and telemetry. It serves as the foundation for demos and external integrations.
 
 ### Data flow (minimal closed loop)
 
@@ -34,12 +34,11 @@ graph LR
 
 - EventBus — `docs/core/event_bus.md`
 - Agent Runtime — `docs/core/agent_runtime.md`
+- Cognitive Runtime — `docs/core/cognitive_runtime.md`
 - Router — `docs/core/router.md`
-- ToolRegistry — `docs/core/tools.md`
-- Tools — `docs/core/tools.md`
+- Memory & Context — `docs/core/memory.md`
 - LLM Client — `docs/core/llm.md`
-- Plugin System — `docs/core/plugin_system.md`
-- Storage — `docs/core/storage.md`
+- Collaboration — `docs/core/collaboration.md`
 - Telemetry — `docs/core/telemetry.md`
 
 ### Routing strategy (overview)
@@ -55,10 +54,41 @@ When no route matches, a no-match decision is produced and may be published as a
 
 ### Source layout
 
-- `core/src/` — top-level modules: `event.rs`, `router.rs`, `action_broker.rs`, `storage.rs`, `telemetry.rs`, `plugin.rs`, `local_model.rs`.
-- `core/src/agent/` — `runtime.rs`, `instance.rs`, `behavior.rs`.
-- `core/src/llm/` — `adapter.rs`, `client.rs`, `provider.rs`, `tool_orchestrator.rs`.
-- `core/src/providers/` — `web_search.rs`, `weather.rs` (capability providers).
-- `core/benches/` — benchmarks and pressure tests (EventBus throughput/latency).
+```
+core/src/
+├── agent/           # Agent definitions and lifecycle
+│   ├── behavior.rs    # AgentBehavior trait
+│   ├── directory.rs   # Agent/capability discovery
+│   ├── instance.rs    # Running agent with mailbox
+│   └── runtime.rs     # Agent lifecycle manager
+│
+├── cognitive/       # LLM-powered reasoning (Perceive-Think-Act)
+│   ├── llm/           # LLM client, router, providers
+│   ├── memory_buffer.rs # Simple in-process memory
+│   ├── simple_loop.rs # Main cognitive loop implementation
+│   ├── thought.rs     # Plan, ToolCall, Observation types
+│   └── config.rs      # Thinking strategies
+│
+├── context/         # Context Engineering system
+│   ├── agent_context.rs  # High-level API for agents
+│   ├── memory/           # Storage backends (InMemory, RocksDB)
+│   ├── retrieval/        # Retrieval strategies
+│   ├── ranking/          # Context ranking
+│   ├── window/           # Token budget management
+│   ├── pipeline/         # Context orchestration
+│   └── storage.rs        # Legacy RocksDB wrapper
+│
+├── tools/           # Unified tool system
+│   ├── registry.rs    # Tool registration and invocation
+│   ├── traits.rs      # Tool trait definition
+│   ├── native/        # Built-in tools (shell, file, weather)
+│   └── mcp/           # Model Context Protocol client
+│
+├── event.rs         # EventBus with QoS levels
+├── envelope.rs      # Thread/correlation metadata
+├── collab.rs        # Multi-agent collaboration primitives
+├── dashboard/       # Real-time visualization
+└── telemetry.rs     # OpenTelemetry tracing
+```
 
 End of overview.

@@ -4,7 +4,7 @@
 //! - `AgentBehavior`: Trait for implementing agent logic
 //! - `Agent`: Running agent instance with event loop
 //! - `AgentRuntime`: Manager for agent lifecycle
-//! - `cognitive`: Perceive-Think-Act cognitive loop pattern (opt-in)
+//! - `directory`: Agent and capability discovery
 //!
 //! # Basic Agent
 //!
@@ -30,7 +30,7 @@
 //! For agents with LLM-powered reasoning, use the cognitive module:
 //!
 //! ```rust,ignore
-//! use loom_core::agent::cognitive::{SimpleCognitiveLoop, CognitiveAgent, CognitiveConfig};
+//! use loom_core::cognitive::{SimpleCognitiveLoop, CognitiveAgent, CognitiveConfig};
 //!
 //! let loop_impl = SimpleCognitiveLoop::new(config, llm, broker);
 //! let behavior = CognitiveAgent::new(loop_impl);
@@ -41,7 +41,7 @@
 pub use crate::proto::{Action, AgentConfig, AgentState};
 
 mod behavior;
-pub mod cognitive;
+pub mod directory;
 mod instance;
 mod runtime;
 

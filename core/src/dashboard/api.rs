@@ -2,11 +2,11 @@
 //
 // Provides REST endpoints and SSE streaming for the Dashboard UI
 
+use crate::agent::directory::AgentDirectory;
 use crate::dashboard::event_stream::EventBroadcaster;
 use crate::dashboard::flow_tracker::FlowTracker;
 use crate::dashboard::topology::TopologyBuilder;
 use crate::dashboard::DashboardConfig;
-use crate::directory::AgentDirectory;
 use crate::telemetry::SpanCollector;
 use axum::{
     extract::{Path, Query, State},

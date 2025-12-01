@@ -1,532 +1,341 @@
 ## Memory & Context System
 
-**Status**: Implemented — this document describes Loom's memory system with both general-purpose episodic memory and specialized agent decision tracking.
+**Status**: Implemented — this document describes Loom's memory and context systems.
 
 ---
 
 ### Overview
 
-The memory system provides two complementary capabilities:
+The memory system provides multiple layers of abstraction:
 
-1. **General-purpose memory** via `MemoryReader/Writer` traits for episodic summaries and retrieval
-2. **Agent decision memory** for plan storage, deduplication, execution tracking, and statistics
-
-Both are implemented in `InMemoryMemory` (Rust core) and exposed via gRPC Bridge to Python SDK and external agents.
+1. **MemoryStore trait** — Core storage abstraction for context items with query, batch, and indexing
+2. **InMemoryStore** — Fast in-process storage for development/testing
+3. **RocksDbStore** — Persistent storage with session, type, and time indices
+4. **AgentContext** — High-level API integrating storage, retrieval, ranking, and windowing
+5. **MemoryBuffer** — Simple in-process buffer for cognitive loop working memory
 
 ---
 
 ### Architecture
 
-#### Core Traits (General-purpose)
+#### Core Trait: MemoryStore
 
 ```rust
 #[async_trait::async_trait]
-pub trait MemoryWriter: Send + Sync {
-    async fn append_event(&self, session: &str, event: Event) -> Result<()>;
-    async fn summarize_episode(&self, session: &str) -> Result<Option<String>>;
-}
+pub trait MemoryStore: Send + Sync + 'static {
+    /// Store a single context item
+    async fn store(&self, item: ContextItem) -> Result<()>;
 
-#[async_trait::async_trait]
-pub trait MemoryReader: Send + Sync {
-    async fn retrieve(
-        &self,
-        query: &str,
-        k: usize,
-        filters: Option<serde_json::Value>,
-    ) -> Result<Vec<String>>;
+    /// Store multiple items atomically
+    async fn store_batch(&self, items: Vec<ContextItem>) -> Result<()>;
+
+    /// Get item by ID
+    async fn get(&self, id: &str) -> Result<Option<ContextItem>>;
+
+    /// Query items with filters and limits
+    async fn query(&self, query: MemoryQuery) -> Result<Vec<ContextItem>>;
+
+    /// Get related items (for future knowledge graph support)
+    async fn get_related(&self, id: &str, relation: &str) -> Result<Vec<ContextItem>>;
+
+    /// Count items matching query
+    async fn count(&self, query: MemoryQuery) -> Result<usize>;
 }
 ```
 
-These traits support:
-
-- **Episodic memory**: Event sequences and summaries scoped to sessions
-- **Simple retrieval**: Substring-based search (upgradable to semantic search)
-
-#### Agent Decision Methods (Extended API)
+#### Query API
 
 ```rust
-impl InMemoryMemory {
-    // Plan storage with deduplication
-    async fn save_plan(
-        &self,
-        session_id: &str,
-        symbol: &str,
-        action: &str,
-        confidence: f32,
-        reasoning: &str,
-        method: &str,
-    ) -> Result<String> // Returns plan_hash
-
-    // Query recent decisions
-    async fn get_recent_plans(
-        &self,
-        session_id: &str,
-        symbol: &str,
-        limit: usize,
-    ) -> Result<Vec<PlanRecord>>
-
-    // Duplicate detection
-    async fn check_duplicate(
-        &self,
-        session_id: &str,
-        symbol: &str,
-        action: &str,
-        reasoning: &str,
-        time_window_sec: u64,
-    ) -> Result<(bool, Option<PlanRecord>)>
-
-    // Execution tracking (idempotency)
-    async fn mark_executed(
-        &self,
-        session_id: &str,
-        plan_hash: &str,
-        // ... execution details
-    ) -> Result<()>
-
-    async fn check_executed(
-        &self,
-        session_id: &str,
-        plan_hash: &str,
-    ) -> Result<(bool, Option<ExecutionRecord>)>
-
-    // Statistics
-    async fn get_execution_stats(
-        &self,
-        session_id: &str,
-        symbol: &str,
-    ) -> Result<ExecutionStats>
+pub struct MemoryQuery {
+    pub session_id: Option<String>,
+    pub item_types: Option<Vec<ContextItemType>>,
+    pub since: Option<u64>,      // timestamp_ms
+    pub until: Option<u64>,      // timestamp_ms
+    pub limit: Option<usize>,
 }
+
+// Builder pattern
+let query = MemoryQuery::new()
+    .session("agent-123")
+    .types(vec![ContextItemType::ToolCall, ContextItemType::ToolResult])
+    .since(timestamp_30_min_ago)
+    .limit(50);
 ```
 
-These methods support:
+#### ContextItem Structure
 
-- **Decision deduplication**: Prevent duplicate plans within time windows
-- **Execution idempotency**: Ensure plans execute at most once
-- **Performance tracking**: Win rates, success counts, recent executions
+```rust
+pub struct ContextItem {
+    pub id: String,                    // UUID v4
+    pub item_type: ContextItemType,    // Message, ToolCall, ToolResult, etc.
+    pub content: ContextContent,       // Typed content wrapper
+    pub metadata: ContextMetadata,     // Session, trace, timestamp
+}
+
+pub enum ContextItemType {
+    Message,      // User/assistant messages
+    ToolCall,     // Tool invocation
+    ToolResult,   // Tool response
+    Observation,  // Agent observations
+    Summary,      // Compressed context
+    Document,     // Retrieved documents
+}
+```
 
 ---
 
-### Implementation: InMemoryMemory
+### Implementations
 
-#### Data Structures
-
-```rust
-pub struct InMemoryMemory {
-    // General-purpose episodic memory
-    events: Arc<DashMap<String, Vec<String>>>,        // session_id -> events
-    summaries: Arc<DashMap<String, String>>,          // session_id -> summary
-
-    // Agent decision memory
-    plans: Arc<DashMap<String, Vec<PlanRecord>>>,     // session_id -> plans (max 100)
-    executed_plans: Arc<DashMap<String, ExecutionRecord>>, // plan_hash -> execution
-}
-```
-
-**Key characteristics**:
-
-- **DashMap**: Lock-free concurrent hashmap for high-performance multi-agent access
-- **Session isolation**: All data partitioned by session_id
-- **Plan limit**: Keep last 100 plans per session (FIFO eviction)
-- **Hash-based lookups**: O(1) execution tracking via plan_hash
-
-#### Deduplication Algorithm
+#### InMemoryStore (Development/Testing)
 
 ```rust
-// 1. Generate deterministic hash
-let content = format!("{}|{}|{}", symbol, action, reasoning);
-let hash = md5::compute(content.as_bytes());
-let plan_hash = format!("{:x}", hash)[..8]; // 8-char prefix
+use loom_core::context::InMemoryStore;
 
-// 2. Check time window (default: 5 minutes)
-for existing_plan in plans {
-    if existing_plan.plan_hash == plan_hash {
-        let time_diff = current_time - existing_plan.timestamp_ms;
-        if time_diff < time_window_ms {
-            return (true, Some(existing_plan)); // Duplicate!
-        }
-    }
-}
+let store = InMemoryStore::new();
 
-// 3. Save if unique
-plans.push(new_plan);
-```
+// Store items
+store.store(item).await?;
 
-**Why MD5**:
-
-- Fast (not cryptographic security-critical)
-- Deterministic (same plan → same hash)
-- Collision-resistant enough for 8-char prefix in trading contexts
-
-#### Execution Idempotency
-
-```rust
-// Before execution
-let (already_executed, exec_info) = memory.check_executed(session, &plan_hash).await?;
-
-if already_executed {
-    log::warn!("Plan {} already executed: {:?}", plan_hash, exec_info);
-    return Ok(()); // Skip
-}
-
-// Execute order...
-let order_result = exchange.place_order(...).await?;
-
-// Mark as executed (atomic)
-memory.mark_executed(
-    session, &plan_hash, symbol, action, confidence,
-    "success", true, &order_id, order_size
+// Query by session
+let items = store.query(
+    MemoryQuery::new()
+        .session("session-1")
+        .limit(100)
 ).await?;
 ```
 
-**Guarantees**:
+**Characteristics**:
+- DashMap-based concurrent access
+- Session index for fast filtering
+- Type index for item type queries
+- Timestamp ordering
 
-- Single execution per plan_hash
-- Crash-safe with persistent memory backends (future: RocksDB)
-- Observable via execution stats
-
----
-
-### gRPC Bridge Integration
-
-#### Protobuf Service
-
-```protobuf
-service MemoryService {
-  // Agent decision memory
-  rpc SavePlan(SavePlanRequest) returns (SavePlanResponse);
-  rpc GetRecentPlans(GetRecentPlansRequest) returns (GetRecentPlansResponse);
-  rpc CheckDuplicate(CheckDuplicateRequest) returns (CheckDuplicateResponse);
-  rpc MarkExecuted(MarkExecutedRequest) returns (MarkExecutedResponse);
-  rpc CheckExecuted(CheckExecutedRequest) returns (CheckExecutedResponse);
-  rpc GetExecutionStats(GetExecutionStatsRequest) returns (GetExecutionStatsResponse);
-
-  // Legacy general-purpose memory
-  rpc Store(StoreRequest) returns (StoreResponse);
-  rpc Retrieve(RetrieveRequest) returns (RetrieveResponse);
-  rpc Summarize(SummarizeRequest) returns (SummarizeResponse);
-}
-```
-
-#### Bridge Handler
+#### RocksDbStore (Production)
 
 ```rust
-pub struct MemoryHandler {
-    memory: Arc<InMemoryMemory>,
-}
+use loom_core::context::RocksDbStore;
 
-#[tonic::async_trait]
-impl MemoryService for MemoryHandler {
-    async fn save_plan(&self, req: Request<SavePlanRequest>)
-        -> Result<Response<SavePlanResponse>, Status> {
-        // Delegate to InMemoryMemory
-        let hash = self.memory.save_plan(...).await
-            .map_err(|e| Status::internal(e.to_string()))?;
+let store = RocksDbStore::open("/path/to/db")?;
 
-        Ok(Response::new(SavePlanResponse {
-            success: true,
-            plan_hash: hash,
-            error_message: String::new(),
-        }))
-    }
+// Same API as InMemoryStore
+store.store(item).await?;
 
-    // ... other RPCs
-}
+let items = store.query(
+    MemoryQuery::new()
+        .session("session-1")
+        .since(timestamp)
+).await?;
 ```
 
-**Architecture benefits**:
-
-- Single source of truth (Rust Core)
-- Type-safe protobuf contracts
-- Cross-language support (Python, future: JS/Go)
-- Observable via gRPC interceptors/tracing
+**Characteristics**:
+- Persistent to disk
+- Column families for indices:
+  - `default`: item data (key: id, value: JSON)
+  - `session_idx`: session → item IDs
+  - `type_idx`: type → item IDs
+  - `time_idx`: timestamp → item IDs
+- Crash recovery
+- Large history support
 
 ---
 
-### Python SDK Usage
+### AgentContext: High-Level API
 
-```python
-from loom import Context
+`AgentContext` provides a unified interface combining storage, retrieval, ranking, and windowing:
 
-# Initialize with Bridge client
-ctx = Context(agent_id="planner-btc", client=bridge_client)
+```rust
+use loom_core::context::AgentContext;
 
-# Check for duplicate plans
-is_dup, dup_info = await ctx.check_duplicate_plan(
-    symbol="BTC",
-    action="BUY",
-    reasoning="Strong bullish trend detected",
-    time_window_sec=300  # 5 minutes
-)
+// Create with defaults (InMemoryStore, RecencyRetrieval, TemporalRanker)
+let ctx = AgentContext::new("session-123");
 
-if is_dup:
-    print(f"Duplicate plan from {dup_info['time_since_ms']}ms ago")
-    return
+// Or with custom store
+let store = Arc::new(RocksDbStore::open("/path/to/db")?);
+let ctx = AgentContext::with_store("session-123", store);
 
-# Save new plan
-plan_hash = await ctx.save_plan(
-    symbol="BTC",
-    action="BUY",
-    confidence=0.85,
-    reasoning="Strong bullish trend detected",
-    method="llm"
-)
+// Record conversation
+ctx.record_user_message("What's the weather?").await?;
+ctx.record_assistant_message("Let me check...").await?;
 
-# Query recent plans for context
-recent_plans = await ctx.get_recent_plans(symbol="BTC", limit=10)
-for plan in recent_plans:
-    print(f"{plan['action']} @ {plan['confidence']}: {plan['reasoning']}")
+// Record tool usage
+ctx.record_tool_call("weather", json!({"location": "NYC"})).await?;
+ctx.record_tool_result("weather", json!({"temp": 72, "condition": "sunny"})).await?;
 
-# Check execution status
-is_executed, exec_info = await ctx.check_plan_executed(plan_hash)
-
-if not is_executed:
-    # Execute and track
-    await ctx.mark_plan_executed(
-        plan_hash=plan_hash,
-        symbol="BTC",
-        action="BUY",
-        confidence=0.85,
-        status="success",
-        executed=True,
-        order_id="order-123",
-        order_size_usdt=100.0
-    )
-
-# Get statistics
-stats = await ctx.get_execution_stats("BTC")
-print(f"Win rate: {stats['win_rate']:.1%}")
-print(f"Total executions: {stats['total_executions']}")
+// Build context for LLM (with token budget)
+let context = ctx.build_context(4000).await?;
+println!("{}", context); // Formatted for LLM prompt
 ```
 
 ---
 
-### Use Case: Market Analyst Demo
+### MemoryBuffer: Working Memory
 
-#### Planner Agent
+`MemoryBuffer` provides a simple capacity-limited buffer for cognitive loop working memory:
 
-```python
-# 1. Query recent decisions for context
-recent_plans = await ctx.get_recent_plans(symbol="BTC", limit=5)
-context_lines = [
-    f"- {p['timestamp_ms']}: {p['action']} @ {p['confidence']:.2f} ({p['reasoning']})"
-    for p in recent_plans
-]
+```rust
+use loom_core::cognitive::MemoryBuffer;
 
-# 2. Get LLM decision
-prompt = f"""
-Recent BTC decisions:
-{chr(10).join(context_lines)}
+let mut buffer = MemoryBuffer::new(100); // max 100 items
 
-Current market: {market_data}
-Decide: BUY/SELL/HOLD with reasoning.
-"""
-decision = await llm_client.complete(prompt)
+// Add items (auto-evicts oldest when at capacity)
+buffer.add_user_message("Hello");
+buffer.add_agent_response("Hi there!");
+buffer.add_observation("User seems friendly");
 
-# 3. Check for duplicate
-is_dup, _ = await ctx.check_duplicate_plan(
-    symbol="BTC",
-    action=decision.action,
-    reasoning=decision.reasoning,
-    time_window_sec=300
-)
+// Get recent items
+let recent = buffer.recent(10);
 
-if is_dup:
-    logger.info("Duplicate plan, skipping")
-    return
-
-# 4. Save plan
-plan_hash = await ctx.save_plan(
-    symbol="BTC",
-    action=decision.action,
-    confidence=decision.confidence,
-    reasoning=decision.reasoning,
-    method="llm"
-)
-
-# 5. Send to Executor
-await ctx.emit_event(topic="executor.plan", data={
-    "plan_hash": plan_hash,
-    "symbol": "BTC",
-    "action": decision.action,
-    "confidence": decision.confidence
-})
+// Format for LLM prompt
+let context = buffer.to_context_string();
 ```
 
-#### Executor Agent
+**Use case**: Transient conversation state within a single cognitive loop run.
 
-```python
-# 1. Receive plan from Planner
-plan = event.data
+---
 
-# 2. Check idempotency
-is_executed, exec_info = await ctx.check_plan_executed(plan["plan_hash"])
+### Context Pipeline
 
-if is_executed:
-    logger.warning(f"Plan already executed: {exec_info}")
-    return
+The `ContextPipeline` orchestrates the full flow:
 
-# 3. Execute order
-try:
-    order = await exchange.place_order(
-        symbol=plan["symbol"],
-        side=plan["action"],
-        size=calculate_size(plan["confidence"])
-    )
-
-    # 4. Track execution
-    await ctx.mark_plan_executed(
-        plan_hash=plan["plan_hash"],
-        symbol=plan["symbol"],
-        action=plan["action"],
-        confidence=plan["confidence"],
-        status="success",
-        executed=True,
-        order_id=order.id,
-        order_size_usdt=order.size
-    )
-
-except Exception as e:
-    # 5. Track failure
-    await ctx.mark_plan_executed(
-        plan_hash=plan["plan_hash"],
-        symbol=plan["symbol"],
-        action=plan["action"],
-        confidence=plan["confidence"],
-        status="error",
-        executed=False,
-        order_id="",
-        order_size_usdt=0.0
-    )
-
-# 6. Query stats periodically
-stats = await ctx.get_execution_stats("BTC")
-logger.info(f"BTC win rate: {stats['win_rate']:.1%} ({stats['successful_executions']}/{stats['total_executions']})")
+```
+Store → Retrieve → Rank → Window → Format
 ```
 
-**Benefits**:
+```rust
+use loom_core::context::{
+    ContextPipeline, PipelineConfig,
+    RecencyRetrieval, TemporalRanker, WindowConfig,
+};
 
-- **No duplicate orders**: Planner prevents duplicate decisions
-- **Idempotent execution**: Executor prevents double-execution (e.g., on retry)
-- **Observable performance**: Real-time win rate tracking
-- **Context awareness**: Recent decisions inform future planning
+let pipeline = ContextPipeline::new(
+    store,
+    Arc::new(RecencyRetrieval::new(100)),
+    Arc::new(TemporalRanker),
+    WindowConfig::default(),
+);
+
+let result = pipeline.execute(
+    "session-123",
+    RetrievalTrigger::NewMessage,
+).await?;
+
+// result.items: ranked, windowed context items
+// result.token_count: actual token usage
+```
+
+---
+
+### Retrieval Strategies
+
+```rust
+// By recency (most recent N items)
+let retrieval = RecencyRetrieval::new(100);
+
+// By importance (high-importance items first)
+let retrieval = ImportanceRetrieval::new(50);
+
+// By type (only specific item types)
+let retrieval = TypeFilteredRetrieval::new(
+    vec![ContextItemType::ToolCall, ContextItemType::ToolResult],
+    inner_retrieval,
+);
+
+// Composite (combine multiple strategies)
+let retrieval = CompositeRetrieval::new(vec![
+    Arc::new(RecencyRetrieval::new(50)),
+    Arc::new(ImportanceRetrieval::new(50)),
+]);
+```
+
+---
+
+### Ranking Strategies
+
+```rust
+// Temporal (most recent = highest)
+let ranker = TemporalRanker;
+
+// Importance-based
+let ranker = ImportanceRanker;
+
+// Composite (weighted combination)
+let ranker = CompositeRanker::new(vec![
+    (Arc::new(TemporalRanker), 0.5),
+    (Arc::new(ImportanceRanker), 0.5),
+]);
+```
+
+---
+
+### Token Window Management
+
+```rust
+use loom_core::context::{WindowConfig, WindowManager, TiktokenCounter};
+
+let config = WindowConfig {
+    max_tokens: 4000,
+    reserve_tokens: 500,  // for response
+};
+
+let counter = TiktokenCounter::new("gpt-4");
+let manager = WindowManager::new(config, Arc::new(counter));
+
+// Trim items to fit budget
+let windowed = manager.fit_items(ranked_items)?;
+```
 
 ---
 
 ### Testing
 
-#### Core Unit Tests (`core/tests/memory_test.rs`)
+#### Core Tests (`core/tests/memory_test.rs`)
 
-- ✅ `test_save_and_retrieve_plans`: Basic plan storage and retrieval
-- ✅ `test_duplicate_detection`: Hash-based deduplication within time windows
-- ✅ `test_execution_idempotency`: Prevent double-execution
-- ✅ `test_plan_limit_enforcement`: FIFO eviction at 100 plans
-- ✅ `test_execution_stats`: Win rate calculation
-- ✅ `test_cross_session_isolation`: Session-scoped data
-- ✅ `test_duplicate_outside_time_window`: Time-based duplicate expiry
-- ✅ `test_symbol_filtering`: Symbol-specific queries
+- ✅ Store and retrieve items
+- ✅ Query by session
+- ✅ Query by type
+- ✅ Query with time range
+- ✅ Batch operations
+- ✅ Count queries
 
-**Run**: `cargo test -p loom-core --test memory_test`
+#### RocksDbStore Tests (`core/src/context/memory/persistent.rs`)
 
-#### Bridge Integration Tests (`bridge/tests/memory_service_test.rs`)
+- ✅ `test_store_and_get`: Basic round-trip
+- ✅ `test_query_by_session`: Session filtering
+- ✅ `test_count`: Count queries
+- ✅ `test_store_batch`: Atomic batch writes
+- ✅ `test_query_with_limit`: Limit enforcement
 
-- ✅ `test_memory_service_save_and_retrieve`: gRPC save/get round-trip
-- ✅ `test_memory_service_duplicate_detection`: gRPC duplicate checking
-- ✅ `test_memory_service_execution_tracking`: gRPC execution idempotency
-- ✅ `test_memory_service_execution_stats`: gRPC statistics
-- ✅ `test_memory_service_session_isolation`: Session isolation via gRPC
-
-**Run**: `cargo test -p loom-bridge --test memory_service_test -- --test-threads=1`
-
-#### Python SDK Tests (`loom-py/tests/test_memory.py`)
-
-- ✅ `test_plan_hash_consistency`: Hash generation
-- ✅ `test_save_plan_success/failure`: Plan saving with mocked gRPC
-- ✅ `test_get_recent_plans`: Plan retrieval
-- ✅ `test_check_duplicate_plan_*`: Duplicate detection
-- ✅ `test_mark_plan_executed`: Execution tracking
-- ✅ `test_check_plan_executed_*`: Execution status queries
-- ✅ `test_get_execution_stats`: Statistics retrieval
-- ✅ `test_rpc_error_handling`: Error propagation
-
-**Run**: `cd loom-py && pytest tests/test_memory.py -v`
-
-**Total**: 25 tests (8 Core + 5 Bridge + 12 Python) — all passing ✅
+**Run**: `cargo test -p loom-core store`
 
 ---
 
-### Future Enhancements
+### Migration from Legacy APIs
 
-#### 1. Persistent Memory Backends
-
-Replace `InMemoryMemory` with durable storage:
+If using the older `MemoryReader/MemoryWriter` traits:
 
 ```rust
-pub struct RocksDBMemory {
-    db: Arc<rocksdb::DB>,
-    // ... column families for plans, executions, episodes
+// Old API
+trait MemoryWriter {
+    async fn append_event(&self, session: &str, event: Event) -> Result<()>;
+    async fn summarize_episode(&self, session: &str) -> Result<Option<String>>;
 }
 
-#[async_trait]
-impl MemoryReader for RocksDBMemory { ... }
-
-#[async_trait]
-impl MemoryWriter for RocksDBMemory { ... }
+// New API - use AgentContext
+let ctx = AgentContext::new("session");
+ctx.record_event(event).await?;
+// Summarization via pipeline with Summary item type
 ```
 
-**Benefits**:
+The `ContextBuilder` (using `MemoryReader/MemoryWriter`) is being replaced by `ContextPipeline` and `AgentContext`.
 
-- Crash recovery
-- Historical analysis
-- Larger plan histories (>100 per session)
+---
 
-#### 2. Semantic Memory (Vector Search)
+### Design Principles
 
-Add embedding-based retrieval:
+1. **Everything is Retrievable**: Store raw items, compress on read
+2. **Full Traceability**: All items linked via OpenTelemetry trace_id/span_id
+3. **Tool-First**: Tool calls/results are first-class citizens
+4. **Intelligent Selection**: Dynamic windowing based on relevance + budget
+5. **Backend Flexibility**: Same API for in-memory, RocksDB, or future backends
 
-```rust
-#[async_trait]
-pub trait SemanticMemory: Send + Sync {
-    async fn embed_and_store(&self, session: &str, text: &str) -> Result<()>;
-    async fn semantic_search(&self, query: &str, k: usize) -> Result<Vec<String>>;
-}
-
-// Adapters: FAISS, Milvus, Qdrant, etc.
-```
-
-**Use cases**:
-
-- Find similar past decisions by reasoning (not just symbol/action)
-- Cross-symbol pattern matching
-- Knowledge base retrieval
-
-#### 3. Distributed Memory Service
-
-Run memory as a separate service:
-
-```
-┌─────────┐      ┌──────────────┐      ┌──────────────┐
-│ Agent   │─gRPC─│ Memory       │─────→│ Persistent   │
-│ (Python)│      │ Service      │      │ Backend      │
-└─────────┘      │ (Rust Core)  │      │ (RocksDB)    │
-                 └──────────────┘      └──────────────┘
-```
-
-**Benefits**:
-
-- Shared memory across agent processes
-- Independent scaling
-- Centralized observability
-
-#### 4. Memory Events
-
-Standardize memory operations as events:
-
-- `memory.{session_id}.plan.saved`
-- `memory.{session_id}.execution.recorded`
-- `memory.{session_id}.stats.updated`
-
-**Benefits**:
-
-- Dashboard visibility
-- Audit logging
-- Event-driven memory invalidation/refresh
+End of memory documentation.

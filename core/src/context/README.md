@@ -1,130 +1,202 @@
-# Context Module
+# Context Engineering Module
 
-Builds LLM-ready prompts from agent state and memory.
+The context module provides structured context management for AI agents, implementing
+the "Context Engineering" pattern for LLM applications.
 
 ## Overview
 
-The context layer turns recent experience and retrieval results into a PromptBundle that the LLM client can consume. It provides both **general-purpose memory** (MemoryReader/Writer for episodic summaries) and **agent-specific memory** for decision tracking, deduplication, and execution idempotency.
-
-## Key types
-
-- **TokenBudget**: max_input_tokens, max_output_tokens used to keep payloads bounded.
-- **PromptBundle**: system, instructions, optional tools_json_schema, context_docs (Vec<String>), history (Vec<String>).
-- **MemoryWriter**: append_event(session, Event) and summarize_episode(session) for episodic summaries.
-- **MemoryReader**: retrieve(query, k, filters) for simple retrieval.
-
-## Memory implementations
-
-### InMemoryMemory (General + Agent-specific)
-
-`memory.rs` provides `InMemoryMemory`, an in-process implementation supporting:
-
-1. **General-purpose memory** (MemoryReader/Writer):
-
-   - Episodic summaries per session
-   - Naive substring retrieval
-
-2. **Agent decision memory**:
-   - `save_plan()`: Store agent decisions with deduplication hashing
-   - `get_recent_plans()`: Query historical decisions for context
-   - `check_duplicate()`: Detect duplicate decisions within time windows
-   - `mark_executed()` / `check_executed()`: Track execution idempotency
-   - `get_execution_stats()`: Calculate win rates and success metrics
-
-Used in `market-analyst` demo for Planner/Executor coordination.
-
-## ContextBuilder
-
-`builder.rs` assembles a PromptBundle from the current session:
-
-- Adds a "Recent episode summary" if available via MemoryWriter::summarize_episode.
-- Adds "Retrieved context" lines from MemoryReader::retrieve using the goal string.
-- Leaves history empty at P0 (dialog-turn tracking can be added later).
-
-Trigger input:
-
-- session_id: scope for memory operations
-- goal: optional string used as the instruction and retrieval query
-- tool_hints: optional hints (reserved for future tool selection)
-- budget: TokenBudget to inform downstream budgeting
-
-## Usage
-
-### General-purpose memory (episodic summaries)
-
-```rust
-use loom_core::context::{memory::InMemoryMemory, builder::{ContextBuilder, TriggerInput}, TokenBudget};
-use std::sync::Arc;
-
-let mem = InMemoryMemory::new();
-let builder = ContextBuilder::new(Arc::clone(&mem), Arc::clone(&mem));
-
-let bundle = builder.build(TriggerInput {
-    session_id: "s1".into(),
-    goal: Some("Summarize the last interactions".into()),
-    tool_hints: vec![],
-    budget: TokenBudget::default(),
-}).await?;
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    CONTEXT PIPELINE                              │
+│                                                                  │
+│  Store ──▶ Retrieve ──▶ Rank ──▶ Window ──▶ PromptBundle        │
+│                                                                  │
+│  ┌─────────┐  ┌───────────┐  ┌────────┐  ┌────────┐            │
+│  │ Memory  │  │ Recency   │  │Temporal│  │ Token  │            │
+│  │ Store   │  │ Semantic  │  │Importnc│  │ Budget │            │
+│  └─────────┘  └───────────┘  └────────┘  └────────┘            │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Agent decision memory (Planner/Executor pattern)
+## Module Structure
 
-```rust
-use loom_core::context::memory::InMemoryMemory;
-use std::sync::Arc;
-
-let memory = Arc::new(InMemoryMemory::new());
-
-// Planner: Check for duplicates before saving
-let (is_dup, _) = memory.check_duplicate(
-    "session-1", "BTC", "BUY", "Bullish trend", 300
-).await?;
-
-if !is_dup {
-    let hash = memory.save_plan(
-        "session-1", "BTC", "BUY", 0.85, "Bullish trend", "llm"
-    ).await?;
-
-    // Pass plan_hash to Executor...
-}
-
-// Executor: Check idempotency before execution
-let (already_exec, _) = memory.check_executed("session-1", &plan_hash).await?;
-
-if !already_exec {
-    // Execute order...
-    memory.mark_executed(
-        "session-1", &plan_hash, "BTC", "BUY", 0.85,
-        "success", true, "order-123", 100.0
-    ).await?;
-}
-
-// Query statistics
-let stats = memory.get_execution_stats("session-1", "BTC").await?;
-println!("Win rate: {:.1}%", stats.win_rate * 100.0);
+```
+context/
+├── agent_context.rs    # High-level API for agents
+├── types.rs            # Core types (ContextItem, Metadata, etc.)
+├── builder.rs          # ContextBuilder for PromptBundle creation
+├── memory/             # Storage backends
+│   └── store.rs          # MemoryStore trait + InMemoryStore
+├── retrieval/          # Retrieval strategies
+│   └── strategy.rs       # RecencyRetrieval, SemanticRetrieval
+├── ranking/            # Context ranking
+│   └── ranker.rs         # TemporalRanker, ImportanceRanker
+├── window/             # Token budget management
+│   ├── manager.rs        # WindowManager
+│   └── token_counter.rs  # TiktokenCounter
+└── pipeline/           # Context orchestration
+    └── orchestrator.rs   # ContextPipeline
 ```
 
-The resulting `PromptBundle` can be passed to the LLM client which converts it into chat messages or a single fused input.
+## Key Types
 
-## Architecture
+### ContextItem
 
-- **Core Storage**: DashMap-based concurrent storage for both episodic and agent decision data
-- **Dual Interface**: Implements both legacy traits (MemoryReader/Writer) and new agent-specific methods
-- **Session Isolation**: All data partitioned by session_id for multi-agent/multi-thread safety
-- **gRPC Bridge**: Memory service exposed via Bridge for Python SDK and external agents
-- **Deduplication**: MD5-based plan hashing with configurable time windows
-- **Idempotency**: Execution tracking prevents duplicate order submissions
+The fundamental unit of context:
 
-See `docs/core/memory.md` for detailed design and implementation.
+```rust
+pub struct ContextItem {
+    pub id: String,
+    pub item_type: ContextItemType,
+    pub content: ContextContent,
+    pub metadata: ContextMetadata,
+}
 
-## Contracts and edge cases
+pub enum ContextItemType {
+    Message { role: MessageRole },
+    ToolCall { tool_name: String },
+    ToolResult { tool_name: String, success: bool },
+    Event { event_type: String },
+    Observation { source: String },
+    Document { title: String },
+}
+```
 
-- Retrieval and summaries are best-effort; missing memory simply yields an empty context_docs.
-- Budgeting is enforced later by the LLM adapter; ContextBuilder does not truncate strings.
-- History is not role-annotated in P0; when dialog tracking is added, prefer role-aware entries.
+### AgentContext
 
-## Extensibility
+High-level API for agents to record and retrieve context:
 
-- Plug in persistent MemoryReader/Writer backed by RocksDB/Vector DB.
-- Add role-aware history and tokenizer-aware budgeting.
-- Include tool/function schemas in PromptBundle for tool calling flows.
+```rust
+let ctx = AgentContext::with_defaults("session-1", "agent-1");
+
+// Record interactions
+ctx.record_message(MessageRole::User, "What's the weather?").await?;
+ctx.record_tool_call("weather.get", json!({"city": "Tokyo"})).await?;
+ctx.record_tool_result("weather.get", true, result, call_id).await?;
+ctx.record_message(MessageRole::Assistant, "It's sunny in Tokyo.").await?;
+
+// Retrieve context for LLM
+let trigger = RetrievalTrigger::new("session-1")
+    .with_goal("Continue the conversation")
+    .with_budget(TokenBudget::default());
+let bundle = ctx.get_context(trigger).await?;
+```
+
+### ContextPipeline
+
+Orchestrates the full context flow:
+
+```rust
+let pipeline = ContextPipeline::new(
+    store,           // MemoryStore implementation
+    retrieval,       // RetrievalStrategy
+    ranker,          // ContextRanker
+    window_manager,  // WindowManager
+    config,          // PipelineConfig
+);
+
+let bundle = pipeline.build_context(trigger).await?;
+```
+
+### PromptBundle
+
+LLM-ready prompt structure:
+
+```rust
+pub struct PromptBundle {
+    pub system: String,
+    pub instructions: Option<String>,
+    pub context_docs: Vec<String>,
+    pub history: Vec<String>,
+    pub tools_json_schema: Option<Value>,
+}
+```
+
+## Storage
+
+### MemoryStore Trait
+
+```rust
+#[async_trait]
+pub trait MemoryStore: Send + Sync {
+    async fn store(&self, item: ContextItem) -> Result<()>;
+    async fn get(&self, id: &str) -> Result<Option<ContextItem>>;
+    async fn query(&self, query: MemoryQuery) -> Result<Vec<ContextItem>>;
+    async fn delete(&self, id: &str) -> Result<()>;
+}
+```
+
+### Implementations
+
+| Implementation | Use Case |
+|---------------|----------|
+| `InMemoryStore` | Development, testing |
+| `RocksDbStore` | Production persistence (TODO) |
+
+## Retrieval Strategies
+
+| Strategy | Description |
+|----------|-------------|
+| `RecencyRetrieval` | Most recent N items |
+| `TypeFilteredRetrieval` | Filter by ContextItemType |
+| `ImportanceRetrieval` | Filter by importance threshold |
+| `CompositeRetrieval` | Combine multiple strategies |
+
+## Ranking
+
+| Ranker | Description |
+|--------|-------------|
+| `TemporalRanker` | Sort by timestamp (newest/oldest first) |
+| `ImportanceRanker` | Sort by importance score |
+| `CompositeRanker` | Chain multiple rankers |
+
+## Token Windowing
+
+`WindowManager` enforces token budgets:
+
+```rust
+let config = WindowConfig {
+    max_tokens: 4096,
+    per_type_budgets: hashmap! {
+        ContextItemType::Message { role: MessageRole::User } => 2048,
+        ContextItemType::ToolResult { .. } => 1024,
+    },
+    reserve_output: 1024,
+};
+
+let manager = WindowManager::new(TiktokenCounter::gpt4(), config);
+let selected = manager.select_within_budget(items)?;
+```
+
+## Integration with Cognitive Loop
+
+`SimpleCognitiveLoop` integrates `AgentContext` for automatic context recording:
+
+```rust
+let ctx = AgentContext::with_defaults("session", "agent");
+let loop_impl = SimpleCognitiveLoop::new(config, llm, tools)
+    .with_context(ctx);
+
+// Context is automatically recorded during:
+// - perceive(): Events are recorded
+// - act(): Tool calls and results are recorded
+```
+
+## Migration from WorkingMemory
+
+`cognitive/working_memory.rs` is deprecated. Use `AgentContext` instead:
+
+| WorkingMemory | AgentContext |
+|--------------|--------------|
+| `add_event(e)` | `record_event(&e).await` |
+| `add_observation(t, r)` | `record_tool_result(t, ok, r, id).await` |
+| `add_user_message(m)` | `record_message(User, m).await` |
+| `recent(n)` | `get_context(trigger).await` |
+
+## Testing
+
+```bash
+cargo test -p loom-core context::
+```
+
+All context tests (40+) are in the respective module files.

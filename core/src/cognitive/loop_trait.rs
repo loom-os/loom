@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use crate::proto::{Action, AgentState, Event};
 use crate::Result;
 
+use super::memory_buffer::MemoryBuffer;
 use super::thought::Plan;
-use super::working_memory::WorkingMemory;
 
 /// Perception result from the perceive phase
 #[derive(Debug, Clone)]
@@ -207,11 +207,11 @@ pub trait CognitiveLoop: Send + Sync {
         Ok(None)
     }
 
-    /// Access the working memory
-    fn working_memory(&self) -> &WorkingMemory;
+    /// Access the memory buffer
+    fn memory_buffer(&self) -> &MemoryBuffer;
 
-    /// Mutable access to working memory
-    fn working_memory_mut(&mut self) -> &mut WorkingMemory;
+    /// Mutable access to memory buffer
+    fn memory_buffer_mut(&mut self) -> &mut MemoryBuffer;
 
     /// Run the complete cognitive cycle
     async fn run_cycle(&mut self, event: Event, state: &mut AgentState) -> Result<ExecutionResult> {
@@ -233,8 +233,8 @@ pub trait CognitiveLoop: Send + Sync {
             );
         }
 
-        // 5. Update working memory
-        self.working_memory_mut().add_event_summary(&event);
+        // 5. Update memory buffer
+        self.memory_buffer_mut().add_event_summary(&event);
 
         Ok(result)
     }

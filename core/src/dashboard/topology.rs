@@ -2,7 +2,7 @@
 //
 // Builds agent topology graph from AgentDirectory and EventBus metrics
 
-use crate::directory::AgentDirectory;
+use crate::agent::directory::AgentDirectory;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;

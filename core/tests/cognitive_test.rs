@@ -1,11 +1,11 @@
 //! Tests for the cognitive loop module.
 
 use async_trait::async_trait;
-use loom_core::agent::cognitive::{
-    CognitiveAgent, CognitiveConfig, CognitiveLoop, ExecutionResult, MemoryItem, MemoryItemType,
-    Observation, Perception, Plan, ThinkingStrategy, Thought, ThoughtStep, ToolCall, WorkingMemory,
-};
 use loom_core::agent::AgentBehavior;
+use loom_core::cognitive::{
+    CognitiveAgent, CognitiveConfig, CognitiveLoop, ExecutionResult, MemoryBuffer, Observation,
+    Perception, Plan, ThinkingStrategy, Thought, ThoughtStep, ToolCall,
+};
 use loom_core::proto::{AgentConfig, AgentState, Event};
 use loom_core::Result;
 use serde_json::json;
@@ -56,7 +56,7 @@ fn make_test_config(agent_id: &str) -> AgentConfig {
 
 /// A mock cognitive loop that tracks calls and returns configurable responses
 struct MockCognitiveLoop {
-    memory: WorkingMemory,
+    memory: MemoryBuffer,
     perceive_count: Arc<AtomicUsize>,
     think_count: Arc<AtomicUsize>,
     act_count: Arc<AtomicUsize>,
@@ -68,7 +68,7 @@ struct MockCognitiveLoop {
 impl MockCognitiveLoop {
     fn new() -> Self {
         Self {
-            memory: WorkingMemory::new(10),
+            memory: MemoryBuffer::new(10),
             perceive_count: Arc::new(AtomicUsize::new(0)),
             think_count: Arc::new(AtomicUsize::new(0)),
             act_count: Arc::new(AtomicUsize::new(0)),
@@ -126,11 +126,11 @@ impl CognitiveLoop for MockCognitiveLoop {
         }
     }
 
-    fn working_memory(&self) -> &WorkingMemory {
+    fn memory_buffer(&self) -> &MemoryBuffer {
         &self.memory
     }
 
-    fn working_memory_mut(&mut self) -> &mut WorkingMemory {
+    fn memory_buffer_mut(&mut self) -> &mut MemoryBuffer {
         &mut self.memory
     }
 }
@@ -189,12 +189,12 @@ fn test_cognitive_config_builder() {
 }
 
 // ============================================================================
-// WorkingMemory Tests
+// MemoryBuffer Tests
 // ============================================================================
 
 #[test]
-fn test_working_memory_capacity() {
-    let mut memory = WorkingMemory::new(3);
+fn test_memory_buffer_capacity() {
+    let mut memory = MemoryBuffer::new(3);
 
     memory.add_user_message("Message 1");
     memory.add_user_message("Message 2");
@@ -211,74 +211,44 @@ fn test_working_memory_capacity() {
 }
 
 #[test]
-fn test_working_memory_types() {
-    let mut memory = WorkingMemory::new(10);
+fn test_memory_buffer_types() {
+    let mut memory = MemoryBuffer::new(10);
 
     memory.add_user_message("Hello");
     memory.add_agent_response("Hi there!");
     memory.add_observation("weather", "Sunny");
 
-    let user_msgs = memory.items_by_type(MemoryItemType::UserMessage);
-    assert_eq!(user_msgs.len(), 1);
+    assert_eq!(memory.len(), 3);
 
-    let agent_msgs = memory.items_by_type(MemoryItemType::AgentResponse);
-    assert_eq!(agent_msgs.len(), 1);
-
-    let observations = memory.items_by_type(MemoryItemType::Observation);
-    assert_eq!(observations.len(), 1);
+    let context = memory.to_context_string();
+    assert!(context.contains("User: Hello"));
+    assert!(context.contains("Assistant: Hi there!"));
+    assert!(context.contains("Tool: [weather] Sunny"));
 }
 
 #[test]
-fn test_working_memory_task_state() {
-    let mut memory = WorkingMemory::new(10);
+fn test_memory_buffer_recent() {
+    let mut memory = MemoryBuffer::new(10);
 
-    memory.set_state("iteration", "3");
-    memory.set_state("current_tool", "search");
+    memory.add_user_message("First");
+    memory.add_user_message("Second");
+    memory.add_user_message("Third");
 
-    assert_eq!(memory.get_state("iteration"), Some(&"3".to_string()));
-    assert_eq!(
-        memory.get_state("current_tool"),
-        Some(&"search".to_string())
-    );
-    assert_eq!(memory.get_state("nonexistent"), None);
-
-    memory.remove_state("iteration");
-    assert_eq!(memory.get_state("iteration"), None);
+    let recent = memory.recent(2);
+    assert_eq!(recent.len(), 2);
+    // Recent returns in reverse order (most recent first)
+    assert!(recent[0].content.contains("Third"));
+    assert!(recent[1].content.contains("Second"));
 }
 
 #[test]
-fn test_working_memory_search() {
-    let mut memory = WorkingMemory::new(10);
+fn test_memory_buffer_clear() {
+    let mut memory = MemoryBuffer::new(10);
+    memory.add_user_message("Test");
+    assert_eq!(memory.len(), 1);
 
-    memory.add_user_message("What's the weather in Tokyo?");
-    memory.add_agent_response("The weather in Tokyo is sunny.");
-    memory.add_user_message("And in Paris?");
-
-    let tokyo_results = memory.search("tokyo");
-    assert_eq!(tokyo_results.len(), 2);
-
-    let paris_results = memory.search("paris");
-    assert_eq!(paris_results.len(), 1);
-
-    let weather_results = memory.search("weather");
-    assert_eq!(weather_results.len(), 2);
-}
-
-#[test]
-fn test_working_memory_session() {
-    let memory = WorkingMemory::with_session(10, "session-123");
-    assert_eq!(memory.session_id(), Some("session-123"));
-}
-
-#[test]
-fn test_memory_item_from_event() {
-    let event = make_test_event("evt1", "Hello world");
-    let item = MemoryItem::from_event(&event);
-
-    assert_eq!(item.id, "evt1");
-    assert_eq!(item.item_type, MemoryItemType::Event);
-    assert!(item.content.contains("Hello world"));
-    assert_eq!(item.metadata.get("source"), Some(&"test".to_string()));
+    memory.clear();
+    assert!(memory.is_empty());
 }
 
 // ============================================================================
@@ -507,11 +477,8 @@ async fn test_cognitive_agent_init() {
     let config = make_test_config("cognitive_agent_1");
     agent.on_init(&config).await.unwrap();
 
-    // Session ID should be set from agent_id
-    assert_eq!(
-        agent.working_memory().session_id(),
-        Some("cognitive_agent_1")
-    );
+    // Agent should be initialized (session tracking now in AgentContext)
+    assert!(agent.memory_buffer().is_empty());
 }
 
 #[tokio::test]
@@ -526,7 +493,8 @@ async fn test_cognitive_agent_init_with_session() {
 
     agent.on_init(&config).await.unwrap();
 
-    assert_eq!(agent.working_memory().session_id(), Some("custom-session"));
+    // Session tracking is now handled by AgentContext, not MemoryBuffer
+    assert!(agent.memory_buffer().is_empty());
 }
 
 #[tokio::test]
@@ -537,13 +505,13 @@ async fn test_cognitive_agent_shutdown() {
     // Add some items to memory
     agent
         .inner_mut()
-        .working_memory_mut()
+        .memory_buffer_mut()
         .add_user_message("Test");
-    assert_eq!(agent.working_memory().len(), 1);
+    assert_eq!(agent.memory_buffer().len(), 1);
 
     // Shutdown should clear memory
     agent.on_shutdown().await.unwrap();
-    assert!(agent.working_memory().is_empty());
+    assert!(agent.memory_buffer().is_empty());
 }
 
 #[tokio::test]
@@ -564,7 +532,7 @@ async fn test_cognitive_agent_multiple_events() {
     assert_eq!(perceive_count.load(Ordering::SeqCst), 3);
 
     // Memory should have accumulated event summaries
-    assert!(agent.working_memory().len() > 0);
+    assert!(agent.memory_buffer().len() > 0);
 }
 
 // ============================================================================
@@ -584,5 +552,5 @@ async fn test_cognitive_loop_run_cycle() {
     assert_eq!(result.response, Some("Success!".to_string()));
 
     // Memory should be updated
-    assert_eq!(mock_loop.working_memory().len(), 1);
+    assert_eq!(mock_loop.memory_buffer().len(), 1);
 }

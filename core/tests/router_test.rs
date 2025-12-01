@@ -1,5 +1,5 @@
+use loom_core::cognitive::llm::router::{ConfidenceEstimator, ModelRouter, Route};
 use loom_core::proto::Event;
-use loom_core::router::{ConfidenceEstimator, ModelRouter, Route};
 use loom_core::Result;
 use std::sync::Arc;
 
