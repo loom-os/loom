@@ -2,7 +2,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use tokio::time::{timeout, Duration, Instant};
 
-use crate::{envelope::keys, envelope::ThreadTopicKind, Envelope, Event, EventBus, Result};
+use crate::{
+    messaging::envelope::keys, messaging::ThreadTopicKind, Envelope, Event, EventBus, Result,
+};
 
 /// Control event type names used on Event.r#type for collaboration protocols
 pub mod types {

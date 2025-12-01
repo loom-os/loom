@@ -127,10 +127,10 @@ impl Default for MetricsCollector {
 /// # Example
 ///
 /// ```no_run
-/// use loom_core::telemetry::init_telemetry;
+/// use loom_core::telemetry::{init_telemetry, shutdown_telemetry};
 ///
 /// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///     // Initialize telemetry and get SpanCollector
 ///     let span_collector = init_telemetry()?;
 ///

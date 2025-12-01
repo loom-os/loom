@@ -65,6 +65,7 @@ pub enum AgentStatus {
 ///     subscribed_topics: vec!["tasks".to_string()],
 ///     capabilities: vec!["translate".to_string()],
 ///     metadata: HashMap::new(),
+///     ..Default::default()
 /// };
 /// dir.register_agent(info);
 ///
@@ -112,6 +113,7 @@ impl AgentDirectory {
     ///         m.insert("region".to_string(), "us-west".to_string());
     ///         m
     ///     },
+    ///     ..Default::default()
     /// };
     /// dir.register_agent(info);
     /// ```
@@ -169,6 +171,7 @@ impl AgentDirectory {
     ///     subscribed_topics: vec!["tasks".to_string()],
     ///     capabilities: vec![],
     ///     metadata: HashMap::new(),
+    ///     ..Default::default()
     /// };
     /// dir.register_agent(info);
     /// assert_eq!(dir.by_topic("tasks").len(), 1);
@@ -215,6 +218,7 @@ impl AgentDirectory {
     ///     subscribed_topics: vec![],
     ///     capabilities: vec!["translate".to_string()],
     ///     metadata: HashMap::new(),
+    ///     ..Default::default()
     /// };
     /// dir.register_agent(info);
     ///
@@ -253,6 +257,7 @@ impl AgentDirectory {
     ///         subscribed_topics: vec!["notifications".to_string()],
     ///         capabilities: vec![],
     ///         metadata: HashMap::new(),
+    ///     ..Default::default()
     ///     });
     /// }
     ///
@@ -292,6 +297,7 @@ impl AgentDirectory {
     ///     subscribed_topics: vec![],
     ///     capabilities: vec!["translate".to_string(), "summarize".to_string()],
     ///     metadata: HashMap::new(),
+    ///     ..Default::default()
     /// });
     ///
     /// let translators = dir.by_capability("translate");
@@ -326,6 +332,7 @@ impl AgentDirectory {
     ///     subscribed_topics: vec![],
     ///     capabilities: vec![],
     ///     metadata: HashMap::new(),
+    ///     ..Default::default()
     /// });
     ///
     /// dir.register_agent(AgentInfo {
@@ -333,6 +340,7 @@ impl AgentDirectory {
     ///     subscribed_topics: vec![],
     ///     capabilities: vec![],
     ///     metadata: HashMap::new(),
+    ///     ..Default::default()
     /// });
     ///
     /// let all_agents = dir.all();
@@ -363,8 +371,7 @@ impl AgentDirectory {
     ///     subscribed_topics: vec![],
     ///     capabilities: vec![],
     ///     metadata: HashMap::new(),
-    ///     last_heartbeat: None,
-    ///     status: AgentStatus::Active,
+    ///     ..Default::default()
     /// });
     ///
     /// dir.update_heartbeat("agent-1");
@@ -403,8 +410,7 @@ impl AgentDirectory {
     ///     subscribed_topics: vec![],
     ///     capabilities: vec![],
     ///     metadata: HashMap::new(),
-    ///     last_heartbeat: None,
-    ///     status: AgentStatus::Active,
+    ///     ..Default::default()
     /// });
     ///
     /// dir.update_status("agent-1", AgentStatus::Idle);
@@ -427,9 +433,9 @@ impl AgentDirectory {
 ///
 /// # Snapshot Model
 ///
-/// The directory uses a snapshot model: call `refresh_from_broker()` to update
-/// the internal cache from the ActionBroker's current state. Queries operate on
-/// this cached snapshot, not live broker state.
+/// The directory uses a snapshot model: call `refresh_from_registry()` to update
+/// the internal cache from the ToolRegistry's current state. Queries operate on
+/// this cached snapshot, not live registry state.
 ///
 /// # Thread Safety
 ///
@@ -438,13 +444,14 @@ impl AgentDirectory {
 /// # Examples
 ///
 /// ```
-/// use loom_core::{CapabilityDirectory, ActionBroker};
+/// use std::sync::Arc;
+/// use loom_core::{CapabilityDirectory, ToolRegistry};
 ///
-/// let broker = ActionBroker::new();
+/// let registry = Arc::new(ToolRegistry::new());
 /// let dir = CapabilityDirectory::new();
 ///
-/// // Refresh snapshot from broker
-/// dir.refresh_from_broker(&broker);
+/// // Refresh snapshot from registry
+/// dir.refresh_from_registry(&registry);
 ///
 /// // Query capabilities
 /// let all = dir.list();
@@ -509,17 +516,18 @@ impl CapabilityDirectory {
     /// # Returns
     ///
     /// Vector of all capability descriptors in the snapshot. Empty if no capabilities
-    /// are registered or if `refresh_from_broker()` was never called.
+    /// are registered or if `refresh_from_registry()` was never called.
     ///
     /// # Examples
     ///
     /// ```
-    /// use loom_core::{CapabilityDirectory, ActionBroker};
+    /// use std::sync::Arc;
+    /// use loom_core::{CapabilityDirectory, ToolRegistry};
     ///
-    /// let broker = ActionBroker::new();
+    /// let registry = Arc::new(ToolRegistry::new());
     /// let dir = CapabilityDirectory::new();
     ///
-    /// dir.refresh_from_broker(&broker);
+    /// dir.refresh_from_registry(&registry);
     /// let all_capabilities = dir.list();
     /// println!("Available capabilities: {}", all_capabilities.len());
     /// ```
@@ -544,12 +552,13 @@ impl CapabilityDirectory {
     /// # Examples
     ///
     /// ```
-    /// use loom_core::{CapabilityDirectory, ActionBroker};
+    /// use std::sync::Arc;
+    /// use loom_core::{CapabilityDirectory, ToolRegistry};
     ///
-    /// let broker = ActionBroker::new();
+    /// let registry = Arc::new(ToolRegistry::new());
     /// let dir = CapabilityDirectory::new();
     ///
-    /// dir.refresh_from_broker(&broker);
+    /// dir.refresh_from_registry(&registry);
     ///
     /// // Find all versions of "translate" capability
     /// let translate_versions = dir.find_by_name("translate");
@@ -583,12 +592,13 @@ impl CapabilityDirectory {
     /// # Examples
     ///
     /// ```
-    /// use loom_core::{CapabilityDirectory, ActionBroker};
+    /// use std::sync::Arc;
+    /// use loom_core::{CapabilityDirectory, ToolRegistry};
     ///
-    /// let broker = ActionBroker::new();
+    /// let registry = Arc::new(ToolRegistry::new());
     /// let dir = CapabilityDirectory::new();
     ///
-    /// dir.refresh_from_broker(&broker);
+    /// dir.refresh_from_registry(&registry);
     ///
     /// if let Some(cap) = dir.get("translate", "2.1.0") {
     ///     println!("Found: {} v{}", cap.name, cap.version);

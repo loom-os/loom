@@ -135,7 +135,7 @@ impl AgentRuntime {
 
         // Auto-subscribe to private agent reply topic
         // This enables point-to-point agent communication
-        let private_reply_topic = crate::envelope::agent_reply_topic(&agent_id);
+        let private_reply_topic = crate::messaging::agent_reply_topic(&agent_id);
         {
             let (sub_id, mut rx) = self
                 .event_bus
@@ -222,7 +222,7 @@ impl AgentRuntime {
         info!(
             "Created agent {} with private reply topic {}",
             agent_id,
-            crate::envelope::agent_reply_topic(&agent_id)
+            crate::messaging::agent_reply_topic(&agent_id)
         );
 
         Ok(agent_id)
@@ -276,13 +276,13 @@ impl AgentRuntime {
     /// # Examples
     ///
     /// ```no_run
-    /// # use loom_core::{AgentRuntime, EventBus, ActionBroker, ModelRouter};
+    /// # use loom_core::{AgentRuntime, EventBus, ToolRegistry, ModelRouter};
     /// # use std::sync::Arc;
     /// # async fn example() -> loom_core::Result<()> {
     /// let event_bus = Arc::new(EventBus::new().await?);
-    /// let action_broker = Arc::new(ActionBroker::new());
+    /// let tool_registry = Arc::new(ToolRegistry::new());
     /// let model_router = ModelRouter::new().await?;
-    /// let runtime = AgentRuntime::new(event_bus, action_broker, model_router).await?;
+    /// let runtime = AgentRuntime::new(event_bus, tool_registry, model_router).await?;
     ///
     /// // Agent joins a thread mid-conversation
     /// runtime.subscribe_agent("agent-1", "thread.task-123.broadcast".to_string()).await?;
@@ -352,13 +352,13 @@ impl AgentRuntime {
     /// # Examples
     ///
     /// ```no_run
-    /// # use loom_core::{AgentRuntime, EventBus, ActionBroker, ModelRouter};
+    /// # use loom_core::{AgentRuntime, EventBus, ToolRegistry, ModelRouter};
     /// # use std::sync::Arc;
     /// # async fn example() -> loom_core::Result<()> {
     /// # let event_bus = Arc::new(EventBus::new().await?);
-    /// # let action_broker = Arc::new(ActionBroker::new());
+    /// # let tool_registry = Arc::new(ToolRegistry::new());
     /// # let model_router = ModelRouter::new().await?;
-    /// let runtime = AgentRuntime::new(event_bus, action_broker, model_router).await?;
+    /// let runtime = AgentRuntime::new(event_bus, tool_registry, model_router).await?;
     ///
     /// // Agent leaves a thread
     /// runtime.unsubscribe_agent("agent-1", "thread.task-123.broadcast").await?;

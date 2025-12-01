@@ -1,5 +1,5 @@
 use crate::utils::{gen_id, now_ms};
-use loom_core::{event::EventBus, proto::Event, QoSLevel, Result};
+use loom_core::{messaging::EventBus, proto::Event, QoSLevel, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task::JoinHandle;

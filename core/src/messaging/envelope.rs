@@ -78,7 +78,7 @@ impl ThreadTopicKind {
     /// # Examples
     ///
     /// ```
-    /// use loom_core::envelope::ThreadTopicKind;
+    /// use loom_core::ThreadTopicKind;
     ///
     /// let broadcast = ThreadTopicKind::Broadcast.topic("task-123");
     /// assert_eq!(broadcast, "thread.task-123.broadcast");

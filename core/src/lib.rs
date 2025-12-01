@@ -3,32 +3,50 @@
 
 pub mod agent;
 pub mod cognitive; // LLM + Cognitive Loop (perceive-think-act)
-pub mod collab; // Collaboration primitives built on EventBus + Envelope
-pub mod context;
+pub mod context; // Context Engineering system
 pub mod dashboard; // Real-time event flow visualization
-pub mod envelope; // Unified metadata envelope for events/actions threads
-pub mod event;
+pub mod messaging; // Event Bus, Envelope, Collab
 pub mod telemetry;
 pub mod tools; // Unified tool system (Native + MCP)
 
-// Export core types
+// Export agent types
 pub use agent::directory::{AgentDirectory, AgentInfo, AgentStatus, CapabilityDirectory};
-pub use agent::{Agent, AgentRuntime, AgentState};
+pub use agent::{Agent, AgentBehavior, AgentRuntime};
+
+// Export agent state from proto
+pub use proto::{AgentConfig, AgentState};
+
+// Export cognitive types
 pub use cognitive::llm::router::{
     ConfidenceEstimator, DummyConfidenceEstimator, ModelRouter, Route, RoutingDecision,
 };
 pub use cognitive::llm::{LlmClient, LlmClientConfig, LlmResponse};
-pub use collab::{types as collab_types, Collaborator};
+pub use cognitive::{
+    CognitiveAgent, CognitiveConfig, CognitiveLoop, MemoryBuffer, SimpleCognitiveLoop,
+    ThinkingStrategy,
+};
+
+// Export context types
 pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
-pub use envelope::{agent_reply_topic, Envelope, ThreadTopicKind};
-pub use event::{Event, EventBus, EventExt, EventHandler, QoSLevel};
-pub use telemetry::{init_telemetry, shutdown_telemetry, SpanCollector, SpanData};
-pub use tools::{Tool, ToolError, ToolRegistry};
-// Re-export MCP types from tools
+pub use context::{AgentContext, ContextPipeline, InMemoryStore, MemoryStore, RocksDbStore};
+
+// Export messaging types
+pub use messaging::collab::{types as collab_types, Collaborator};
+pub use messaging::{
+    agent_reply_topic, Envelope, EventBus, EventBusStats, EventExt, EventHandler, ThreadTopicKind,
+};
+
+// Export tool types
 pub use tools::mcp::{McpClient, McpManager, McpToolAdapter};
+pub use tools::{Tool, ToolError, ToolRegistry};
+
+// Export telemetry
+pub use telemetry::{init_telemetry, shutdown_telemetry, SpanCollector, SpanData};
+
+// Re-export proto types (Event, QoSLevel, etc.)
+pub use proto::{Event, QoSLevel};
 
 // Generated proto code
-// Re-export proto types from the shared crate so existing paths `crate::proto::...` continue to work.
 pub use loom_proto as proto;
 
 // Error types
@@ -68,14 +86,9 @@ pub struct Loom {
 
 impl Loom {
     pub async fn new() -> Result<Self> {
-        // Note: OpenTelemetry should be initialized BEFORE creating Loom
-        // by calling telemetry::init_telemetry() in your main function.
-        // This ensures the global tracing subscriber is set up correctly.
-
         let event_bus = std::sync::Arc::new(EventBus::new().await?);
         let tool_registry = std::sync::Arc::new(ToolRegistry::new());
         let agent_directory = std::sync::Arc::new(AgentDirectory::new());
-        // Initialize router first so we can pass a clone to the agent runtime
         let model_router = ModelRouter::new().await?;
 
         // Register built-in tools
@@ -93,14 +106,11 @@ impl Loom {
                 );
             }
 
-            // Register native tools
-            // TODO: Get workspace root from config
             let workspace_root = std::env::current_dir().unwrap_or_default();
             tool_registry
                 .register(SyncArc::new(ReadFileTool::new(workspace_root)))
                 .await;
 
-            // Shell tool with limited commands for safety
             tool_registry
                 .register(SyncArc::new(ShellTool::new(vec![
                     "ls".to_string(),
@@ -118,7 +128,6 @@ impl Loom {
                 .await;
         }
 
-        // Initialize MCP manager
         let mcp_manager = std::sync::Arc::new(tools::mcp::McpManager::new(std::sync::Arc::clone(
             &tool_registry,
         )));
@@ -140,26 +149,20 @@ impl Loom {
 
     pub async fn start(&mut self) -> Result<()> {
         tracing::info!("Starting Loom...");
-
         self.event_bus.start().await?;
         self.agent_runtime.start().await?;
         self.model_router.start().await?;
-
         tracing::info!("Loom started successfully");
         Ok(())
     }
 
     pub async fn shutdown(&mut self) -> Result<()> {
         tracing::info!("Shutting down Loom...");
-
         self.mcp_manager.shutdown().await;
         self.model_router.shutdown().await?;
         self.agent_runtime.shutdown().await?;
         self.event_bus.shutdown().await?;
-
-        // Shutdown OpenTelemetry (flushes pending telemetry)
         telemetry::shutdown_telemetry();
-
         tracing::info!("Loom shut down successfully");
         Ok(())
     }

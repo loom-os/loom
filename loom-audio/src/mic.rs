@@ -7,7 +7,7 @@
 //!   cargo run -p loom-core --example mic_capture --features mic
 use crate::utils::{gen_id, now_ms};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use loom_core::{event::EventBus, proto::Event, LoomError, Result};
+use loom_core::{messaging::EventBus, proto::Event, LoomError, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
