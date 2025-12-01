@@ -3,8 +3,8 @@
 // Shows how to run Loom Core with Dashboard enabled
 
 use loom_core::{
+    agent::directory::AgentDirectory,
     dashboard::{DashboardConfig, DashboardServer, EventBroadcaster, FlowTracker},
-    directory::AgentDirectory,
     event::{Event, EventBus, EventExt, QoSLevel},
 };
 use std::sync::Arc;
@@ -54,11 +54,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
 
     // Register some example agents
-    let planner_info = loom_core::directory::AgentInfo {
+    let planner_info = loom_core::agent::directory::AgentInfo {
         agent_id: "planner".to_string(),
         subscribed_topics: vec!["agent.task".to_string(), "thread.*.broadcast".to_string()],
         capabilities: vec!["plan.create".to_string()],
-        status: loom_core::directory::AgentStatus::Active,
+        status: loom_core::agent::directory::AgentStatus::Active,
         last_heartbeat: Some(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -70,11 +70,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     agent_directory.register_agent(planner_info);
 
-    agent_directory.register_agent(loom_core::directory::AgentInfo {
+    agent_directory.register_agent(loom_core::agent::directory::AgentInfo {
         agent_id: "researcher".to_string(),
         subscribed_topics: vec!["agent.research".to_string()],
         capabilities: vec!["web.search".to_string()],
-        status: loom_core::directory::AgentStatus::Active,
+        status: loom_core::agent::directory::AgentStatus::Active,
         last_heartbeat: Some(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -84,11 +84,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         metadata: Default::default(),
     });
 
-    agent_directory.register_agent(loom_core::directory::AgentInfo {
+    agent_directory.register_agent(loom_core::agent::directory::AgentInfo {
         agent_id: "writer".to_string(),
         subscribed_topics: vec!["agent.write".to_string()],
         capabilities: vec!["content.generate".to_string()],
-        status: loom_core::directory::AgentStatus::Active,
+        status: loom_core::agent::directory::AgentStatus::Active,
         last_heartbeat: Some(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

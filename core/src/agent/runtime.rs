@@ -5,8 +5,8 @@ use opentelemetry::metrics::{Counter, UpDownCounter};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
+use crate::cognitive::llm::router::ModelRouter;
 use crate::proto::AgentConfig;
-use crate::router::ModelRouter;
 use crate::tools::ToolRegistry;
 use crate::{proto, Event, EventBus, LoomError, Result};
 

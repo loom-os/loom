@@ -1,13 +1,16 @@
-//! LLM module: HTTP client, prompt adapter, and capability provider
+//! LLM module: HTTP client, model routing, prompt adapter, and capability provider
 //!
 //! This module provides:
 //! - `LlmClientConfig`, `LlmClient`, `LlmResponse` for talking to OpenAI-compatible backends
+//! - `ModelRouter` for intelligent model selection and routing
 //! - `promptbundle_to_messages_and_text` adapter for turning `PromptBundle` into payloads
 //! - `LlmGenerateProvider` capability provider registered as `llm.generate`
+//! - `ToolOrchestrator` for multi-step tool execution
 
 mod adapter;
 mod client;
 mod provider;
+pub mod router;
 mod tool_orchestrator;
 
 pub use adapter::promptbundle_to_messages_and_text;

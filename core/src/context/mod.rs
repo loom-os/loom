@@ -9,6 +9,9 @@
 //! - **Memory**: Storage and retrieval of context items
 //! - **Retrieval**: Strategies for finding relevant context
 //! - **Ranking**: Strategies for ordering context by relevance
+//! - **Window**: Token budget management
+//! - **Pipeline**: Orchestration of full retrieval→ranking→windowing flow
+//! - **AgentContext**: High-level API for agents
 //! - **Builder**: Legacy prompt bundle builder (will be replaced by pipeline)
 //!
 //! # Design Principles
@@ -18,6 +21,7 @@
 //! 3. **Tool-First**: Tool calls and results are first-class citizens
 //! 4. **Intelligent Selection**: Dynamic context windowing based on relevance
 
+pub mod agent_context;
 pub mod builder;
 pub mod memory;
 pub mod pipeline;
@@ -42,6 +46,8 @@ pub use ranking::{CompositeRanker, ContextRanker, ImportanceRanker, TemporalRank
 pub use window::{TiktokenCounter, TokenCounter, WindowConfig, WindowManager};
 
 pub use pipeline::{ContextPipeline, PipelineConfig, PipelineResult};
+
+pub use agent_context::AgentContext;
 
 use serde::{Deserialize, Serialize};
 

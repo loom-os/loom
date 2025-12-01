@@ -1,5 +1,5 @@
+use loom_core::cognitive::llm::{LlmClient, LlmClientConfig};
 use loom_core::context::{PromptBundle, TokenBudget};
-use loom_core::llm::{LlmClient, LlmClientConfig};
 use loom_core::Result;
 use serde_json::json;
 use serial_test::serial;
@@ -81,7 +81,8 @@ fn adapter_builds_messages_from_bundle() {
         max_output_tokens: 128,
     };
 
-    let (messages, fused) = loom_core::llm::promptbundle_to_messages_and_text(&bundle, budget);
+    let (messages, fused) =
+        loom_core::cognitive::llm::promptbundle_to_messages_and_text(&bundle, budget);
 
     // Should have at least system and user messages
     assert!(!messages.is_empty());
@@ -111,7 +112,8 @@ fn adapter_respects_token_budget() {
         max_output_tokens: 32,
     };
 
-    let (_messages, fused) = loom_core::llm::promptbundle_to_messages_and_text(&bundle, budget);
+    let (_messages, fused) =
+        loom_core::cognitive::llm::promptbundle_to_messages_and_text(&bundle, budget);
 
     // Fused text should be significantly truncated from the original 4000 chars
     // The adapter should have dropped history and truncated instructions
@@ -136,7 +138,8 @@ fn adapter_handles_empty_bundle() {
     };
     let budget = TokenBudget::default();
 
-    let (messages, fused) = loom_core::llm::promptbundle_to_messages_and_text(&bundle, budget);
+    let (messages, fused) =
+        loom_core::cognitive::llm::promptbundle_to_messages_and_text(&bundle, budget);
 
     // Empty bundle produces empty outputs
     assert!(
@@ -165,7 +168,8 @@ fn adapter_includes_tools_schema_when_provided() {
     };
     let budget = TokenBudget::default();
 
-    let (_messages, fused) = loom_core::llm::promptbundle_to_messages_and_text(&bundle, budget);
+    let (_messages, fused) =
+        loom_core::cognitive::llm::promptbundle_to_messages_and_text(&bundle, budget);
 
     // Fused text should mention tools
     assert!(

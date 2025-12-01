@@ -1,4 +1,19 @@
-// Plugin system implementation
+//! Plugin system implementation
+//!
+//! **DEPRECATED**: Use `tools::Tool` trait and `tools::ToolRegistry` instead.
+//!
+//! The unified tool system provides:
+//! - `tools::Tool` - Standard tool trait with describe/validate/execute
+//! - `tools::ToolRegistry` - Dynamic tool registration and discovery
+//! - `tools::mcp::McpManager` - External tool protocol support
+//!
+//! Migration guide:
+//! - `Plugin::handle_event()` → `Tool::execute()`
+//! - `PluginManager::register_plugin()` → `ToolRegistry::register()`
+//! - `PluginManager::call_plugin()` → `ToolRegistry::invoke()`
+
+#![allow(deprecated)] // Allow deprecated usage within this module
+
 use crate::{Event, LoomError, Result};
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -8,6 +23,9 @@ use tracing::{info, warn};
 pub use crate::proto::{PluginMeta, PluginResponse, PluginType};
 
 /// Plugin trait
+///
+/// **Deprecated**: Use `tools::Tool` instead.
+#[deprecated(since = "0.2.0", note = "Use tools::Tool trait instead")]
 #[async_trait]
 pub trait Plugin: Send + Sync {
     async fn init(&mut self, meta: PluginMeta) -> Result<()>;

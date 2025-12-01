@@ -5,10 +5,10 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
-use crate::proto::{Action, AgentConfig, AgentState};
-use crate::router::{
+use crate::cognitive::llm::router::{
     AgentContext, ModelRouter, PrivacyLevel, Route, RoutingDecision, RoutingPolicy,
 };
+use crate::proto::{Action, AgentConfig, AgentState};
 use crate::tools::ToolRegistry;
 use crate::{Envelope, Event, EventBus, Result};
 

@@ -1,7 +1,14 @@
 //! Simple implementation of the CognitiveLoop trait.
 //!
 //! This provides a ready-to-use cognitive loop that integrates with
-//! the LLM client and ActionBroker for tool use.
+//! the LLM client and ToolRegistry for tool use.
+//!
+//! # Context Engineering
+//!
+//! This loop integrates with the `context` module for intelligent context management:
+//! - Automatically records user messages, LLM responses, and tool calls
+//! - Uses `AgentContext` for unified context retrieval
+//! - Supports both new `AgentContext` and legacy `WorkingMemory`
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -10,8 +17,8 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::{debug, info, warn};
 
-use crate::context::PromptBundle;
-use crate::llm::LlmClient;
+use super::llm::LlmClient;
+use crate::context::{AgentContext, PromptBundle};
 use crate::proto::{AgentState, Event};
 use crate::tools::ToolRegistry;
 use crate::Result;
@@ -24,25 +31,27 @@ use super::working_memory::WorkingMemory;
 /// A simple implementation of the CognitiveLoop trait.
 ///
 /// This implementation provides:
-/// - Context building from working memory
+/// - Context building from AgentContext (or legacy WorkingMemory)
 /// - LLM-based thinking with optional tool use
-/// - Tool execution via ActionBroker
+/// - Tool execution via ToolRegistry
 /// - Support for SingleShot and ReAct strategies
+/// - Automatic context recording for messages, tools, and observations
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// use loom_core::agent::cognitive::{SimpleCognitiveLoop, CognitiveConfig, CognitiveAgent};
+/// use loom_core::cognitive::{SimpleCognitiveLoop, CognitiveConfig, CognitiveAgent};
+/// use loom_core::context::AgentContext;
 /// use loom_core::llm::LlmClient;
-/// use loom_core::ActionBroker;
 /// use std::sync::Arc;
 ///
 /// let config = CognitiveConfig::react();
 /// let llm = Arc::new(LlmClient::from_env()?);
-/// let broker = Arc::new(ActionBroker::new());
+/// let tools = Arc::new(ToolRegistry::new());
+/// let context = Arc::new(AgentContext::with_defaults("session-1", "agent-1"));
 ///
-/// let loop_impl = SimpleCognitiveLoop::new(config, llm, broker);
-/// let behavior = CognitiveAgent::new(loop_impl);
+/// let loop_impl = SimpleCognitiveLoop::new(config, llm, tools)
+///     .with_context(context);
 /// ```
 pub struct SimpleCognitiveLoop {
     /// Configuration
@@ -54,7 +63,10 @@ pub struct SimpleCognitiveLoop {
     /// ToolRegistry for tool execution
     tools: Arc<ToolRegistry>,
 
-    /// Working memory for this agent
+    /// Context manager for recording and retrieval (new)
+    context: Option<Arc<AgentContext>>,
+
+    /// Working memory for this agent (legacy, deprecated)
     memory: WorkingMemory,
 
     /// Correlation ID for tracing
@@ -70,8 +82,20 @@ impl SimpleCognitiveLoop {
             llm,
             tools,
             memory,
+            context: None,
             correlation_id: None,
         }
+    }
+
+    /// Set the AgentContext for context recording
+    ///
+    /// When set, the cognitive loop will automatically record:
+    /// - Incoming events during perceive()
+    /// - User messages and assistant responses during think()
+    /// - Tool calls and results during act()
+    pub fn with_context(mut self, context: AgentContext) -> Self {
+        self.context = Some(Arc::new(context));
+        self
     }
 
     /// Set the correlation ID for tracing
@@ -323,6 +347,11 @@ impl CognitiveLoop for SimpleCognitiveLoop {
             "Perceiving event"
         );
 
+        // Record incoming event in context if available
+        if let Some(ref context) = self.context {
+            context.record_event(&event).await.ok();
+        }
+
         // Build base perception from event
         let mut perception = Perception::from_event(event);
 
@@ -445,7 +474,30 @@ impl CognitiveLoop for SimpleCognitiveLoop {
                         "Executing tool"
                     );
 
+                    // Record tool call in context if available
+                    let call_id = if let Some(ref context) = self.context {
+                        context
+                            .record_tool_call(&tool_call.name, tool_call.arguments.clone())
+                            .await
+                            .ok()
+                    } else {
+                        None
+                    };
+
                     let observation = self.execute_tool(tool_call).await;
+
+                    // Record tool result in context if available
+                    if let Some(ref context) = self.context {
+                        context
+                            .record_tool_result(
+                                &tool_call.name,
+                                observation.success,
+                                serde_json::json!({ "output": &observation.output }),
+                                call_id,
+                            )
+                            .await
+                            .ok();
+                    }
 
                     // Add to working memory
                     if observation.success {
@@ -652,5 +704,36 @@ mod tests {
             .extract_tool_call(r#"{"name": "translate", "input": {"text": "hello"}}"#)
             .unwrap();
         assert_eq!(tc.name, "translate");
+    }
+
+    #[test]
+    fn test_with_context_builder() {
+        let config = CognitiveConfig::default();
+        let llm = Arc::new(LlmClient::from_env().unwrap());
+        let tools = Arc::new(ToolRegistry::new());
+
+        // Without context
+        let loop1 = SimpleCognitiveLoop::new(config.clone(), llm.clone(), tools.clone());
+        assert!(loop1.context.is_none());
+
+        // With context
+        let context = AgentContext::with_defaults("test-session", "test-agent");
+        let loop2 = SimpleCognitiveLoop::new(config, llm, tools).with_context(context);
+        assert!(loop2.context.is_some());
+    }
+
+    #[test]
+    fn test_with_correlation_id() {
+        let config = CognitiveConfig::default();
+        let llm = Arc::new(LlmClient::from_env().unwrap());
+        let tools = Arc::new(ToolRegistry::new());
+
+        let loop_impl = SimpleCognitiveLoop::new(config, llm, tools)
+            .with_correlation_id("test-correlation-123");
+
+        assert_eq!(
+            loop_impl.correlation_id,
+            Some("test-correlation-123".to_string())
+        );
     }
 }

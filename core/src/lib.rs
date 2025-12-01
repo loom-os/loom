@@ -2,31 +2,30 @@
 // Event-driven AI operating system runtime
 
 pub mod agent;
+pub mod cognitive; // LLM + Cognitive Loop (perceive-think-act)
 pub mod collab; // Collaboration primitives built on EventBus + Envelope
 pub mod context;
 pub mod dashboard; // Real-time event flow visualization
-pub mod directory; // Agent & Capability directories
 pub mod envelope; // Unified metadata envelope for events/actions threads
 pub mod event;
-pub mod llm;
 pub mod plugin;
-pub mod router;
 pub mod storage;
 pub mod telemetry;
 pub mod tools; // Unified tool system (Native + MCP)
 
 // Export core types
+pub use agent::directory::{AgentDirectory, AgentInfo, AgentStatus, CapabilityDirectory};
 pub use agent::{Agent, AgentRuntime, AgentState};
-pub use collab::{types as collab_types, Collaborator};
-pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
-pub use directory::{AgentDirectory, AgentInfo, AgentStatus, CapabilityDirectory};
-pub use envelope::{agent_reply_topic, Envelope, ThreadTopicKind};
-pub use event::{Event, EventBus, EventExt, EventHandler, QoSLevel};
-pub use llm::{LlmClient, LlmClientConfig, LlmResponse};
-pub use plugin::{Plugin, PluginManager};
-pub use router::{
+pub use cognitive::llm::router::{
     ConfidenceEstimator, DummyConfidenceEstimator, ModelRouter, Route, RoutingDecision,
 };
+pub use cognitive::llm::{LlmClient, LlmClientConfig, LlmResponse};
+pub use collab::{types as collab_types, Collaborator};
+pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
+pub use envelope::{agent_reply_topic, Envelope, ThreadTopicKind};
+pub use event::{Event, EventBus, EventExt, EventHandler, QoSLevel};
+#[allow(deprecated)]
+pub use plugin::{Plugin, PluginManager};
 pub use telemetry::{init_telemetry, shutdown_telemetry, SpanCollector, SpanData};
 pub use tools::{Tool, ToolError, ToolRegistry};
 // Re-export MCP types from tools
@@ -89,7 +88,7 @@ impl Loom {
 
         // Register built-in tools
         {
-            use crate::llm::LlmGenerateProvider;
+            use crate::cognitive::llm::LlmGenerateProvider;
             use crate::tools::native::{ReadFileTool, ShellTool, WeatherTool, WebSearchTool};
             use std::sync::Arc as SyncArc;
 

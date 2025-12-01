@@ -1,11 +1,11 @@
 //! Tests for the cognitive loop module.
 
 use async_trait::async_trait;
-use loom_core::agent::cognitive::{
+use loom_core::agent::AgentBehavior;
+use loom_core::cognitive::{
     CognitiveAgent, CognitiveConfig, CognitiveLoop, ExecutionResult, MemoryItem, MemoryItemType,
     Observation, Perception, Plan, ThinkingStrategy, Thought, ThoughtStep, ToolCall, WorkingMemory,
 };
-use loom_core::agent::AgentBehavior;
 use loom_core::proto::{AgentConfig, AgentState, Event};
 use loom_core::Result;
 use serde_json::json;

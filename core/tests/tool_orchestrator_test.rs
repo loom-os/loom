@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use loom_core::context::PromptBundle;
-use loom_core::llm::{
+use loom_core::cognitive::llm::{
     make_refine_bundle, parse_tool_calls_from_chat, parse_tool_calls_from_responses,
     NormalizedToolCall,
 };
+use loom_core::context::PromptBundle;
 use loom_core::proto::{ActionResult, ActionStatus};
 use loom_core::tools::{Tool, ToolRegistry, ToolResult};
 use loom_core::Result;

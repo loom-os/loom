@@ -6,10 +6,10 @@
 //! - TopologyBuilder: Agent topology snapshot generation
 //! - DashboardConfig: Configuration management
 
+use loom_core::agent::directory::AgentDirectory;
 use loom_core::dashboard::{
     DashboardConfig, DashboardEvent, DashboardEventType, EventBroadcaster, FlowTracker, NodeType,
 };
-use loom_core::directory::AgentDirectory;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 
@@ -381,13 +381,13 @@ async fn topology_builder_single_agent() {
     let directory = Arc::new(AgentDirectory::new());
     let builder = loom_core::dashboard::TopologyBuilder::new(directory.clone());
 
-    let agent_info = loom_core::directory::AgentInfo {
+    let agent_info = loom_core::agent::directory::AgentInfo {
         agent_id: "test_agent".to_string(),
         subscribed_topics: vec!["topic.one".to_string()],
         capabilities: vec!["cap.one".to_string()],
         metadata: std::collections::HashMap::new(),
         last_heartbeat: None,
-        status: loom_core::directory::AgentStatus::Active,
+        status: loom_core::agent::directory::AgentStatus::Active,
     };
 
     directory.register_agent(agent_info);
@@ -406,23 +406,23 @@ async fn topology_builder_multiple_agents_creates_edges() {
     let builder = loom_core::dashboard::TopologyBuilder::new(directory.clone());
 
     // Agent A subscribes to topic.shared
-    directory.register_agent(loom_core::directory::AgentInfo {
+    directory.register_agent(loom_core::agent::directory::AgentInfo {
         agent_id: "agent_a".to_string(),
         subscribed_topics: vec!["topic.shared".to_string()],
         capabilities: vec![],
         metadata: std::collections::HashMap::new(),
         last_heartbeat: None,
-        status: loom_core::directory::AgentStatus::Active,
+        status: loom_core::agent::directory::AgentStatus::Active,
     });
 
     // Agent B subscribes to topic.shared
-    directory.register_agent(loom_core::directory::AgentInfo {
+    directory.register_agent(loom_core::agent::directory::AgentInfo {
         agent_id: "agent_b".to_string(),
         subscribed_topics: vec!["topic.shared".to_string()],
         capabilities: vec![],
         metadata: std::collections::HashMap::new(),
         last_heartbeat: None,
-        status: loom_core::directory::AgentStatus::Active,
+        status: loom_core::agent::directory::AgentStatus::Active,
     });
 
     let snapshot = builder.build_snapshot().await;
@@ -440,7 +440,7 @@ async fn topology_builder_handles_multiple_topics() {
     let directory = Arc::new(AgentDirectory::new());
     let builder = loom_core::dashboard::TopologyBuilder::new(directory.clone());
 
-    directory.register_agent(loom_core::directory::AgentInfo {
+    directory.register_agent(loom_core::agent::directory::AgentInfo {
         agent_id: "multi_topic_agent".to_string(),
         subscribed_topics: vec![
             "topic.one".to_string(),
@@ -450,7 +450,7 @@ async fn topology_builder_handles_multiple_topics() {
         capabilities: vec!["cap.a".to_string(), "cap.b".to_string()],
         metadata: std::collections::HashMap::new(),
         last_heartbeat: None,
-        status: loom_core::directory::AgentStatus::Active,
+        status: loom_core::agent::directory::AgentStatus::Active,
     });
 
     let snapshot = builder.build_snapshot().await;

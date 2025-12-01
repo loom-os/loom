@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use loom_core::directory::AgentStatus as DirectoryAgentStatus;
+use loom_core::agent::directory::AgentStatus as DirectoryAgentStatus;
 use loom_core::tools::{Tool, ToolResult};
 use loom_core::{AgentDirectory, AgentInfo, CapabilityDirectory, ToolRegistry};
 use serde_json::{json, Value};

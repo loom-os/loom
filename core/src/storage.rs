@@ -1,4 +1,14 @@
-// Storage layer implementation (RocksDB)
+//! Storage layer implementation (RocksDB)
+//!
+//! **DEPRECATED**: This module will be replaced by `context::memory::persistent`.
+//!
+//! The context engineering system provides a more structured approach to storage:
+//! - `context::memory::MemoryStore` - Unified storage trait
+//! - `context::memory::InMemoryStore` - Development/testing
+//! - `context::memory::RocksDbStore` - Production persistence (TODO)
+//!
+//! New code should use the context memory system instead.
+
 use crate::{LoomError, Result};
 use rocksdb::{Options, DB};
 use serde::{de::DeserializeOwned, Serialize};
