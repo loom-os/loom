@@ -8,8 +8,6 @@ pub mod context;
 pub mod dashboard; // Real-time event flow visualization
 pub mod envelope; // Unified metadata envelope for events/actions threads
 pub mod event;
-pub mod plugin;
-pub mod storage;
 pub mod telemetry;
 pub mod tools; // Unified tool system (Native + MCP)
 
@@ -24,8 +22,6 @@ pub use collab::{types as collab_types, Collaborator};
 pub use context::{builder::ContextBuilder, PromptBundle, TokenBudget};
 pub use envelope::{agent_reply_topic, Envelope, ThreadTopicKind};
 pub use event::{Event, EventBus, EventExt, EventHandler, QoSLevel};
-#[allow(deprecated)]
-pub use plugin::{Plugin, PluginManager};
 pub use telemetry::{init_telemetry, shutdown_telemetry, SpanCollector, SpanData};
 pub use tools::{Tool, ToolError, ToolRegistry};
 // Re-export MCP types from tools
@@ -48,9 +44,6 @@ pub enum LoomError {
 
     #[error("Router error: {0}")]
     RouterError(String),
-
-    #[error("Plugin error: {0}")]
-    PluginError(String),
 
     #[error("Storage error: {0}")]
     StorageError(String),

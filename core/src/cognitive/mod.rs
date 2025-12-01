@@ -49,17 +49,17 @@ pub mod llm;
 mod agent_adapter;
 mod config;
 mod loop_trait;
+mod memory_buffer;
 mod simple_loop;
 mod thought;
-mod working_memory;
 
 // Core cognitive types
 pub use agent_adapter::CognitiveAgent;
 pub use config::{CognitiveConfig, ThinkingStrategy};
 pub use loop_trait::{CognitiveLoop, ExecutionResult, Perception};
+pub use memory_buffer::{MemoryBuffer, MemoryItem, MemoryItemType};
 pub use simple_loop::SimpleCognitiveLoop;
 pub use thought::{Observation, Plan, Thought, ThoughtStep, ToolCall};
-pub use working_memory::{MemoryItem, MemoryItemType, WorkingMemory};
 
 // Re-export key LLM types for convenience
 pub use llm::router::{ModelRouter, Route, RoutingDecision};

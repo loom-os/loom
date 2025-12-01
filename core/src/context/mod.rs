@@ -27,6 +27,7 @@ pub mod memory;
 pub mod pipeline;
 pub mod ranking;
 pub mod retrieval;
+pub mod storage;
 pub mod types;
 pub mod window;
 
@@ -34,7 +35,7 @@ pub use types::{
     ContextContent, ContextItem, ContextItemType, ContextMetadata, MemoryQuery, MessageRole,
 };
 
-pub use memory::{InMemoryStore, MemoryStore};
+pub use memory::{InMemoryStore, MemoryStore, RocksDbStore};
 
 pub use retrieval::{
     CompositeRetrieval, ImportanceRetrieval, RecencyRetrieval, RetrievalStrategy, RetrievalTrigger,

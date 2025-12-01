@@ -8,7 +8,7 @@
 //! This loop integrates with the `context` module for intelligent context management:
 //! - Automatically records user messages, LLM responses, and tool calls
 //! - Uses `AgentContext` for unified context retrieval
-//! - Supports both new `AgentContext` and legacy `WorkingMemory`
+//! - Supports both new `AgentContext` and simple `MemoryBuffer`
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -25,13 +25,13 @@ use crate::Result;
 
 use super::config::{CognitiveConfig, ThinkingStrategy};
 use super::loop_trait::{CognitiveLoop, ExecutionResult, Perception};
+use super::memory_buffer::MemoryBuffer;
 use super::thought::{Observation, Plan, ThoughtStep, ToolCall};
-use super::working_memory::WorkingMemory;
 
 /// A simple implementation of the CognitiveLoop trait.
 ///
 /// This implementation provides:
-/// - Context building from AgentContext (or legacy WorkingMemory)
+/// - Context building from AgentContext (or simple MemoryBuffer)
 /// - LLM-based thinking with optional tool use
 /// - Tool execution via ToolRegistry
 /// - Support for SingleShot and ReAct strategies
@@ -66,8 +66,8 @@ pub struct SimpleCognitiveLoop {
     /// Context manager for recording and retrieval (new)
     context: Option<Arc<AgentContext>>,
 
-    /// Working memory for this agent (legacy, deprecated)
-    memory: WorkingMemory,
+    /// Memory buffer for this agent (simple in-process storage)
+    memory: MemoryBuffer,
 
     /// Correlation ID for tracing
     correlation_id: Option<String>,
@@ -76,7 +76,7 @@ pub struct SimpleCognitiveLoop {
 impl SimpleCognitiveLoop {
     /// Create a new SimpleCognitiveLoop
     pub fn new(config: CognitiveConfig, llm: Arc<LlmClient>, tools: Arc<ToolRegistry>) -> Self {
-        let memory = WorkingMemory::new(config.memory_window_size);
+        let memory = MemoryBuffer::new(config.memory_window_size);
         Self {
             config,
             llm,
@@ -610,11 +610,11 @@ impl CognitiveLoop for SimpleCognitiveLoop {
         }
     }
 
-    fn working_memory(&self) -> &WorkingMemory {
+    fn memory_buffer(&self) -> &MemoryBuffer {
         &self.memory
     }
 
-    fn working_memory_mut(&mut self) -> &mut WorkingMemory {
+    fn memory_buffer_mut(&mut self) -> &mut MemoryBuffer {
         &mut self.memory
     }
 }

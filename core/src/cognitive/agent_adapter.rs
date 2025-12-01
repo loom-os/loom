@@ -55,9 +55,9 @@ impl<L: CognitiveLoop> CognitiveAgent<L> {
         &mut self.loop_impl
     }
 
-    /// Access the working memory
-    pub fn working_memory(&self) -> &super::WorkingMemory {
-        self.loop_impl.working_memory()
+    /// Access the memory buffer
+    pub fn memory_buffer(&self) -> &super::MemoryBuffer {
+        self.loop_impl.memory_buffer()
     }
 }
 
@@ -92,24 +92,15 @@ impl<L: CognitiveLoop + 'static> AgentBehavior for CognitiveAgent<L> {
         Ok(result.into_actions())
     }
 
-    async fn on_init(&mut self, config: &AgentConfig) -> Result<()> {
+    async fn on_init(&mut self, _config: &AgentConfig) -> Result<()> {
         tracing::info!(
             target = "cognitive",
-            agent_id = %config.agent_id,
+            agent_id = %_config.agent_id,
             "Initializing cognitive agent"
         );
 
-        // Set session ID in working memory if available
-        if let Some(session) = config.parameters.get("session_id") {
-            self.loop_impl
-                .working_memory_mut()
-                .set_session_id(session.clone());
-        } else {
-            // Use agent_id as default session
-            self.loop_impl
-                .working_memory_mut()
-                .set_session_id(&config.agent_id);
-        }
+        // Note: Session tracking is now handled by AgentContext
+        // Memory buffer is a simple in-process cache
 
         self.initialized = true;
         Ok(())
@@ -118,8 +109,8 @@ impl<L: CognitiveLoop + 'static> AgentBehavior for CognitiveAgent<L> {
     async fn on_shutdown(&mut self) -> Result<()> {
         tracing::info!(target = "cognitive", "Shutting down cognitive agent");
 
-        // Clear working memory on shutdown
-        self.loop_impl.working_memory_mut().clear();
+        // Clear memory buffer on shutdown
+        self.loop_impl.memory_buffer_mut().clear();
 
         Ok(())
     }
