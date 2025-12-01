@@ -1,377 +1,194 @@
-# Cognitive Loop Module
+# Cognitive Module
 
-The cognitive loop module provides a structured **Perceive → Think → Act** pattern for building intelligent agents with LLM-powered reasoning.
+LLM-powered reasoning for intelligent agents using the Perceive-Think-Act pattern.
 
 ## Overview
 
-This module sits on top of the existing `AgentRuntime` and `AgentBehavior` abstractions, providing an opt-in cognitive architecture. Agents can continue to use the simple `AgentBehavior` trait for reactive behavior, or adopt the `CognitiveLoop` pattern for more sophisticated reasoning.
-
 ```
-                    ┌─────────────────────────────────────────────────┐
-                    │               COGNITIVE LOOP                     │
-                    │                                                  │
-   Event ──────▶   │  ┌──────────┐   ┌──────────┐   ┌──────────┐     │
-                    │  │ PERCEIVE │──▶│  THINK   │──▶│   ACT    │──────────▶ Actions
-                    │  │          │   │          │   │          │     │
-                    │  │ Context  │   │ LLM +    │   │ Execute  │     │
-                    │  │ Builder  │   │ Planning │   │ Tools    │     │
-                    │  └──────────┘   └──────────┘   └──────────┘     │
-                    │        │              │              │          │
-                    │        ▼              ▼              ▼          │
-                    │  ┌──────────────────────────────────────────┐   │
-                    │  │              WORKING MEMORY               │   │
-                    │  └──────────────────────────────────────────┘   │
-                    │                       │                         │
-                    │                       ▼                         │
-                    │              ┌──────────────┐                   │
-                    │              │   REFLECT    │ (optional)        │
-                    │              └──────────────┘                   │
-                    └─────────────────────────────────────────────────┘
+Event ──▶ [PERCEIVE] ──▶ [THINK] ──▶ [ACT] ──▶ Actions
+              │            │          │
+              ▼            ▼          ▼
+         AgentContext   LLM+Router  ToolRegistry
 ```
 
-## Key Components
+## Module Structure
 
-### CognitiveConfig
+```
+cognitive/
+├── llm/                # LLM subsystem
+│   ├── client.rs         # HTTP client for LLM APIs
+│   ├── router.rs         # Model routing (local/cloud)
+│   ├── provider.rs       # Provider abstraction
+│   ├── adapter.rs        # LLM as Tool adapter
+│   └── tool_orchestrator.rs  # Tool call parsing
+│
+├── simple_loop.rs      # Main CognitiveLoop implementation
+├── loop_trait.rs       # CognitiveLoop trait definition
+├── config.rs           # CognitiveConfig + ThinkingStrategy
+├── thought.rs          # Plan, ToolCall, Observation types
+├── agent_adapter.rs    # CognitiveAgent (adapts to AgentBehavior)
+└── working_memory.rs   # DEPRECATED: Use context/agent_context.rs
+```
 
-Configuration for cognitive agents:
+## Quick Start
 
 ```rust
-use loom_core::agent::cognitive::{CognitiveConfig, ThinkingStrategy};
+use loom_core::cognitive::{SimpleCognitiveLoop, CognitiveAgent, CognitiveConfig};
+use loom_core::context::AgentContext;
 
-// Quick presets
-let config = CognitiveConfig::single_shot();  // One LLM call, no tools
-let config = CognitiveConfig::react();         // ReAct pattern with tools
-let config = CognitiveConfig::chain_of_thought(); // Step-by-step reasoning
-
-// Custom configuration
-let config = CognitiveConfig::react()
-    .with_system_prompt("You are a helpful trading assistant")
-    .with_max_iterations(10)
-    .with_reflection()
-    .with_memory_window(50);
-```
-
-**Configuration Options:**
-
-| Option               | Default      | Description                                |
-| -------------------- | ------------ | ------------------------------------------ |
-| `thinking_strategy`  | `SingleShot` | `SingleShot`, `ReAct`, or `ChainOfThought` |
-| `max_iterations`     | 5            | Max think-act cycles (for ReAct)           |
-| `enable_reflection`  | false        | Enable self-evaluation after acting        |
-| `memory_window_size` | 20           | Items to keep in working memory            |
-| `tool_timeout_ms`    | 30,000       | Timeout for each tool invocation           |
-| `refine_after_tools` | true         | Do a refinement LLM call after tools       |
-| `max_tools_exposed`  | 32           | Max tools to expose to the LLM             |
-
-### CognitiveLoop Trait
-
-The core trait defining the cognitive cycle:
-
-```rust
-#[async_trait]
-pub trait CognitiveLoop: Send + Sync {
-    /// Perceive: Process incoming event and build context
-    async fn perceive(&mut self, event: Event, state: &AgentState) -> Result<Perception>;
-
-    /// Think: Reason about the perception and create a plan
-    async fn think(&mut self, perception: &Perception) -> Result<Plan>;
-
-    /// Act: Execute the plan and produce results
-    async fn act(&mut self, plan: &Plan, state: &mut AgentState) -> Result<ExecutionResult>;
-
-    /// Reflect: Optional self-evaluation (default: no-op)
-    async fn reflect(&mut self, ...) -> Result<Option<String>>;
-
-    /// Access working memory
-    fn working_memory(&self) -> &WorkingMemory;
-    fn working_memory_mut(&mut self) -> &mut WorkingMemory;
-
-    /// Run the complete cognitive cycle (provided default implementation)
-    async fn run_cycle(&mut self, event: Event, state: &mut AgentState) -> Result<ExecutionResult>;
-}
-```
-
-### SimpleCognitiveLoop
-
-A ready-to-use implementation that integrates with `LlmClient` and `ActionBroker`:
-
-```rust
-use loom_core::agent::cognitive::{SimpleCognitiveLoop, CognitiveAgent, CognitiveConfig};
-use loom_core::llm::LlmClient;
-use loom_core::ActionBroker;
-use std::sync::Arc;
-
-// Create the cognitive loop
+// Create cognitive loop with context
 let config = CognitiveConfig::react();
-let llm = Arc::new(LlmClient::from_env()?);
-let broker = Arc::new(ActionBroker::new());
-
-let loop_impl = SimpleCognitiveLoop::new(config, llm, broker)
-    .with_correlation_id("session-123");
+let ctx = AgentContext::with_defaults("session-1", "agent-1");
+let loop_impl = SimpleCognitiveLoop::new(config, llm, tools)
+    .with_context(ctx);
 
 // Wrap as AgentBehavior
 let behavior = CognitiveAgent::new(loop_impl);
 
 // Use with AgentRuntime
-let agent_config = AgentConfig {
-    agent_id: "cognitive-agent-1".to_string(),
-    agent_type: "cognitive".to_string(),
-    subscribed_topics: vec!["user.messages".to_string()],
-    capabilities: vec![],
-    parameters: Default::default(),
-};
-
 runtime.create_agent(agent_config, Box::new(behavior)).await?;
 ```
 
-### WorkingMemory
+## CognitiveConfig
 
-Short-term memory for the cognitive cycle:
+| Option | Default | Description |
+|--------|---------|-------------|
+| `thinking_strategy` | SingleShot | SingleShot, ReAct, or ChainOfThought |
+| `max_iterations` | 5 | Max think-act cycles (ReAct) |
+| `enable_reflection` | false | Self-evaluation after acting |
+| `memory_window_size` | 20 | Items in working memory |
+| `tool_timeout_ms` | 30,000 | Tool execution timeout |
+| `refine_after_tools` | true | Refinement LLM call after tools |
+| `max_tools_exposed` | 32 | Max tools to expose to LLM |
 
-```rust
-use loom_core::agent::cognitive::{WorkingMemory, MemoryItem, MemoryItemType};
-
-let mut memory = WorkingMemory::new(20); // capacity of 20 items
-
-// Add different types of items
-memory.add_user_message("What's the weather?");
-memory.add_agent_response("Let me check...");
-memory.add_observation("weather.get", "Sunny, 25°C");
-
-// Search memory
-let results = memory.search("weather");
-
-// Task state (key-value pairs)
-memory.set_state("current_step", "2");
-let step = memory.get_state("current_step");
-
-// Get context for LLM
-let context = memory.to_context_string();
-```
-
-### Plan and Thought Structures
-
-Structured representation of reasoning:
+**Presets:**
 
 ```rust
-use loom_core::agent::cognitive::{Plan, ThoughtStep, ToolCall, Observation};
-use serde_json::json;
-
-// Build a plan
-let mut plan = Plan::with_goal("Get weather in Tokyo");
-
-// Add a tool call step
-let tool = ToolCall::new("weather.get", json!({"city": "Tokyo"}));
-plan.add_step(ThoughtStep::with_tool(1, "I should check the weather API", tool));
-
-// Execute and add observation
-// ... (observation added by act phase)
-
-// Check status
-if plan.has_pending_tools() {
-    // Execute pending tool calls
-}
-
-// Complete the plan
-plan.complete_with_answer("The weather in Tokyo is sunny, 25°C");
+CognitiveConfig::single_shot()     // One LLM call, no tools
+CognitiveConfig::react()           // ReAct pattern with tools
+CognitiveConfig::chain_of_thought() // Step-by-step reasoning
 ```
 
-## Thinking Strategies
+## ThinkingStrategy
 
-### SingleShot
+| Strategy | Description | Use Case |
+|----------|-------------|----------|
+| SingleShot | One LLM call | Simple Q&A, no tools |
+| ReAct | Iterative reasoning + tools | Complex tasks with tool use |
+| ChainOfThought | Multi-step reasoning | Complex reasoning without tools |
 
-One LLM call, no tool use. Best for simple Q&A:
-
-```
-Event → Perceive → Think (1 LLM call) → Act → Done
-```
-
-### ReAct (Reason + Act)
-
-Iterative reasoning with tool use:
-
-```
-Event → Perceive → Think → Act (tool) → Observe → Think → Act → ... → Done
-```
-
-The LLM is prompted to output:
-
-- **Thought**: Reasoning about what to do
-- **Action**: Tool call as JSON `{"tool": "name", "args": {...}}`
-- **FINAL ANSWER**: When done reasoning
-
-### ChainOfThought
-
-Step-by-step reasoning without explicit tool use:
-
-```
-Event → Perceive → Think (step 1) → Think (step 2) → ... → Act → Done
-```
-
-## Custom Cognitive Loops
-
-Implement your own cognitive loop for custom behavior:
+## CognitiveLoop Trait
 
 ```rust
-use loom_core::agent::cognitive::{
-    CognitiveLoop, Perception, Plan, ExecutionResult, WorkingMemory
-};
-
-struct MyCustomLoop {
-    memory: WorkingMemory,
-    // ... your custom fields
-}
-
 #[async_trait]
-impl CognitiveLoop for MyCustomLoop {
-    async fn perceive(&mut self, event: Event, state: &AgentState) -> Result<Perception> {
-        // Custom perception logic
-        // e.g., parse structured data, query external systems
-        Ok(Perception::from_event(event))
+pub trait CognitiveLoop: Send + Sync {
+    /// Process event and build context
+    async fn perceive(&mut self, event: Event, state: &AgentState) -> Result<Perception>;
+
+    /// Reason about perception, create plan
+    async fn think(&mut self, perception: &Perception) -> Result<Plan>;
+
+    /// Execute plan, produce results
+    async fn act(&mut self, plan: &Plan, state: &mut AgentState) -> Result<ExecutionResult>;
+
+    /// Optional self-evaluation
+    async fn reflect(&mut self, result: &ExecutionResult) -> Result<Option<Thought>> {
+        Ok(None)
     }
 
-    async fn think(&mut self, perception: &Perception) -> Result<Plan> {
-        // Custom planning logic
-        // e.g., rule-based, hierarchical planning, custom LLM integration
-        Ok(Plan::final_answer(
-            perception.goal.clone().unwrap_or_default(),
-            "My custom answer",
-        ))
-    }
-
-    async fn act(&mut self, plan: &Plan, state: &mut AgentState) -> Result<ExecutionResult> {
-        // Custom action execution
-        // e.g., API calls, database updates, event publishing
-        Ok(ExecutionResult::with_response("Done"))
-    }
-
-    fn working_memory(&self) -> &WorkingMemory { &self.memory }
-    fn working_memory_mut(&mut self) -> &mut WorkingMemory { &mut self.memory }
+    /// Access working memory (deprecated)
+    fn working_memory(&self) -> &WorkingMemory;
 }
 ```
 
-## Integration with Existing Systems
+## SimpleCognitiveLoop
 
-### With AgentRuntime
+Default implementation with:
 
-The `CognitiveAgent` adapter implements `AgentBehavior`, so cognitive agents work seamlessly with the existing runtime:
-
-```rust
-// Create cognitive agent
-let loop_impl = SimpleCognitiveLoop::new(config, llm, broker);
-let behavior = CognitiveAgent::new(loop_impl);
-
-// Use with AgentRuntime just like any other agent
-let agent_id = runtime.create_agent(config, Box::new(behavior)).await?;
-
-// Dynamic subscription works
-runtime.subscribe_agent(&agent_id, "new.topic".to_string()).await?;
-
-// Deletion works
-runtime.delete_agent(&agent_id).await?;
-```
-
-### With ToolOrchestrator
-
-`SimpleCognitiveLoop` uses `ActionBroker` directly. For more sophisticated tool orchestration, you can integrate with `ToolOrchestrator`:
+- **Perceive**: Records event in AgentContext, builds Perception
+- **Think**: Calls LLM with context, parses response for tool calls or final answer
+- **Act**: Executes tool calls via ToolRegistry, records results in AgentContext
 
 ```rust
-use loom_core::llm::ToolOrchestrator;
-
-// In your custom CognitiveLoop implementation:
-let orchestrator = ToolOrchestrator::new(llm.clone(), broker.clone());
-let result = orchestrator.run(&bundle, Some(budget), options, correlation_id).await?;
+let loop_impl = SimpleCognitiveLoop::new(config, llm, tools)
+    .with_context(AgentContext::with_defaults("s1", "a1"))
+    .with_correlation_id("trace-123");
 ```
 
-### With Memory Systems
+## LLM Subsystem
 
-Working memory is ephemeral. For persistent memory, integrate with the context module:
+### LlmClient
 
 ```rust
-use loom_core::context::{ContextBuilder, MemoryReader, MemoryWriter, InMemoryMemory};
-
-// Use InMemoryMemory for episodic memory
-let memory = InMemoryMemory::new();
-
-// In perceive phase, query long-term memory
-let context = memory.retrieve(query, k, None).await?;
-
-// In act phase, store important information
-memory.append_event(session_id, event).await?;
+let client = LlmClient::from_env()?;  // Uses LLM_* env vars
+let response = client.generate(&prompt_bundle, Some(4096)).await?;
 ```
 
-## Observability
+### ModelRouter
 
-The cognitive loop emits tracing spans for each phase:
-
-```
-cognitive_cycle
-├── cognitive.perceive
-│   └── event_id, event_type, goal, context_items, tools
-├── cognitive.think
-│   └── strategy, iterations, steps, has_pending_tools
-├── cognitive.act
-│   └── pending_tools, goal_achieved, tool executions
-└── cognitive.reflect (optional)
-    └── reflection text
-```
-
-Enable with standard Loom telemetry:
+Routes requests based on:
+- Privacy policy (local-only, sensitive, public)
+- Model capabilities
+- Cost and latency constraints
 
 ```rust
-use loom_core::telemetry::init_telemetry;
-
-init_telemetry("my-cognitive-agent")?;
+let router = ModelRouter::new().await?;
+let decision = router.route(&context, &task).await?;
+match decision.route {
+    Route::Local => { /* use local model */ }
+    Route::Cloud => { /* use cloud API */ }
+    Route::Hybrid => { /* split sensitive/non-sensitive */ }
+}
 ```
 
-## Best Practices
-
-1. **Choose the right strategy**: Use `SingleShot` for simple tasks, `ReAct` for complex multi-step reasoning with tools.
-
-2. **Tune iterations**: Set `max_iterations` based on task complexity. Too low may truncate reasoning; too high wastes tokens.
-
-3. **Use reflection sparingly**: Enable `enable_reflection` only for critical agents where self-evaluation is valuable.
-
-4. **Manage memory size**: Balance `memory_window_size` between context richness and token limits.
-
-5. **Customize system prompts**: Use `with_system_prompt()` to give agents specific personas or constraints.
-
-6. **Implement custom loops**: For specialized behavior, implement `CognitiveLoop` directly rather than using `SimpleCognitiveLoop`.
-
-## Example: Market Analysis Agent
+## Thought Types
 
 ```rust
-use loom_core::agent::cognitive::{SimpleCognitiveLoop, CognitiveAgent, CognitiveConfig};
+pub struct Plan {
+    pub goal: String,
+    pub steps: Vec<ThoughtStep>,
+    pub complete: bool,
+}
 
-// Configure for market analysis
-let config = CognitiveConfig::react()
-    .with_system_prompt(
-        "You are a market analyst. Analyze market data and provide trading recommendations. \
-         Use available tools to fetch real-time data. Be precise and data-driven."
-    )
-    .with_max_iterations(5)
-    .with_reflection(); // Enable self-evaluation of recommendations
+pub struct ThoughtStep {
+    pub step_number: usize,
+    pub reasoning: String,
+    pub tool_call: Option<ToolCall>,
+    pub observation: Option<Observation>,
+}
 
-let loop_impl = SimpleCognitiveLoop::new(config, llm, broker);
-let behavior = CognitiveAgent::new(loop_impl);
+pub struct ToolCall {
+    pub id: Option<String>,
+    pub name: String,
+    pub arguments: Value,
+}
 
-// The agent can now:
-// 1. Perceive: Parse incoming market events
-// 2. Think: Reason about market conditions, call analysis tools
-// 3. Act: Generate trading recommendations
-// 4. Reflect: Evaluate the quality of its analysis
+pub struct Observation {
+    pub success: bool,
+    pub output: String,
+    pub error: Option<String>,
+}
 ```
 
-## API Reference
+## Context Integration
 
-See the module documentation:
+SimpleCognitiveLoop automatically records to AgentContext:
 
-- `loom_core::agent::cognitive::CognitiveConfig`
-- `loom_core::agent::cognitive::CognitiveLoop`
-- `loom_core::agent::cognitive::CognitiveAgent`
-- `loom_core::agent::cognitive::SimpleCognitiveLoop`
-- `loom_core::agent::cognitive::WorkingMemory`
-- `loom_core::agent::cognitive::Plan`
-- `loom_core::agent::cognitive::ThoughtStep`
-- `loom_core::agent::cognitive::ToolCall`
-- `loom_core::agent::cognitive::Observation`
+| Phase | Records |
+|-------|---------|
+| perceive() | Incoming events |
+| act() | Tool calls and results |
+
+Future: think() will record LLM prompts and responses.
+
+## Migration from WorkingMemory
+
+`working_memory.rs` is **deprecated**. Use `AgentContext` instead.
+
+See `context/README.md` for migration guide.
+
+## Testing
+
+```bash
+cargo test -p loom-core cognitive::
+```

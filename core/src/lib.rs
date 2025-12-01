@@ -68,7 +68,6 @@ pub struct Loom {
     pub event_bus: std::sync::Arc<EventBus>,
     pub agent_runtime: AgentRuntime,
     pub model_router: ModelRouter,
-    pub plugin_manager: PluginManager,
     pub tool_registry: std::sync::Arc<ToolRegistry>,
     pub mcp_manager: std::sync::Arc<tools::mcp::McpManager>,
     pub agent_directory: std::sync::Arc<AgentDirectory>,
@@ -139,7 +138,6 @@ impl Loom {
             )
             .await?,
             model_router,
-            plugin_manager: PluginManager::new().await?,
             event_bus,
             tool_registry,
             mcp_manager,
@@ -153,7 +151,6 @@ impl Loom {
         self.event_bus.start().await?;
         self.agent_runtime.start().await?;
         self.model_router.start().await?;
-        self.plugin_manager.start().await?;
 
         tracing::info!("Loom started successfully");
         Ok(())
@@ -163,7 +160,6 @@ impl Loom {
         tracing::info!("Shutting down Loom...");
 
         self.mcp_manager.shutdown().await;
-        self.plugin_manager.shutdown().await?;
         self.model_router.shutdown().await?;
         self.agent_runtime.shutdown().await?;
         self.event_bus.shutdown().await?;
