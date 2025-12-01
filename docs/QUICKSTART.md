@@ -133,11 +133,11 @@ For detailed runtime internals consult:
 - `docs/core/overview.md`
 - `docs/core/event_bus.md`
 - `docs/core/agent_runtime.md`
+- `docs/core/cognitive_runtime.md`
 - `docs/core/router.md`
 - `docs/core/action_broker.md`
 - `docs/core/llm.md`
-- `docs/core/plugin_system.md`
-- `docs/core/storage.md`
+- `docs/core/memory.md`
 - `docs/core/telemetry.md`
 
 ## Troubleshooting

@@ -190,29 +190,29 @@ Actor-based stateful agents with lifecycle management (create/start/stop/delete)
 
 ### Memory & Context System
 
-Dual-layer memory supporting both general-purpose episodic memory and agent-specific decision tracking:
+Modern context engineering system for building LLM-ready prompts:
 
-**General-purpose API**:
+**Core Components**:
 
-- `MemoryWriter`: append_event(), summarize_episode()
-- `MemoryReader`: retrieve(query, k, filters)
-- Used by `ContextBuilder` to assemble LLM-ready prompts
+- `MemoryStore` trait: Unified storage abstraction with query, batch, and indexing
+- `InMemoryStore`: Fast in-process storage for development/testing
+- `RocksDbStore`: Persistent storage with session, type, and time indices
+- `AgentContext`: High-level API integrating storage, retrieval, ranking, and windowing
+- `MemoryBuffer`: Simple capacity-limited buffer for cognitive loop working memory
 
-**Agent Decision API** (for Planner/Executor patterns):
+**Context Pipeline** (Retrieve → Rank → Window):
 
-- `save_plan()`: Store decisions with MD5-based deduplication
-- `check_duplicate()`: Detect duplicate plans within time windows (default: 5 min)
-- `mark_executed()` / `check_executed()`: Execution idempotency tracking
-- `get_execution_stats()`: Calculate win rates and performance metrics
+- **Retrieval strategies**: RecencyRetrieval, ImportanceRetrieval, TypeFilteredRetrieval
+- **Ranking strategies**: TemporalRanker, ImportanceRanker, CompositeRanker
+- **Token windowing**: Fit context to budget with TiktokenCounter
 
 **Key Features**:
 
-- DashMap-based concurrent storage for high-performance multi-agent access
-- Session isolation for safe multi-agent/multi-thread operation
-- gRPC Bridge integration for Python SDK access
-- 25 comprehensive tests (Rust + Python) — all passing ✅
-
-Used extensively in `demo/market-analyst` for preventing duplicate trading decisions and ensuring idempotent order execution.
+- Everything is retrievable (no irreversible summarization)
+- Full traceability via OpenTelemetry trace_id/span_id
+- Tool calls/results as first-class citizens
+- DashMap-based concurrent access
+- Session isolation for multi-agent safety
 
 ### Envelope
 
@@ -375,17 +375,15 @@ Component-level documentation in `docs/core/`:
 - `docs/core/overview.md` — dataflow and system overview
 - `docs/core/event_bus.md` — Event Bus (QoS, backpressure, topic routing)
 - `docs/core/agent_runtime.md` — Agent Runtime (lifecycle, mailboxes, subscriptions)
+- `docs/core/cognitive_runtime.md` — Cognitive Runtime (perceive-think-act loop, MemoryBuffer)
 - `docs/core/router.md` — Router (policy-based Local/Cloud/Hybrid selection)
 - `docs/core/action_broker.md` — ActionBroker (capability registry and invocation)
 - `docs/core/llm.md` — LLM Client (streaming, retries, provider adapters)
-- `docs/core/memory.md` — Memory & Context (episodic + agent decision tracking, deduplication, idempotency)
-- `docs/core/plugin_system.md` — Plugin System (WASM, out-of-process)
-- `docs/core/storage.md` — Storage (RocksDB, Vector DB)
+- `docs/core/memory.md` — Memory & Context (MemoryStore, InMemoryStore, RocksDbStore, AgentContext)
 - `docs/core/telemetry.md` — Telemetry (metrics, tracing, structured logs)
 - `docs/core/envelope.md` — Envelope (thread/correlation metadata)
 - `docs/core/collaboration.md` — Collaboration primitives (request/reply, fanout/fanin, contract-net)
 - `docs/core/directory.md` — Directories (agent & capability discovery)
-- `docs/core/cognitive_runtime.md` — Cognitive Agent Pattern (perceive-think-act loop)
 
 Additional documentation:
 

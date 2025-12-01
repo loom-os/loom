@@ -27,7 +27,6 @@ pub mod memory;
 pub mod pipeline;
 pub mod ranking;
 pub mod retrieval;
-pub mod storage;
 pub mod types;
 pub mod window;
 
