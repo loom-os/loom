@@ -23,8 +23,8 @@
 
 use crate::utils::{gen_id, now_ms};
 use async_trait::async_trait;
-use loom_core::action_broker::CapabilityProvider;
-use loom_core::event::EventBus;
+use loom_core::tools::CapabilityProvider;
+use loom_core::messaging::EventBus;
 use loom_core::proto::{
     ActionCall, ActionError, ActionResult, ActionStatus, CapabilityDescriptor, Event, ProviderKind,
 };
