@@ -3,22 +3,23 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use loom_bridge::{ActionBroker, BridgeService};
-use loom_core::{AgentDirectory, EventBus};
+use loom_bridge::BridgeService;
+use loom_core::{AgentDirectory, EventBus, ToolRegistry};
 use loom_proto::bridge_server::BridgeServer;
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 
 pub use loom_proto::{
-    bridge_client::BridgeClient, client_event, server_event, Ack, ActionCall, ActionResult,
-    ActionStatus, AgentRegisterRequest, ClientEvent, Delivery, Event, HeartbeatRequest,
+    bridge_client::BridgeClient, client_event, server_event, Ack,
+    ToolCall, ToolResult, ToolStatus,
+    AgentRegisterRequest, ClientEvent, Delivery, Event, HeartbeatRequest,
     HeartbeatResponse, Publish,
 };
 
 /// Start a Bridge gRPC server on an ephemeral localhost port and return the bound address
 pub async fn start_test_server(
     event_bus: Arc<EventBus>,
-    action_broker: Arc<ActionBroker>,
+    tool_registry: Arc<ToolRegistry>,
 ) -> (
     SocketAddr,
     tokio::task::JoinHandle<()>,
@@ -27,7 +28,7 @@ pub async fn start_test_server(
     let agent_directory = Arc::new(AgentDirectory::new());
     let svc = loom_bridge::BridgeService::new(loom_bridge::BridgeState::new(
         Arc::clone(&event_bus),
-        Arc::clone(&action_broker),
+        Arc::clone(&tool_registry),
         agent_directory,
     ));
     let svc_for_return = svc.clone();

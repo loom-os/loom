@@ -1,15 +1,14 @@
 use super::*;
-use loom_bridge::ActionBroker;
-use loom_core::EventBus;
+use loom_core::{EventBus, ToolRegistry};
 use tokio_stream::wrappers::ReceiverStream;
 
 #[tokio::test]
 async fn test_register_and_event_roundtrip() {
     let event_bus = Arc::new(EventBus::new().await.unwrap());
-    let action_broker = Arc::new(ActionBroker::new());
+    let tool_registry = Arc::new(ToolRegistry::new());
     event_bus.start().await.unwrap();
 
-    let (addr, _handle, _svc) = start_test_server(event_bus.clone(), action_broker.clone()).await;
+    let (addr, _handle, _svc) = start_test_server(event_bus.clone(), tool_registry.clone()).await;
     let mut client = new_client(addr).await;
 
     // Register agent
@@ -17,7 +16,7 @@ async fn test_register_and_event_roundtrip() {
         .register_agent(AgentRegisterRequest {
             agent_id: "agentA".into(),
             subscribed_topics: vec!["topic.test".into()],
-            capabilities: vec![],
+            tools: vec![],
             metadata: Default::default(),
         })
         .await
@@ -60,27 +59,18 @@ async fn test_register_and_event_roundtrip() {
         .await
         .unwrap();
 
-    // Receive delivery (with some timeout)
+    // Receive the event back via subscription
     use tokio::time::{timeout, Duration};
-    let delivery = timeout(Duration::from_secs(2), async {
-        loop {
-            if let Some(Ok(msg)) = rx.message().await.transpose() {
-                if let Some(server_event::Msg::Delivery(d)) = msg.msg {
-                    if let Some(ev) = d.event {
-                        return Some(ev);
-                    }
-                }
-            } else {
-                break;
-            }
-        }
-        None
-    })
-    .await
-    .expect("timely event");
+    let recv_msg = timeout(Duration::from_secs(2), rx.message())
+        .await
+        .expect("recv timed out")
+        .unwrap()
+        .unwrap();
 
-    assert!(delivery.is_some(), "expected echoed event delivered");
-    let ev = delivery.unwrap();
-    assert_eq!(ev.r#type, "test_input");
-    assert_eq!(ev.payload, b"hello".to_vec());
+    if let Some(server_event::Msg::Delivery(del)) = recv_msg.msg {
+        assert_eq!(del.topic, "topic.test");
+        assert_eq!(del.event.as_ref().unwrap().id, "ev1");
+    } else {
+        panic!("Expected Delivery");
+    }
 }

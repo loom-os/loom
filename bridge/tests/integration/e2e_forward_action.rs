@@ -1,52 +1,52 @@
 use super::*;
-use loom_bridge::{ActionBroker, ActionBrokerError, CapabilityProvider};
-use loom_core::proto::{CapabilityDescriptor, ProviderKind};
-use loom_core::EventBus;
-use std::sync::Arc;
+use loom_core::{EventBus, Tool, ToolRegistry};
+use loom_core::tools::ToolResult as CoreToolResult;
 
-struct TestEchoProvider;
+/// A simple echo tool for testing
+struct EchoTool;
 
 #[async_trait::async_trait]
-impl CapabilityProvider for TestEchoProvider {
-    fn descriptor(&self) -> CapabilityDescriptor {
-        CapabilityDescriptor {
-            name: "test.echo".into(),
-            version: "1.0".into(),
-            provider: ProviderKind::ProviderNative as i32,
-            metadata: Default::default(),
-        }
+impl Tool for EchoTool {
+    fn name(&self) -> String {
+        "test.echo".to_string()
     }
 
-    async fn invoke(&self, call: super::ActionCall) -> Result<super::ActionResult, ActionBrokerError> {
-        Ok(super::ActionResult {
-            id: call.id,
-            status: super::ActionStatus::ActionOk as i32,
-            output: call.payload,
-            error: None,
+    fn description(&self) -> String {
+        "Echoes back the input".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "message": { "type": "string" }
+            }
         })
+    }
+
+    async fn call(&self, arguments: serde_json::Value) -> CoreToolResult<serde_json::Value> {
+        Ok(arguments)
     }
 }
 
 #[tokio::test]
-async fn test_forward_action_echo() {
+async fn test_forward_tool_call_echo() {
     let event_bus = Arc::new(EventBus::new().await.unwrap());
-    let action_broker = Arc::new(ActionBroker::new());
+    let tool_registry = Arc::new(ToolRegistry::new());
     event_bus.start().await.unwrap();
 
-    // Register test provider
-    action_broker.register_provider(Arc::new(TestEchoProvider));
+    // Register test tool
+    tool_registry.register(Arc::new(EchoTool)).await;
 
-    let (addr, _handle, _svc) = start_test_server(event_bus.clone(), action_broker.clone()).await;
+    let (addr, _handle, _svc) = start_test_server(event_bus.clone(), tool_registry.clone()).await;
     let mut client = new_client(addr).await;
 
-    // ForwardAction
-    let payload = b"ping".to_vec();
+    // Forward tool call
     let res = client
-        .forward_action(ActionCall {
-            id: "act1".into(),
-            capability: "test.echo".into(),
-            version: "1.0".into(),
-            payload: payload.clone(),
+        .forward_tool_call(ToolCall {
+            id: "t1".into(),
+            name: "test.echo".into(),
+            arguments: r#"{"message":"ping"}"#.into(),
             headers: Default::default(),
             timeout_ms: 1000,
             correlation_id: "c1".into(),
@@ -56,6 +56,6 @@ async fn test_forward_action_echo() {
         .unwrap()
         .into_inner();
 
-    assert_eq!(res.status, ActionStatus::ActionOk as i32);
-    assert_eq!(res.output, payload);
+    assert_eq!(res.status, ToolStatus::ToolOk as i32);
+    assert!(res.output.contains("ping"));
 }

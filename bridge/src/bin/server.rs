@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use loom_bridge::{start_server_with_dashboard, ActionBroker};
+use loom_bridge::start_server_with_dashboard;
 use loom_core::dashboard::{DashboardConfig, DashboardServer, EventBroadcaster, FlowTracker};
 use loom_core::Loom;
 
@@ -82,14 +82,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "0.0.0.0:50051".into())
         .parse()?;
 
-    // Create ActionBroker with ToolRegistry
-    let action_broker = Arc::new(ActionBroker::with_registry(loom.tool_registry.clone()));
-
     // Start bridge server with dashboard integration (this will block)
     let server_result = start_server_with_dashboard(
         addr,
         loom.event_bus.clone(),
-        action_broker,
+        loom.tool_registry.clone(),
         loom.agent_directory.clone(),
         broadcaster_opt,
         flow_tracker_opt,
