@@ -1,0 +1,70 @@
+name = "deep-research"
+description = "Multi-agent deep research system with dynamic agent spawning"
+version = "0.1.0"
+
+[bridge]
+address = "127.0.0.1:50051"
+mode = "full"
+version = "latest"
+
+[dashboard]
+enabled = true
+host = "127.0.0.1"
+port = 3030
+
+# =============================================================================
+# Agents
+# =============================================================================
+
+[agents.lead-agent]
+# Lead Agent orchestrates research, spawns sub-agents, aggregates results
+topics = ["user.query", "researcher.report"]
+llm_provider = "deepseek"
+max_researchers = 3
+aggregation_timeout_sec = 60
+
+[agents.researcher-agent]
+# Research Agent template - spawned dynamically by Lead
+topics = []  # Assigned dynamically via thread topics
+llm_provider = "deepseek"
+max_sources = 5
+search_timeout_sec = 10
+
+# =============================================================================
+# LLM Providers
+# =============================================================================
+
+[llm.deepseek]
+type = "http"
+api_key = "${DEEPSEEK_API_KEY}"
+api_base = "https://api.deepseek.com/v1"
+model = "deepseek-chat"
+max_tokens = 4096
+temperature = 0.7
+timeout_sec = 30
+
+[llm.local]
+type = "http"
+api_base = "http://localhost:8000/v1"
+model = "qwen2.5-7b-instruct"
+max_tokens = 2048
+temperature = 0.8
+timeout_sec = 30
+
+# =============================================================================
+# MCP Tools
+# =============================================================================
+
+[mcp.web-search]
+command = "npx"
+args = ["-y", "@anthropics/mcp-brave-search"]
+    [mcp.web-search.env]
+    BRAVE_API_KEY = "${BRAVE_API_KEY}"
+
+# =============================================================================
+# Workspace
+# =============================================================================
+
+[workspace]
+root = "./workspace"
+reports_dir = "./workspace/reports"

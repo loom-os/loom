@@ -238,9 +238,56 @@ let span_collector = init_telemetry()?;
 let loom = Loom::new().await?;
 ```
 
+## Demo Applications
+
+### DeepResearch (Primary Demo)
+
+Multi-agent research system demonstrating core Loom capabilities:
+
+```
+loom run
+  │
+  ├── Loom Core (EventBus + AgentRuntime)
+  ├── gRPC Bridge (Python agent connectivity)
+  ├── Dashboard (http://localhost:3030)
+  │
+  └── Agents:
+      ├── Lead Agent ─────┬──► emit research.request.1
+      │                   ├──► emit research.request.2  (parallel)
+      │                   └──► emit research.request.3
+      │
+      └── Researcher Agents (each with ISOLATED context)
+          ├── Researcher 1: [query_1, results_1, analysis_1]
+          ├── Researcher 2: [query_2, results_2, analysis_2]
+          └── Researcher 3: [query_3, results_3, analysis_3]
+```
+
+Key features demonstrated:
+
+- **Context Isolation**: Each Researcher has its own context window (no cross-contamination)
+- **True Parallel Execution**: Researchers work simultaneously via async events
+- **Dynamic Agent Dispatch**: Lead creates work items on demand
+- **Cognitive Loop**: Each agent uses perceive-think-act reasoning
+- **Report Generation**: Markdown reports with citations
+
+See `demo/deep-research/` for implementation.
+
+### Market Analyst (Advanced Demo)
+
+Long-lifecycle trading system (builds on DeepResearch):
+
+- Proactive monitoring agents
+- Memory tiers (working/short-term/long-term)
+- Real-time data processing
+- File-based reports for human review
+
+See `demo/market-analyst/` for implementation.
+
 ## Future Work
 
+- [ ] Dynamic agent spawning via Python SDK
 - [ ] Persistent context storage (RocksDB backend)
+- [ ] Memory tier system (working/short-term/long-term)
 - [ ] SSE transport for MCP
 - [ ] WebSocket transport for Bridge
 - [ ] WASM plugin support
