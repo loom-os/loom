@@ -13,7 +13,7 @@ from loom.client import BridgeClient
 def mock_client() -> BridgeClient:
     """Create a mock BridgeClient."""
     client = Mock(spec=BridgeClient)
-    client.forward_action = AsyncMock()
+    client.forward_tool_call = AsyncMock()
     return client  # type: ignore[return-value]
 
 
@@ -85,20 +85,20 @@ class TestContext:
 
     @pytest.mark.asyncio
     async def test_tool_invocation(self, context: Context, mock_client: BridgeClient) -> None:
-        """Test tool invocation via forward_action."""
-        # Mock the forward_action response
+        """Test tool invocation via forward_tool_call."""
+        # Mock the forward_tool_call response
         from loom.proto.generated import action_pb2
 
-        mock_result = action_pb2.ActionResult(
-            status=action_pb2.ActionStatus.ACTION_OK,
-            output=b'{"result": "success"}',  # Changed from result_payload to output
+        mock_result = action_pb2.ToolResult(
+            status=action_pb2.ToolStatus.TOOL_OK,
+            output='{"result": "success"}',
         )
-        mock_client.forward_action.return_value = mock_result  # type: ignore[attr-defined]
+        mock_client.forward_tool_call.return_value = mock_result  # type: ignore[attr-defined]
 
-        result = await context.tool("test.tool", version="1.0", payload={"query": "test"})
+        result = await context.tool("test.tool", payload={"query": "test"})
 
-        assert result == b'{"result": "success"}'
-        mock_client.forward_action.assert_called_once()  # type: ignore[attr-defined]
+        assert result == '{"result": "success"}'
+        mock_client.forward_tool_call.assert_called_once()  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_join_thread(self, context: Context) -> None:

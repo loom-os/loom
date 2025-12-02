@@ -40,14 +40,14 @@ class BridgeClient:
         self,
         agent_id: str,
         topics: list[str],
-        capabilities: list[pb_action.CapabilityDescriptor],
+        tools: list[pb_action.ToolDescriptor],
         metadata: Optional[dict[str, str]] = None,
     ) -> bool:
         assert self._stub is not None
         req = pb_bridge.AgentRegisterRequest(
             agent_id=agent_id,
             subscribed_topics=topics,
-            capabilities=capabilities,
+            tools=tools,
             metadata=metadata or {},
         )
         resp = await self._stub.RegisterAgent(req)
@@ -67,9 +67,9 @@ class BridgeClient:
 
         return self._stub.EventStream(_with_handshake())
 
-    async def forward_action(self, call: pb_action.ActionCall) -> pb_action.ActionResult:
+    async def forward_tool_call(self, call: pb_action.ToolCall) -> pb_action.ToolResult:
         assert self._stub is not None
-        return await self._stub.ForwardAction(call)
+        return await self._stub.ForwardToolCall(call)
 
     async def heartbeat(self) -> pb_bridge.HeartbeatResponse:
         assert self._stub is not None

@@ -25,8 +25,8 @@ if _version_not_supported:
     )
 
 
-class ActionBrokerStub(object):
-    """Service surface for out-of-process providers (optional)
+class ToolServiceStub(object):
+    """Service for tool invocation (replaces ActionBroker)
     """
 
     def __init__(self, channel):
@@ -35,61 +35,63 @@ class ActionBrokerStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.ListCapabilities = channel.unary_unary(
-                '/loom.v1.ActionBroker/ListCapabilities',
-                request_serializer=action__pb2.ListCapabilitiesRequest.SerializeToString,
-                response_deserializer=action__pb2.ListCapabilitiesResponse.FromString,
+        self.ListTools = channel.unary_unary(
+                '/loom.v1.ToolService/ListTools',
+                request_serializer=action__pb2.ListToolsRequest.SerializeToString,
+                response_deserializer=action__pb2.ListToolsResponse.FromString,
                 _registered_method=True)
-        self.Invoke = channel.unary_unary(
-                '/loom.v1.ActionBroker/Invoke',
-                request_serializer=action__pb2.ActionCall.SerializeToString,
-                response_deserializer=action__pb2.ActionResult.FromString,
+        self.Call = channel.unary_unary(
+                '/loom.v1.ToolService/Call',
+                request_serializer=action__pb2.ToolCall.SerializeToString,
+                response_deserializer=action__pb2.ToolResult.FromString,
                 _registered_method=True)
 
 
-class ActionBrokerServicer(object):
-    """Service surface for out-of-process providers (optional)
+class ToolServiceServicer(object):
+    """Service for tool invocation (replaces ActionBroker)
     """
 
-    def ListCapabilities(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+    def ListTools(self, request, context):
+        """List all available tools
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Invoke(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+    def Call(self, request, context):
+        """Invoke a tool by name
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
 
-def add_ActionBrokerServicer_to_server(servicer, server):
+def add_ToolServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'ListCapabilities': grpc.unary_unary_rpc_method_handler(
-                    servicer.ListCapabilities,
-                    request_deserializer=action__pb2.ListCapabilitiesRequest.FromString,
-                    response_serializer=action__pb2.ListCapabilitiesResponse.SerializeToString,
+            'ListTools': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListTools,
+                    request_deserializer=action__pb2.ListToolsRequest.FromString,
+                    response_serializer=action__pb2.ListToolsResponse.SerializeToString,
             ),
-            'Invoke': grpc.unary_unary_rpc_method_handler(
-                    servicer.Invoke,
-                    request_deserializer=action__pb2.ActionCall.FromString,
-                    response_serializer=action__pb2.ActionResult.SerializeToString,
+            'Call': grpc.unary_unary_rpc_method_handler(
+                    servicer.Call,
+                    request_deserializer=action__pb2.ToolCall.FromString,
+                    response_serializer=action__pb2.ToolResult.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'loom.v1.ActionBroker', rpc_method_handlers)
+            'loom.v1.ToolService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('loom.v1.ActionBroker', rpc_method_handlers)
+    server.add_registered_method_handlers('loom.v1.ToolService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class ActionBroker(object):
-    """Service surface for out-of-process providers (optional)
+class ToolService(object):
+    """Service for tool invocation (replaces ActionBroker)
     """
 
     @staticmethod
-    def ListCapabilities(request,
+    def ListTools(request,
             target,
             options=(),
             channel_credentials=None,
@@ -102,9 +104,9 @@ class ActionBroker(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/loom.v1.ActionBroker/ListCapabilities',
-            action__pb2.ListCapabilitiesRequest.SerializeToString,
-            action__pb2.ListCapabilitiesResponse.FromString,
+            '/loom.v1.ToolService/ListTools',
+            action__pb2.ListToolsRequest.SerializeToString,
+            action__pb2.ListToolsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -116,7 +118,7 @@ class ActionBroker(object):
             _registered_method=True)
 
     @staticmethod
-    def Invoke(request,
+    def Call(request,
             target,
             options=(),
             channel_credentials=None,
@@ -129,9 +131,9 @@ class ActionBroker(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/loom.v1.ActionBroker/Invoke',
-            action__pb2.ActionCall.SerializeToString,
-            action__pb2.ActionResult.FromString,
+            '/loom.v1.ToolService/Call',
+            action__pb2.ToolCall.SerializeToString,
+            action__pb2.ToolResult.FromString,
             options,
             channel_credentials,
             insecure,
