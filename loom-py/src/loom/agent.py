@@ -80,7 +80,7 @@ class Agent:
                 pb_action.ToolDescriptor(
                     name=t.name,
                     description=t.description,
-                    parameters=t.parameters_schema,
+                    parameters_schema=t.parameters_schema,
                 )
             )
         # Ensure reply topic is always subscribed
@@ -166,7 +166,7 @@ class Agent:
                             pb_action.ToolDescriptor(
                                 name=t.name,
                                 description=t.description,
-                                parameters=t.parameters_schema,
+                                parameters_schema=t.parameters_schema,
                             )
                         )
                     topics = list(self.topics)
@@ -213,7 +213,7 @@ class Agent:
                         args = json.loads(call.arguments)
                     except json.JSONDecodeError as e:
                         err_res = pb_action.ToolResult(
-                            call_id=call.id,
+                            id=call.id,
                             status=pb_action.ToolStatus.TOOL_ERROR,
                             error=pb_action.ToolError(
                                 code="INVALID_ARGUMENTS",
@@ -229,7 +229,7 @@ class Agent:
                         args = t.input_model(**args).model_dump()
                     except Exception as e:
                         err_res = pb_action.ToolResult(
-                            call_id=call.id,
+                            id=call.id,
                             status=pb_action.ToolStatus.TOOL_ERROR,
                             error=pb_action.ToolError(
                                 code="INVALID_INPUT",
@@ -246,13 +246,13 @@ class Agent:
                     # Serialize output to JSON string
                     output = json.dumps(result) if result is not None else ""
                     res = pb_action.ToolResult(
-                        call_id=call.id,
+                        id=call.id,
                         status=pb_action.ToolStatus.TOOL_OK,
                         output=output,
                     )
                 except Exception as e:
                     res = pb_action.ToolResult(
-                        call_id=call.id,
+                        id=call.id,
                         status=pb_action.ToolStatus.TOOL_ERROR,
                         error=pb_action.ToolError(code="TOOL_ERROR", message=str(e)),
                     )
@@ -262,7 +262,7 @@ class Agent:
 
         # No tool matched
         res = pb_action.ToolResult(
-            call_id=call.id,
+            id=call.id,
             status=pb_action.ToolStatus.TOOL_ERROR,
             error=pb_action.ToolError(code="NOT_FOUND", message=f"Tool '{call.name}' not found"),
         )

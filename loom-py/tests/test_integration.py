@@ -160,7 +160,7 @@ async def test_agent_tool_invocation(bridge_server: str) -> None:
         result = await client.forward_tool_call(tool_call)
 
         assert result is not None
-        assert result.call_id == "call_1"
+        assert result.id == "call_1"
 
         await client.close()
     finally:
