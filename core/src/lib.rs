@@ -38,6 +38,7 @@ pub use messaging::{
 
 // Export tool types
 pub use tools::mcp::{McpClient, McpManager, McpToolAdapter};
+pub use tools::native::{ReadFileTool, ShellTool, WeatherTool, WebSearchTool};
 pub use tools::{Tool, ToolError, ToolRegistry};
 
 // Export telemetry

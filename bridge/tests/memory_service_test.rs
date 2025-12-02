@@ -2,7 +2,7 @@
 ///
 /// Tests the full stack: Bridge MemoryHandler → Core InMemoryMemory
 use loom_bridge::memory_handler::MemoryHandler;
-use loom_core::context::memory::InMemoryMemory;
+use loom_bridge::trading_memory::InMemoryMemory;
 use loom_core::proto::{
     memory_service_client::MemoryServiceClient, memory_service_server::MemoryServiceServer,
     CheckDuplicateRequest, CheckExecutedRequest, ExecutionRecord, GetExecutionStatsRequest,
@@ -18,7 +18,7 @@ async fn start_test_service() -> (
     tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
     String,
 ) {
-    let memory_store = Arc::new(InMemoryMemory::new());
+    let memory_store = InMemoryMemory::new();
     let memory_handler = MemoryHandler::new(Arc::clone(&memory_store));
 
     // Use a unique port per test based on PID and current time

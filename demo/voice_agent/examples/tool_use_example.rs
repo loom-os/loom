@@ -1,15 +1,12 @@
 /// Standalone Tool Use Example
 ///
 /// This example demonstrates how to use the Tool Orchestrator with web.search and weather.get
-/// capabilities without requiring the full voice agent pipeline.
+/// capabilities using the ToolRegistry API.
 ///
 /// Run with: cargo run --example tool_use_example
-use loom_core::action_broker::ActionBroker;
+use loom_core::cognitive::llm::orchestrator::{OrchestratorOptions, ToolChoice, ToolOrchestrator};
 use loom_core::context::{PromptBundle, TokenBudget};
-use loom_core::llm::{
-    LlmClient, LlmClientConfig, OrchestratorOptions, ToolChoice, ToolOrchestrator,
-};
-use loom_core::{Result, WeatherProvider, WebSearchProvider};
+use loom_core::{LlmClient, LlmClientConfig, Result, ToolRegistry, WeatherTool, WebSearchTool};
 use std::sync::Arc;
 use tracing::info;
 
@@ -17,26 +14,26 @@ use tracing::info;
 async fn main() -> Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
-        .with_env_filter("info,tool_orch=debug,action_broker=debug,web_search=debug,weather=debug")
+        .with_env_filter("info,tool_orch=debug,web_search=debug,weather=debug")
         .with_target(true)
         .init();
 
     info!("🚀 Tool Use Example - Web Search & Weather");
 
-    // 1. Create ActionBroker and register capability providers
-    let broker = Arc::new(ActionBroker::new());
+    // 1. Create ToolRegistry and register tools
+    let registry = Arc::new(ToolRegistry::new());
 
-    info!("📦 Registering web.search capability provider");
-    broker.register_provider(Arc::new(WebSearchProvider::new()));
+    info!("📦 Registering web.search tool");
+    registry.register(Arc::new(WebSearchTool::new())).await;
 
-    info!("📦 Registering weather.get capability provider");
-    broker.register_provider(Arc::new(WeatherProvider::new()));
+    info!("📦 Registering weather.get tool");
+    registry.register(Arc::new(WeatherTool::new())).await;
 
-    // Verify capabilities are registered
-    let caps = broker.list_capabilities();
-    info!("✅ Registered {} capabilities", caps.len());
-    for cap in &caps {
-        info!("   - {} (v{})", cap.name, cap.version);
+    // Verify tools are registered
+    let tools = registry.list_tools();
+    info!("✅ Registered {} tools", tools.len());
+    for tool in &tools {
+        info!("   - {}", tool.name());
     }
 
     // 2. Create LLM client (requires OpenAI-compatible endpoint)
@@ -52,8 +49,8 @@ async fn main() -> Result<()> {
     let llm_client = Arc::new(LlmClient::new(llm_config)?);
     info!("🤖 LLM client configured");
 
-    // 3. Create Tool Orchestrator
-    let mut orchestrator = ToolOrchestrator::new(llm_client, Arc::clone(&broker));
+    // 3. Create Tool Orchestrator with registry
+    let mut orchestrator = ToolOrchestrator::new(llm_client, Arc::clone(&registry));
 
     // 4. Example queries
     let examples = vec![
@@ -70,7 +67,7 @@ async fn main() -> Result<()> {
         let bundle = PromptBundle {
             system:
                 "You are a helpful assistant with access to web search and weather information. \
-                     Use these tools when needed to provide accurate, up-to-date answers."
+                 Use these tools when needed to provide accurate, up-to-date answers."
                     .to_string(),
             instructions: query.to_string(),
             tools_json_schema: None,
@@ -115,29 +112,9 @@ async fn main() -> Result<()> {
                 }
 
                 if !answer.tool_results.is_empty() {
-                    info!("📊 Tool results:");
+                    info!("📊 Tool results ({}):", answer.tool_results.len());
                     for (idx, result) in answer.tool_results.iter().enumerate() {
-                        let status_str = match result.status {
-                            0 => "OK",
-                            1 => "ERROR",
-                            2 => "TIMEOUT",
-                            _ => "UNKNOWN",
-                        };
-                        info!("   {}. Status: {}", idx + 1, status_str);
-
-                        if result.status == 0 && !result.output.is_empty() {
-                            if let Ok(output) =
-                                serde_json::from_slice::<serde_json::Value>(&result.output)
-                            {
-                                let preview =
-                                    serde_json::to_string_pretty(&output).unwrap_or_default();
-                                let lines: Vec<&str> = preview.lines().take(10).collect();
-                                info!("   Output:\n{}", lines.join("\n"));
-                                if preview.lines().count() > 10 {
-                                    info!("   ... (truncated)");
-                                }
-                            }
-                        }
+                        info!("   {}. {}", idx + 1, result);
                     }
                 }
             }

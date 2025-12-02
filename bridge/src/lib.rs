@@ -1,7 +1,13 @@
+//! Loom Bridge - gRPC gateway for external agents
+//!
+//! Provides registration, bidirectional event streaming, tool forwarding, and heartbeat
+//! for agents connecting via gRPC (Python, TypeScript, etc.)
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 pub mod memory_handler;
+pub mod trading_memory;
 
 use dashmap::DashMap;
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -9,13 +15,14 @@ use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tonic::{Request, Response, Status};
 use tracing::info;
 
-use loom_core::{ActionBroker, AgentDirectory, AgentInfo, EventBus};
+use loom_core::{AgentDirectory, AgentInfo, AgentStatus, EventBus, ToolRegistry};
 use loom_proto::{
     bridge_server::{Bridge, BridgeServer},
     client_event,
     memory_service_server::MemoryServiceServer,
-    server_event, ActionCall, ActionResult, AgentRegisterRequest, AgentRegisterResponse,
-    CapabilityDescriptor, ClientEvent, Delivery, HeartbeatRequest, HeartbeatResponse, ServerEvent,
+    server_event, AgentRegisterRequest, AgentRegisterResponse, ClientEvent, Delivery,
+    HeartbeatRequest, HeartbeatResponse, ServerEvent, ToolCall, ToolDescriptor, ToolResult,
+    ToolStatus,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -31,7 +38,7 @@ pub type Result<T> = std::result::Result<T, BridgeError>;
 #[derive(Clone)]
 pub struct BridgeState {
     pub event_bus: Arc<EventBus>,
-    pub action_broker: Arc<ActionBroker>,
+    pub tool_registry: Arc<ToolRegistry>,
     pub agent_directory: Arc<AgentDirectory>,
     // Optional dashboard broadcaster for event notifications
     pub dashboard_broadcaster: Option<loom_core::dashboard::EventBroadcaster>,
@@ -39,39 +46,39 @@ pub struct BridgeState {
     pub flow_tracker: Option<Arc<loom_core::dashboard::FlowTracker>>,
     // agent_id -> subscribed topics
     pub subscriptions: Arc<DashMap<String, Vec<String>>>,
-    // agent_id -> capabilities
-    pub capabilities: Arc<DashMap<String, Vec<CapabilityDescriptor>>>,
+    // agent_id -> tools provided by the agent
+    pub agent_tools: Arc<DashMap<String, Vec<ToolDescriptor>>>,
     // agent_id -> sender to push ServerEvent into gRPC stream task
     pub streams: Arc<DashMap<String, mpsc::Sender<ServerEvent>>>,
-    // action_call_id -> ActionResult received from agent (server-push correlation)
-    pub action_results: Arc<DashMap<String, ActionResult>>,
+    // tool_call_id -> ToolResult received from agent (server-push correlation)
+    pub tool_results: Arc<DashMap<String, ToolResult>>,
     // agent_id -> event bus subscription ids for cleanup
     pub subscription_ids: Arc<DashMap<String, Vec<String>>>,
     // agent_id -> task handles for forwarding loops (abort on disconnect)
     pub forwarding_tasks: Arc<DashMap<String, Vec<JoinHandle<()>>>>,
-    // agent_id -> list of action_result ids for cleanup
-    pub action_result_index: Arc<DashMap<String, Vec<String>>>,
+    // agent_id -> list of tool_result ids for cleanup
+    pub tool_result_index: Arc<DashMap<String, Vec<String>>>,
 }
 
 impl BridgeState {
     pub fn new(
         event_bus: Arc<EventBus>,
-        action_broker: Arc<ActionBroker>,
+        tool_registry: Arc<ToolRegistry>,
         agent_directory: Arc<AgentDirectory>,
     ) -> Self {
         Self {
             event_bus,
-            action_broker,
+            tool_registry,
             agent_directory,
             dashboard_broadcaster: None,
             flow_tracker: None,
             subscriptions: Arc::new(DashMap::new()),
-            capabilities: Arc::new(DashMap::new()),
+            agent_tools: Arc::new(DashMap::new()),
             streams: Arc::new(DashMap::new()),
-            action_results: Arc::new(DashMap::new()),
+            tool_results: Arc::new(DashMap::new()),
             subscription_ids: Arc::new(DashMap::new()),
             forwarding_tasks: Arc::new(DashMap::new()),
-            action_result_index: Arc::new(DashMap::new()),
+            tool_result_index: Arc::new(DashMap::new()),
         }
     }
 
@@ -99,16 +106,16 @@ impl BridgeService {
         Self { state }
     }
 
-    /// Push an ActionCall to an agent's active stream; returns Ok(true) if delivered.
-    pub async fn push_action_call(&self, agent_id: &str, call: ActionCall) -> Result<bool> {
+    /// Push a ToolCall to an agent's active stream; returns Ok(true) if delivered.
+    pub async fn push_tool_call(&self, agent_id: &str, call: ToolCall) -> Result<bool> {
         if let Some(sender) = self.state.streams.get(agent_id) {
             let server_event = ServerEvent {
-                msg: Some(server_event::Msg::ActionCall(call)),
+                msg: Some(server_event::Msg::ToolCall(call)),
             };
             match sender.send(server_event).await {
                 Ok(_) => Ok(true),
                 Err(e) => Err(BridgeError::Internal(format!(
-                    "failed to send action_call: {}",
+                    "failed to send tool_call: {}",
                     e
                 ))),
             }
@@ -117,9 +124,9 @@ impl BridgeService {
         }
     }
 
-    /// Retrieve stored ActionResult by call id (set when client sends ActionResult on stream)
-    pub fn get_action_result(&self, call_id: &str) -> Option<ActionResult> {
-        self.state.action_results.get(call_id).map(|e| e.clone())
+    /// Retrieve stored ToolResult by call id (set when client sends ToolResult on stream)
+    pub fn get_tool_result(&self, call_id: &str) -> Option<ToolResult> {
+        self.state.tool_results.get(call_id).map(|e| e.clone())
     }
 }
 
@@ -141,19 +148,19 @@ impl Bridge for BridgeService {
             .subscriptions
             .insert(agent_id.clone(), req.subscribed_topics.clone());
         self.state
-            .capabilities
-            .insert(agent_id.clone(), req.capabilities.clone());
+            .agent_tools
+            .insert(agent_id.clone(), req.tools.clone());
 
         // Register agent in AgentDirectory for Dashboard visibility
-        let cap_names: Vec<String> = req.capabilities.iter().map(|c| c.name.clone()).collect();
+        let tool_names: Vec<String> = req.tools.iter().map(|t| t.name.clone()).collect();
         let now = chrono::Utc::now().timestamp_millis();
         self.state.agent_directory.register_agent(AgentInfo {
             agent_id: agent_id.clone(),
             subscribed_topics: req.subscribed_topics.clone(),
-            capabilities: cap_names,
+            capabilities: tool_names,
             metadata: std::collections::HashMap::new(),
             last_heartbeat: Some(now),
-            status: loom_core::directory::AgentStatus::Active,
+            status: AgentStatus::Active,
         });
 
         // Broadcast AgentRegistered event to Dashboard
@@ -167,16 +174,16 @@ impl Bridge for BridgeService {
                 thread_id: None,
                 correlation_id: None,
                 payload_preview: format!(
-                    "Agent {} registered with {} topics, {} capabilities",
+                    "Agent {} registered with {} topics, {} tools",
                     agent_id,
                     req.subscribed_topics.len(),
-                    req.capabilities.len()
+                    req.tools.len()
                 ),
                 trace_id: String::new(),
             });
         }
 
-        info!(agent_id=%agent_id, topics=?req.subscribed_topics, caps=req.capabilities.len(), "Agent registered via Bridge");
+        info!(agent_id=%agent_id, topics=?req.subscribed_topics, tools=req.tools.len(), "Agent registered via Bridge");
         Ok(Response::new(AgentRegisterResponse {
             success: true,
             error_message: String::new(),
@@ -297,10 +304,10 @@ impl Bridge for BridgeService {
         let event_bus = Arc::clone(&self.state.event_bus);
         let tx_in = tx.clone();
         let streams_map = self.state.streams.clone();
-        let action_results = self.state.action_results.clone();
+        let tool_results = self.state.tool_results.clone();
         let subscription_ids = self.state.subscription_ids.clone();
         let forwarding_tasks = self.state.forwarding_tasks.clone();
-        let action_result_index = self.state.action_result_index.clone();
+        let tool_result_index = self.state.tool_result_index.clone();
         let agent_directory = Arc::clone(&self.state.agent_directory);
         let dashboard_broadcaster = self.state.dashboard_broadcaster.clone();
         tokio::spawn(async move {
@@ -347,14 +354,14 @@ impl Bridge for BridgeService {
                             })
                             .await;
                     }
-                    Some(client_event::Msg::ActionResult(ar)) => {
-                        info!(action_id=%ar.id, "Received action result from agent");
-                        action_results.insert(ar.id.clone(), ar.clone());
+                    Some(client_event::Msg::ToolResult(tr)) => {
+                        info!(tool_id=%tr.id, "Received tool result from agent");
+                        tool_results.insert(tr.id.clone(), tr.clone());
                         // index this result under agent for cleanup
-                        action_result_index
+                        tool_result_index
                             .entry(agent_id_for_inbound.clone())
                             .or_insert_with(Vec::new)
-                            .push(ar.id);
+                            .push(tr.id);
                     }
                     Some(client_event::Msg::Ack(_)) => { /* ignore */ }
                     None => {}
@@ -363,10 +370,7 @@ impl Bridge for BridgeService {
             info!(agent_id=%agent_id_for_inbound, "EventStream inbound ended");
 
             // Update agent status to Disconnected
-            agent_directory.update_status(
-                &agent_id_for_inbound,
-                loom_core::directory::AgentStatus::Disconnected,
-            );
+            agent_directory.update_status(&agent_id_for_inbound, AgentStatus::Disconnected);
 
             // Cleanup stream sender on disconnect
             streams_map.remove(&agent_id_for_inbound);
@@ -401,10 +405,10 @@ impl Bridge for BridgeService {
                     h.abort();
                 }
             }
-            // Drop any stored action results indexed for this agent to avoid leaks
-            if let Some(res_ids) = action_result_index.remove(&agent_id_for_inbound) {
+            // Drop any stored tool results indexed for this agent to avoid leaks
+            if let Some(res_ids) = tool_result_index.remove(&agent_id_for_inbound) {
                 for rid in res_ids.1.into_iter() {
-                    action_results.remove(&rid);
+                    tool_results.remove(&rid);
                 }
             }
         });
@@ -416,40 +420,76 @@ impl Bridge for BridgeService {
     }
 
     #[tracing::instrument(skip(self, request), fields(
-        capability = tracing::field::Empty,
+        tool_name = tracing::field::Empty,
         call_id = tracing::field::Empty,
         trace_id = tracing::field::Empty
     ))]
-    async fn forward_action(
+    async fn forward_tool_call(
         &self,
-        request: Request<ActionCall>,
-    ) -> std::result::Result<Response<ActionResult>, Status> {
+        request: Request<ToolCall>,
+    ) -> std::result::Result<Response<ToolResult>, Status> {
         let call = request.into_inner();
 
         // Record call details in span
-        tracing::Span::current().record("capability", &call.capability.as_str());
+        tracing::Span::current().record("tool_name", &call.name.as_str());
         tracing::Span::current().record("call_id", &call.id.as_str());
 
-        // Extract trace context from action call
+        // Extract trace context from tool call
         let envelope = loom_core::Envelope::from_metadata(&call.headers, &call.id);
         if envelope.extract_trace_context() {
             tracing::Span::current()
                 .record("trace_id", &tracing::field::display(&envelope.trace_id));
         }
 
-        let broker = Arc::clone(&self.state.action_broker);
-        match broker.invoke(call.clone()).await {
-            Ok(res) => Ok(Response::new(res)),
-            Err(e) => Ok(Response::new(ActionResult {
-                id: call.id,
-                status: loom_proto::ActionStatus::ActionError as i32,
-                output: Vec::new(),
-                error: Some(loom_proto::ActionError {
-                    code: "BROKER_ERROR".into(),
-                    message: e.to_string(),
-                    details: Default::default(),
-                }),
-            })),
+        // Parse arguments from JSON string
+        let arguments: serde_json::Value = match serde_json::from_str(&call.arguments) {
+            Ok(v) => v,
+            Err(e) => {
+                return Ok(Response::new(ToolResult {
+                    id: call.id,
+                    status: ToolStatus::ToolInvalidArguments as i32,
+                    output: String::new(),
+                    error: Some(loom_proto::ToolError {
+                        code: "INVALID_ARGUMENTS".into(),
+                        message: e.to_string(),
+                        details: Default::default(),
+                    }),
+                }));
+            }
+        };
+
+        // Call the tool via ToolRegistry
+        let registry = Arc::clone(&self.state.tool_registry);
+        match registry.call(&call.name, arguments).await {
+            Ok(output) => {
+                let output_str = serde_json::to_string(&output).unwrap_or_default();
+                Ok(Response::new(ToolResult {
+                    id: call.id,
+                    status: ToolStatus::ToolOk as i32,
+                    output: output_str,
+                    error: None,
+                }))
+            }
+            Err(e) => {
+                let (status, code) = match &e {
+                    loom_core::ToolError::NotFound(_) => (ToolStatus::ToolNotFound, "NOT_FOUND"),
+                    loom_core::ToolError::InvalidArguments(_) => {
+                        (ToolStatus::ToolInvalidArguments, "INVALID_ARGUMENTS")
+                    }
+                    loom_core::ToolError::Timeout => (ToolStatus::ToolTimeout, "TIMEOUT"),
+                    _ => (ToolStatus::ToolError, "EXECUTION_ERROR"),
+                };
+                Ok(Response::new(ToolResult {
+                    id: call.id,
+                    status: status as i32,
+                    output: String::new(),
+                    error: Some(loom_proto::ToolError {
+                        code: code.into(),
+                        message: e.to_string(),
+                        details: Default::default(),
+                    }),
+                }))
+            }
         }
     }
 
@@ -458,10 +498,6 @@ impl Bridge for BridgeService {
         request: Request<HeartbeatRequest>,
     ) -> std::result::Result<Response<HeartbeatResponse>, Status> {
         let req = request.into_inner();
-
-        // Update heartbeat in AgentDirectory if agent_id is provided in metadata
-        // Note: For a full implementation, we'd need agent_id in HeartbeatRequest
-        // For now, we'll just respond with the timestamp
 
         Ok(Response::new(HeartbeatResponse {
             timestamp_ms: req.timestamp_ms,
@@ -473,15 +509,15 @@ impl Bridge for BridgeService {
 pub async fn start_server(
     addr: SocketAddr,
     event_bus: Arc<EventBus>,
-    action_broker: Arc<ActionBroker>,
+    tool_registry: Arc<ToolRegistry>,
     agent_directory: Arc<AgentDirectory>,
 ) -> Result<()> {
     info!(addr = %addr, "Starting Loom Bridge gRPC server");
 
-    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker, agent_directory));
+    let svc = BridgeService::new(BridgeState::new(event_bus, tool_registry, agent_directory));
 
     // Create memory store and handler
-    let memory_store = loom_core::context::memory::InMemoryMemory::new();
+    let memory_store = trading_memory::InMemoryMemory::new();
     let memory_handler = memory_handler::MemoryHandler::new(memory_store);
 
     tonic::transport::Server::builder()
@@ -496,14 +532,14 @@ pub async fn start_server(
 pub async fn start_server_with_dashboard(
     addr: SocketAddr,
     event_bus: Arc<EventBus>,
-    action_broker: Arc<ActionBroker>,
+    tool_registry: Arc<ToolRegistry>,
     agent_directory: Arc<AgentDirectory>,
     dashboard_broadcaster: Option<loom_core::dashboard::EventBroadcaster>,
     flow_tracker: Option<Arc<loom_core::dashboard::FlowTracker>>,
 ) -> Result<()> {
     info!(addr = %addr, "Starting Loom Bridge gRPC server with Dashboard integration");
 
-    let mut state = BridgeState::new(event_bus, action_broker, agent_directory);
+    let mut state = BridgeState::new(event_bus, tool_registry, agent_directory);
 
     if let Some(broadcaster) = dashboard_broadcaster {
         state.set_dashboard_broadcaster(broadcaster);
@@ -516,7 +552,7 @@ pub async fn start_server_with_dashboard(
     let svc = BridgeService::new(state);
 
     // Create memory store and handler
-    let memory_store = loom_core::context::memory::InMemoryMemory::new();
+    let memory_store = trading_memory::InMemoryMemory::new();
     let memory_handler = memory_handler::MemoryHandler::new(memory_store);
 
     tonic::transport::Server::builder()

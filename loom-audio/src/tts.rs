@@ -23,11 +23,9 @@
 
 use crate::utils::{gen_id, now_ms};
 use async_trait::async_trait;
-use loom_core::tools::CapabilityProvider;
+use loom_core::tools::{Tool, ToolResult};
 use loom_core::messaging::EventBus;
-use loom_core::proto::{
-    ActionCall, ActionError, ActionResult, ActionStatus, CapabilityDescriptor, Event, ProviderKind,
-};
+use loom_core::proto::Event;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
@@ -134,67 +132,64 @@ impl TtsSpeakProvider {
 struct SpeakPayload {
     #[serde(default)]
     text: String,
+    #[serde(default)]
+    voice: String,
+    #[serde(default)]
+    rate: Option<f32>,
+    #[serde(default)]
+    volume: Option<f32>,
+    #[serde(default)]
+    sample_rate: Option<u32>,
+    #[serde(default)]
+    player: Option<String>,
 }
 
 #[async_trait]
-impl CapabilityProvider for TtsSpeakProvider {
-    fn descriptor(&self) -> CapabilityDescriptor {
-        CapabilityDescriptor {
-            name: "tts.speak".to_string(),
-            version: "0.1.0".to_string(),
-            provider: ProviderKind::ProviderNative as i32,
-            metadata: Default::default(),
-        }
+impl Tool for TtsSpeakProvider {
+    fn name(&self) -> String {
+        "tts.speak".to_string()
     }
 
-    async fn invoke(&self, call: ActionCall) -> loom_core::Result<ActionResult> {
-        // Parse text from payload (JSON {text}) or fall back to utf8 payload
-        let text = if !call.payload.is_empty() {
-            if let Ok(sp) = serde_json::from_slice::<SpeakPayload>(&call.payload) {
-                sp.text
-            } else {
-                String::from_utf8_lossy(&call.payload).to_string()
-            }
-        } else {
-            String::new()
-        };
+    fn description(&self) -> String {
+        "Synthesizes speech from text using local TTS engines (Piper or espeak-ng)".to_string()
+    }
 
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "text": { "type": "string", "description": "Text to synthesize" },
+                "voice": { "type": "string", "description": "Voice model or name" },
+                "rate": { "type": "number", "description": "Speech rate (0.5-2.0)" },
+                "volume": { "type": "number", "description": "Volume (0.5-2.0)" },
+                "sample_rate": { "type": "integer", "description": "Output sample rate" },
+                "player": { "type": "string", "description": "Audio player preference" }
+            },
+            "required": ["text"]
+        })
+    }
+
+    async fn call(&self, arguments: serde_json::Value) -> ToolResult<serde_json::Value> {
+        let payload: SpeakPayload = serde_json::from_value(arguments)
+            .map_err(|e| loom_core::ToolError::InvalidArguments(e.to_string()))?;
+
+        let text = payload.text;
         if text.trim().is_empty() {
-            return Ok(ActionResult {
-                id: call.id.clone(),
-                status: ActionStatus::ActionOk as i32,
-                output: Vec::new(),
-                error: None,
-            });
+            return Ok(serde_json::json!({ "status": "ok", "message": "empty text" }));
         }
 
-        // Normalize headers
-        let voice = call.headers.get("voice").cloned().unwrap_or_default();
-        let rate = call
-            .headers
-            .get("rate")
-            .and_then(|s| s.parse::<f32>().ok())
-            .map(|v| v.clamp(0.5, 2.0))
-            .unwrap_or(1.0);
-        let volume = call
-            .headers
-            .get("volume")
-            .and_then(|s| s.parse::<f32>().ok())
-            .map(|v| v.clamp(0.5, 2.0))
-            .unwrap_or(1.0);
-        let sample_rate = call
-            .headers
-            .get("sample_rate")
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(self.cfg.default_sample_rate);
-        let player_pref = call.headers.get("player").cloned();
+        let voice = payload.voice;
+        let rate = payload.rate.unwrap_or(1.0).clamp(0.5, 2.0);
+        let volume = payload.volume.unwrap_or(1.0).clamp(0.5, 2.0);
+        let sample_rate = payload.sample_rate.unwrap_or(self.cfg.default_sample_rate);
+        let player_pref = payload.player;
 
         let engine = select_engine(&self.cfg, &voice);
         let player = select_player(player_pref.as_deref());
 
         // start event
         let mut meta = HashMap::new();
-        meta.insert("engine".to_string(), engine.as_str().to_string());
+        meta.insert("engine".to_string(), engine.clone());
         meta.insert("voice".to_string(), voice.clone());
         meta.insert("rate".to_string(), rate.to_string());
         meta.insert("volume".to_string(), volume.to_string());
@@ -214,12 +209,9 @@ impl CapabilityProvider for TtsSpeakProvider {
         };
         let _ = self.bus.publish(&self.cfg.topic, start_event).await;
 
-        // If no engine detected, degrade gracefully: log and publish done without audio
+        // If no engine detected, degrade gracefully
         if engine == "none" {
-            warn!(
-                target = "tts",
-                "No TTS engine detected (Piper/espeak-ng missing). Printing only."
-            );
+            warn!(target = "tts", "No TTS engine detected. Printing only.");
             let mut meta_done = meta.clone();
             meta_done.insert("no_engine".into(), "true".into());
             let ev = Event {
@@ -228,41 +220,32 @@ impl CapabilityProvider for TtsSpeakProvider {
                 timestamp_ms: now_ms(),
                 source: "tts".to_string(),
                 metadata: meta_done,
-                payload: text.as_bytes().to_vec(), // echo text for visibility
+                payload: text.as_bytes().to_vec(),
                 confidence: 1.0,
                 tags: vec![],
                 priority: 50,
             };
             let _ = self.bus.publish(&self.cfg.topic, ev).await;
 
-            return Ok(ActionResult {
-                id: call.id,
-                status: ActionStatus::ActionOk as i32,
-                output: serde_json::to_vec(&serde_json::json!({
-                    "engine": "none",
-                    "printed": true,
-                    "voice": voice,
-                    "rate": rate,
-                    "volume": volume,
-                    "sample_rate": sample_rate,
-                    "player": player,
-                }))
-                .unwrap_or_default(),
-                error: None,
-            });
+            return Ok(serde_json::json!({
+                "engine": "none",
+                "printed": true,
+                "voice": voice,
+                "rate": rate,
+                "volume": volume,
+                "sample_rate": sample_rate,
+                "player": player,
+            }));
         }
 
         // Execute synthesis + playback in blocking task
         let cfg = self.cfg.clone();
         let bus = Arc::clone(&self.bus);
         let topic = cfg.topic.clone();
-        let call_id = call.id.clone();
         let t0 = now_ms();
         let meta_for_timeout = meta.clone();
-        let call_id_for_timeout = call_id.clone();
 
         let join = task::spawn_blocking(move || {
-            // Produce WAV (or degrade)
             let wav_path = cfg.temp_dir.join(format!("tts_{}.wav", gen_id()));
             let synthesis_ms: i64;
             let playback_ms: i64;
@@ -270,9 +253,7 @@ impl CapabilityProvider for TtsSpeakProvider {
             let synth_start = now_ms();
             let synth_ok = match engine.as_str() {
                 "piper" => synth_with_piper(&cfg, &voice, rate, sample_rate, &text, &wav_path),
-                "espeak-ng" => {
-                    synth_with_espeak(&cfg, &voice, rate, volume, sample_rate, &text, &wav_path)
-                }
+                "espeak-ng" => synth_with_espeak(&cfg, &voice, rate, volume, sample_rate, &text, &wav_path),
                 _ => Ok(()),
             };
             synthesis_ms = now_ms() - synth_start;
@@ -292,32 +273,22 @@ impl CapabilityProvider for TtsSpeakProvider {
                     priority: 50,
                 };
                 let _ = tokio::runtime::Handle::current().block_on(bus.publish(&topic, ev));
-                return ActionResult {
-                    id: call_id,
-                    status: ActionStatus::ActionError as i32,
-                    output: Vec::new(),
-                    error: Some(ActionError {
-                        code: "TTS_SYNTH_ERROR".into(),
-                        message: err.to_string(),
-                        details: Default::default(),
-                    }),
-                };
+                return Err(loom_core::ToolError::ExecutionFailed(err.to_string()));
             }
 
-            // Post-process volume for Piper only (espeak handled via flag)
+            // Post-process volume for Piper only
             if engine == "piper" && (volume - 1.0).abs() > f32::EPSILON {
                 if let Err(e) = scale_wav_pcm16_inplace(&wav_path, volume) {
                     warn!(target = "tts", error = %e, "Failed to scale volume for WAV");
                 }
             }
 
-            // Playback if a player is available and file exists, else just keep WAV
+            // Playback
             let play_start = now_ms();
             if wav_path.exists() {
                 if let Some(bin) = player.as_ref().and_then(|name| get_from_path(name)) {
                     let _ = play_wav_with(&bin, &wav_path);
                 } else {
-                    // Try fallback chain
                     if let Some(bin) = get_from_path("aplay")
                         .or_else(|| get_from_path("paplay"))
                         .or_else(|| get_from_path("ffplay"))
@@ -327,8 +298,6 @@ impl CapabilityProvider for TtsSpeakProvider {
                         info!(target = "tts", path = ?wav_path, "No audio player found; kept WAV on disk");
                     }
                 }
-            } else {
-                warn!(target = "tts", "WAV output not found; skipping playback");
             }
             playback_ms = now_ms() - play_start;
 
@@ -352,56 +321,40 @@ impl CapabilityProvider for TtsSpeakProvider {
             };
             let _ = tokio::runtime::Handle::current().block_on(bus.publish(&topic, ev));
 
-            ActionResult {
-                id: call_id,
-                status: ActionStatus::ActionOk as i32,
-                output: serde_json::to_vec(&serde_json::json!({
-                    "engine": engine,
-                    "voice": voice,
-                    "rate": rate,
-                    "volume": volume,
-                    "sample_rate": sample_rate,
-                    "player": player,
-                    "wav_path": wav_path,
-                }))
-                .unwrap_or_default(),
-                error: None,
-            }
+            Ok(serde_json::json!({
+                "engine": engine,
+                "voice": voice,
+                "rate": rate,
+                "volume": volume,
+                "sample_rate": sample_rate,
+                "player": player,
+                "wav_path": wav_path.to_string_lossy(),
+            }))
         });
 
-        // Apply internal timeout to the blocking task
+        // Apply internal timeout
         match timeout(Duration::from_millis(self.cfg.timeout_ms), join).await {
             Ok(join_res) => {
-                let r = join_res.map_err(|e| {
-                    loom_core::LoomError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e))
-                })?;
-                Ok(r)
+                join_res.map_err(|e| loom_core::ToolError::Internal(e.to_string()))?
             }
             Err(_) => {
-                let mut meta_err = meta_for_timeout;
-                meta_err.insert("timeout_ms".into(), self.cfg.timeout_ms.to_string());
                 let ev = Event {
                     id: gen_id(),
                     r#type: "tts.error".to_string(),
                     timestamp_ms: now_ms(),
                     source: "tts".to_string(),
-                    metadata: meta_err,
+                    metadata: {
+                        let mut m = meta_for_timeout;
+                        m.insert("timeout_ms".into(), self.cfg.timeout_ms.to_string());
+                        m
+                    },
                     payload: Vec::new(),
                     confidence: 0.0,
                     tags: vec![],
                     priority: 50,
                 };
                 let _ = self.bus.publish(&self.cfg.topic, ev).await;
-                Ok(ActionResult {
-                    id: call_id_for_timeout,
-                    status: ActionStatus::ActionTimeout as i32,
-                    output: Vec::new(),
-                    error: Some(ActionError {
-                        code: "TTS_TIMEOUT".into(),
-                        message: "TTS synthesis/playback timed out".into(),
-                        details: Default::default(),
-                    }),
-                })
+                Err(loom_core::ToolError::Timeout)
             }
         }
     }
@@ -454,9 +407,9 @@ fn synth_with_piper(
     let piper = cfg
         .piper_bin
         .as_ref()
-        .ok_or_else(|| loom_core::LoomError::PluginError("Piper binary not found".into()))?;
+        .ok_or_else(|| loom_core::LoomError::AgentError("Piper binary not found".into()))?;
     let voice_path = resolve_piper_voice_path(cfg, voice).ok_or_else(|| {
-        loom_core::LoomError::PluginError(
+        loom_core::LoomError::AgentError(
             "Piper voice not found; set PIPER_VOICE or headers.voice".into(),
         )
     })?;
@@ -483,7 +436,7 @@ fn synth_with_piper(
         .wait_with_output()
         .map_err(loom_core::LoomError::IoError)?;
     if !output.status.success() {
-        return Err(loom_core::LoomError::PluginError(format!(
+        return Err(loom_core::LoomError::AgentError(format!(
             "Piper failed: {}",
             String::from_utf8_lossy(&output.stderr)
         )));
@@ -503,7 +456,7 @@ fn synth_with_espeak(
     let espeak = cfg
         .espeak_bin
         .as_ref()
-        .ok_or_else(|| loom_core::LoomError::PluginError("espeak-ng not found".into()))?;
+        .ok_or_else(|| loom_core::LoomError::AgentError("espeak-ng not found".into()))?;
     let mut cmd = Command::new(espeak);
     let wpm = (160.0 * rate).round().clamp(80.0, 450.0) as i32;
     let amp = (100.0 * volume).round().clamp(50.0, 200.0) as i32;
@@ -520,7 +473,7 @@ fn synth_with_espeak(
         .output()
         .map_err(loom_core::LoomError::IoError)?;
     if !output.status.success() {
-        return Err(loom_core::LoomError::PluginError(format!(
+        return Err(loom_core::LoomError::AgentError(format!(
             "espeak-ng failed: {}",
             String::from_utf8_lossy(&output.stderr)
         )));

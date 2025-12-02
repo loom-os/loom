@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_result = start_server_with_dashboard(
         addr,
         loom.event_bus.clone(),
-        loom.action_broker.clone(),
+        loom.tool_registry.clone(),
         loom.agent_directory.clone(),
         broadcaster_opt,
         flow_tracker_opt,

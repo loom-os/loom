@@ -6,16 +6,16 @@ import "event.proto";
 import "action.proto";
 
 // Bridge service for external agents (SDKs) to connect to Loom Core.
-// Provides registration, bidirectional event streaming, action forwarding, and heartbeat.
+// Provides registration, bidirectional event streaming, tool forwarding, and heartbeat.
 service Bridge {
-  // Register an agent with its subscriptions and capabilities.
+  // Register an agent with its subscriptions and tools it provides.
   rpc RegisterAgent(AgentRegisterRequest) returns (AgentRegisterResponse);
 
   // Bidirectional event stream: client can publish events; server delivers subscribed events.
   rpc EventStream(stream ClientEvent) returns (stream ServerEvent);
 
-  // Forward an action call to the ActionBroker and return result.
-  rpc ForwardAction(ActionCall) returns (ActionResult);
+  // Forward a tool call to the ToolRegistry and return result.
+  rpc ForwardToolCall(ToolCall) returns (ToolResult);
 
   // Optional heartbeat for health checking.
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
@@ -24,8 +24,8 @@ service Bridge {
 message AgentRegisterRequest {
   string agent_id = 1;
   repeated string subscribed_topics = 2;
-  // Capabilities the agent provides; e.g., for tool calls routed to the agent.
-  repeated CapabilityDescriptor capabilities = 3;
+  // Tools the agent provides; can be invoked via Bridge
+  repeated ToolDescriptor tools = 3;
   map<string, string> metadata = 4;
 }
 
@@ -36,12 +36,11 @@ message AgentRegisterResponse {
 
 // Client-to-server messages on the bidirectional stream
 message ClientEvent {
-  // Publish an event to a topic
   oneof msg {
     Publish publish = 1;
-    Ack ack = 2;           // Acknowledge receipt (optional)
+    Ack ack = 2;              // Acknowledge receipt (optional)
     HeartbeatRequest ping = 3; // Optional inline heartbeat
-    ActionResult action_result = 4; // Agent's result for a forwarded action
+    ToolResult tool_result = 4; // Agent's result for a forwarded tool call
   }
 }
 
@@ -60,7 +59,7 @@ message ServerEvent {
     Delivery delivery = 1;
     HeartbeatResponse pong = 2;
     Error err = 3;
-    ActionCall action_call = 4; // Action forwarded from Loom to the agent
+    ToolCall tool_call = 4;  // Tool call forwarded from Loom to the agent
   }
 }
 

@@ -1,5 +1,5 @@
 use loom_bridge::{BridgeService, BridgeState};
-use loom_core::{ActionBroker, EventBus};
+use loom_core::{AgentDirectory, EventBus, ToolRegistry};
 use loom_proto::{bridge_server::Bridge, HeartbeatRequest};
 use std::sync::Arc;
 use tonic::Request;
@@ -7,8 +7,9 @@ use tonic::Request;
 #[tokio::test]
 async fn test_heartbeat_ok() {
     let event_bus = Arc::new(EventBus::new().await.unwrap());
-    let action_broker = Arc::new(ActionBroker::new());
-    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker));
+    let agent_directory = Arc::new(AgentDirectory::new());
+    let tool_registry = Arc::new(ToolRegistry::new());
+    let svc = BridgeService::new(BridgeState::new(event_bus, tool_registry, agent_directory));
 
     let ts = 12345;
     let resp = svc

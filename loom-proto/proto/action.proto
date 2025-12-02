@@ -4,7 +4,7 @@ package loom.v1;
 
 import "event.proto";
 
-// Provider type for a capability/tool
+// Provider type for a tool
 enum ProviderKind {
   PROVIDER_NATIVE = 0;  // In-process Rust
   PROVIDER_WASM = 1;    // In-process WASM
@@ -12,57 +12,114 @@ enum ProviderKind {
   PROVIDER_MCP = 3;     // Model Context Protocol adapter
 }
 
-// Capability (tool/action) descriptor
+// Tool descriptor (matches core Tool trait)
+message ToolDescriptor {
+  string name = 1;                 // e.g., "filesystem:read_file", "mcp:brave_search"
+  string description = 2;          // Human-readable description
+  string parameters_schema = 3;    // JSON Schema for arguments (as JSON string)
+  ProviderKind provider = 4;       // Provider type
+  map<string, string> metadata = 5; // Optional metadata
+}
+
+// Tool invocation request
+message ToolCall {
+  string id = 1;                   // Unique id for this call (correlation/idempotency)
+  string name = 2;                 // Tool name to invoke
+  string arguments = 3;            // JSON-encoded arguments
+  map<string, string> headers = 4; // Auxiliary info (trace, auth, etc.)
+  int64 timeout_ms = 5;            // Hard timeout for the call (0 = default)
+  string correlation_id = 6;       // Ties back to task/session/event chain
+  QoSLevel qos = 7;                // Desired QoS semantics
+}
+
+// Tool invocation result
+message ToolResult {
+  string id = 1;                   // Matches ToolCall.id
+  ToolStatus status = 2;           // Final status of the call
+  string output = 3;               // JSON-encoded result (if any)
+  ToolError error = 4;             // Error details (if any)
+}
+
+// Final status of a tool invocation
+enum ToolStatus {
+  TOOL_OK = 0;
+  TOOL_ERROR = 1;
+  TOOL_TIMEOUT = 2;
+  TOOL_NOT_FOUND = 3;
+  TOOL_INVALID_ARGUMENTS = 4;
+}
+
+// Error payload for failed tool calls
+message ToolError {
+  string code = 1;                 // Machine-readable error code
+  string message = 2;              // Human-readable message
+  map<string, string> details = 3; // Optional details
+}
+
+// Service for tool invocation (replaces ActionBroker)
+service ToolService {
+  // List all available tools
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+  // Invoke a tool by name
+  rpc Call(ToolCall) returns (ToolResult);
+}
+
+message ListToolsRequest {}
+
+message ListToolsResponse {
+  repeated ToolDescriptor tools = 1;
+}
+
+// === Legacy compatibility aliases (deprecated, will be removed) ===
+// These are kept temporarily for backward compatibility with existing clients
+
+// Deprecated: Use ToolDescriptor
 message CapabilityDescriptor {
-  string name = 1;                 // e.g., "tts.speak", "ui.update"
-  string version = 2;              // semantic version of capability
-  ProviderKind provider = 3;       // provider type
-  map<string, string> metadata = 4; // arbitrary metadata (schemas, limits, etc.)
+  string name = 1;
+  string version = 2;
+  ProviderKind provider = 3;
+  map<string, string> metadata = 4;
 }
 
-// Action invocation request
+// Deprecated: Use ToolCall
 message ActionCall {
-  string id = 1;                   // unique id for this call (idempotency key)
-  string capability = 2;           // capability name to invoke
-  string version = 3;              // desired capability version (optional)
-  bytes payload = 4;               // opaque payload (JSON or binary as agreed)
-  map<string, string> headers = 5; // auxiliary info (trace, auth, etc.)
-  int64 timeout_ms = 6;            // hard timeout for the call
-  string correlation_id = 7;       // ties back to task/session/event chain
-  QoSLevel qos = 8;                // desired QoS semantics
+  string id = 1;
+  string capability = 2;
+  string version = 3;
+  bytes payload = 4;
+  map<string, string> headers = 5;
+  int64 timeout_ms = 6;
+  string correlation_id = 7;
+  QoSLevel qos = 8;
 }
 
-// Error payload for failed actions
+// Deprecated: Use ToolError
 message ActionError {
-  string code = 1;                 // machine-readable error code
-  string message = 2;              // human-readable message
-  map<string, string> details = 3; // optional details
+  string code = 1;
+  string message = 2;
+  map<string, string> details = 3;
 }
 
-// Action invocation result
+// Deprecated: Use ToolResult
 message ActionResult {
-  string id = 1;                   // matches ActionCall.id
-  ActionStatus status = 2;         // final status of the call
-  bytes output = 3;                // result payload (if any)
-  ActionError error = 4;           // error details (if any)
+  string id = 1;
+  ActionStatus status = 2;
+  bytes output = 3;
+  ActionError error = 4;
 }
 
-// Final status of an action invocation
+// Deprecated: Use ToolStatus
 enum ActionStatus {
   ACTION_OK = 0;
   ACTION_ERROR = 1;
   ACTION_TIMEOUT = 2;
-  ACTION_RETRYABLE = 3; // transient error, eligible for retry
+  ACTION_RETRYABLE = 3;
 }
 
-// Service surface for out-of-process providers (optional)
-service ActionBroker {
-  rpc ListCapabilities(ListCapabilitiesRequest) returns (ListCapabilitiesResponse);
-  rpc Invoke(ActionCall) returns (ActionResult);
-}
-
+// Deprecated: Use ListToolsRequest
 message ListCapabilitiesRequest {}
 
+// Deprecated: Use ListToolsResponse
 message ListCapabilitiesResponse {
   repeated CapabilityDescriptor capabilities = 1;
 }

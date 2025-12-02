@@ -1,45 +1,52 @@
 use loom_bridge::{BridgeService, BridgeState};
-use loom_core::proto::{CapabilityDescriptor, ProviderKind};
-use loom_core::{ActionBroker, CapabilityProvider, EventBus, Result as LoomResult};
-use loom_proto::{bridge_server::Bridge, ActionCall, ActionResult, ActionStatus};
+use loom_core::tools::ToolResult as CoreToolResult;
+use loom_core::{AgentDirectory, EventBus, Tool, ToolRegistry};
+use loom_proto::{bridge_server::Bridge, ToolCall, ToolStatus};
 use std::sync::Arc;
 use tonic::Request;
 
-struct TestEchoProvider;
+/// A simple echo tool for testing
+struct EchoTool;
 
 #[async_trait::async_trait]
-impl CapabilityProvider for TestEchoProvider {
-    fn descriptor(&self) -> CapabilityDescriptor {
-        CapabilityDescriptor {
-            name: "test.echo".into(),
-            version: "1.0".into(),
-            provider: ProviderKind::ProviderNative as i32,
-            metadata: Default::default(),
-        }
+impl Tool for EchoTool {
+    fn name(&self) -> String {
+        "test.echo".to_string()
     }
 
-    async fn invoke(&self, call: ActionCall) -> LoomResult<ActionResult> {
-        Ok(ActionResult {
-            id: call.id,
-            status: ActionStatus::ActionOk as i32,
-            output: call.payload,
-            error: None,
+    fn description(&self) -> String {
+        "Echoes back the input".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "message": { "type": "string" }
+            }
         })
+    }
+
+    async fn call(&self, arguments: serde_json::Value) -> CoreToolResult<serde_json::Value> {
+        Ok(arguments)
     }
 }
 
 #[tokio::test]
-async fn test_forward_action_success() {
+async fn test_forward_tool_call_success() {
     let event_bus = Arc::new(EventBus::new().await.unwrap());
-    let action_broker = Arc::new(ActionBroker::new());
-    action_broker.register_provider(Arc::new(TestEchoProvider));
-    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker));
+    let agent_directory = Arc::new(AgentDirectory::new());
+    let tool_registry = Arc::new(ToolRegistry::new());
 
-    let req = ActionCall {
-        id: "a1".into(),
-        capability: "test.echo".into(),
-        version: "1.0".into(),
-        payload: b"hello".to_vec(),
+    // Register echo tool
+    tool_registry.register(Arc::new(EchoTool)).await;
+
+    let svc = BridgeService::new(BridgeState::new(event_bus, tool_registry, agent_directory));
+
+    let req = ToolCall {
+        id: "t1".into(),
+        name: "test.echo".into(),
+        arguments: r#"{"message":"hello"}"#.into(),
         headers: Default::default(),
         timeout_ms: 1000,
         correlation_id: "c1".into(),
@@ -47,25 +54,26 @@ async fn test_forward_action_success() {
     };
 
     let res = svc
-        .forward_action(Request::new(req))
+        .forward_tool_call(Request::new(req))
         .await
         .unwrap()
         .into_inner();
-    assert_eq!(res.status, ActionStatus::ActionOk as i32);
-    assert_eq!(res.output, b"hello".to_vec());
+
+    assert_eq!(res.status, ToolStatus::ToolOk as i32);
+    assert!(res.output.contains("hello"));
 }
 
 #[tokio::test]
-async fn test_forward_action_missing_capability() {
+async fn test_forward_tool_call_not_found() {
     let event_bus = Arc::new(EventBus::new().await.unwrap());
-    let action_broker = Arc::new(ActionBroker::new());
-    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker));
+    let agent_directory = Arc::new(AgentDirectory::new());
+    let tool_registry = Arc::new(ToolRegistry::new());
+    let svc = BridgeService::new(BridgeState::new(event_bus, tool_registry, agent_directory));
 
-    let req = ActionCall {
-        id: "a2".into(),
-        capability: "unknown.cap".into(),
-        version: "1.0".into(),
-        payload: vec![],
+    let req = ToolCall {
+        id: "t2".into(),
+        name: "unknown.tool".into(),
+        arguments: "{}".into(),
         headers: Default::default(),
         timeout_ms: 10,
         correlation_id: "c2".into(),
@@ -73,12 +81,13 @@ async fn test_forward_action_missing_capability() {
     };
 
     let res = svc
-        .forward_action(Request::new(req))
+        .forward_tool_call(Request::new(req))
         .await
         .unwrap()
         .into_inner();
-    assert_eq!(res.status, ActionStatus::ActionError as i32);
+
+    assert_eq!(res.status, ToolStatus::ToolNotFound as i32);
     assert!(res.error.is_some());
     let err = res.error.unwrap();
-    assert_eq!(err.code, "BROKER_ERROR");
+    assert_eq!(err.code, "NOT_FOUND");
 }
