@@ -19,10 +19,10 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 futures-core = "0.3"
 tokio-stream = { version = "0.1", features = ["sync", "net"] }
-
-[dev-dependencies]
 serde_json = "1"
 async-trait = "0.1"
+
+[dev-dependencies]
 
 [lib]
 name = "loom_bridge"

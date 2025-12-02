@@ -1,5 +1,5 @@
-use loom_bridge::{BridgeService, BridgeState};
-use loom_core::{ActionBroker, EventBus};
+use loom_bridge::{ActionBroker, BridgeService, BridgeState};
+use loom_core::{AgentDirectory, EventBus};
 use loom_proto::{bridge_server::Bridge, AgentRegisterRequest};
 use std::sync::Arc;
 use tonic::Request;
@@ -7,8 +7,9 @@ use tonic::Request;
 #[tokio::test]
 async fn test_register_agent_success() {
     let event_bus = Arc::new(EventBus::new().await.unwrap());
+    let agent_directory = Arc::new(AgentDirectory::new());
     let action_broker = Arc::new(ActionBroker::new());
-    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker));
+    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker, agent_directory));
 
     let resp = svc
         .register_agent(Request::new(AgentRegisterRequest {
@@ -27,8 +28,9 @@ async fn test_register_agent_success() {
 #[tokio::test]
 async fn test_register_agent_empty_id() {
     let event_bus = Arc::new(EventBus::new().await.unwrap());
+    let agent_directory = Arc::new(AgentDirectory::new());
     let action_broker = Arc::new(ActionBroker::new());
-    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker));
+    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker, agent_directory));
 
     let resp = svc
         .register_agent(Request::new(AgentRegisterRequest {

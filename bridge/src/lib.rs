@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+pub mod action_broker;
 pub mod memory_handler;
+pub mod trading_memory;
 
 use dashmap::DashMap;
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -9,7 +11,10 @@ use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tonic::{Request, Response, Status};
 use tracing::info;
 
-use loom_core::{ActionBroker, AgentDirectory, AgentInfo, EventBus};
+// Re-export ActionBroker and CapabilityProvider for public API
+pub use action_broker::{ActionBroker, ActionBrokerError, CapabilityProvider};
+
+use loom_core::{AgentDirectory, AgentInfo, AgentStatus, EventBus};
 use loom_proto::{
     bridge_server::{Bridge, BridgeServer},
     client_event,
@@ -153,7 +158,7 @@ impl Bridge for BridgeService {
             capabilities: cap_names,
             metadata: std::collections::HashMap::new(),
             last_heartbeat: Some(now),
-            status: loom_core::directory::AgentStatus::Active,
+            status: AgentStatus::Active,
         });
 
         // Broadcast AgentRegistered event to Dashboard
@@ -363,10 +368,7 @@ impl Bridge for BridgeService {
             info!(agent_id=%agent_id_for_inbound, "EventStream inbound ended");
 
             // Update agent status to Disconnected
-            agent_directory.update_status(
-                &agent_id_for_inbound,
-                loom_core::directory::AgentStatus::Disconnected,
-            );
+            agent_directory.update_status(&agent_id_for_inbound, AgentStatus::Disconnected);
 
             // Cleanup stream sender on disconnect
             streams_map.remove(&agent_id_for_inbound);
@@ -481,7 +483,7 @@ pub async fn start_server(
     let svc = BridgeService::new(BridgeState::new(event_bus, action_broker, agent_directory));
 
     // Create memory store and handler
-    let memory_store = loom_core::context::memory::InMemoryMemory::new();
+    let memory_store = trading_memory::InMemoryMemory::new();
     let memory_handler = memory_handler::MemoryHandler::new(memory_store);
 
     tonic::transport::Server::builder()
@@ -516,7 +518,7 @@ pub async fn start_server_with_dashboard(
     let svc = BridgeService::new(state);
 
     // Create memory store and handler
-    let memory_store = loom_core::context::memory::InMemoryMemory::new();
+    let memory_store = trading_memory::InMemoryMemory::new();
     let memory_handler = memory_handler::MemoryHandler::new(memory_store);
 
     tonic::transport::Server::builder()

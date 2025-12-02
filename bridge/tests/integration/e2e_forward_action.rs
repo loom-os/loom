@@ -1,6 +1,7 @@
 use super::*;
+use loom_bridge::{ActionBroker, ActionBrokerError, CapabilityProvider};
 use loom_core::proto::{CapabilityDescriptor, ProviderKind};
-use loom_core::{ActionBroker, CapabilityProvider, EventBus, Result as LoomResult};
+use loom_core::EventBus;
 use std::sync::Arc;
 
 struct TestEchoProvider;
@@ -16,7 +17,7 @@ impl CapabilityProvider for TestEchoProvider {
         }
     }
 
-    async fn invoke(&self, call: super::ActionCall) -> LoomResult<super::ActionResult> {
+    async fn invoke(&self, call: super::ActionCall) -> Result<super::ActionResult, ActionBrokerError> {
         Ok(super::ActionResult {
             id: call.id,
             status: super::ActionStatus::ActionOk as i32,

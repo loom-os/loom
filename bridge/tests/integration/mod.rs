@@ -3,12 +3,11 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use loom_bridge::BridgeService; // we will construct service directly if needed
-use loom_core::{ActionBroker, EventBus};
+use loom_bridge::{ActionBroker, BridgeService};
+use loom_core::{AgentDirectory, EventBus};
 use loom_proto::bridge_server::BridgeServer;
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
-use tracing::info;
 
 pub use loom_proto::{
     bridge_client::BridgeClient, client_event, server_event, Ack, ActionCall, ActionResult,
@@ -25,9 +24,11 @@ pub async fn start_test_server(
     tokio::task::JoinHandle<()>,
     loom_bridge::BridgeService,
 ) {
+    let agent_directory = Arc::new(AgentDirectory::new());
     let svc = loom_bridge::BridgeService::new(loom_bridge::BridgeState::new(
         Arc::clone(&event_bus),
         Arc::clone(&action_broker),
+        agent_directory,
     ));
     let svc_for_return = svc.clone();
 

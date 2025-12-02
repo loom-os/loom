@@ -1,5 +1,6 @@
 use super::*;
-use loom_core::{ActionBroker, EventBus};
+use loom_bridge::ActionBroker;
+use loom_core::EventBus;
 use tokio_stream::wrappers::ReceiverStream;
 
 #[tokio::test]

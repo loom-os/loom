@@ -1,4 +1,4 @@
-use loom_core::context::memory::InMemoryMemory;
+use crate::trading_memory::InMemoryMemory;
 use loom_proto::{
     memory_service_server::MemoryService, CheckDuplicateRequest, CheckDuplicateResponse,
     CheckExecutedRequest, CheckExecutedResponse, GetExecutionStatsRequest,

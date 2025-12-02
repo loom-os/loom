@@ -1,6 +1,7 @@
-use loom_bridge::{BridgeService, BridgeState};
+use loom_bridge::{ActionBroker, ActionBrokerError, BridgeService, BridgeState, CapabilityProvider};
+use loom_core::AgentDirectory;
 use loom_core::proto::{CapabilityDescriptor, ProviderKind};
-use loom_core::{ActionBroker, CapabilityProvider, EventBus, Result as LoomResult};
+use loom_core::EventBus;
 use loom_proto::{bridge_server::Bridge, ActionCall, ActionResult, ActionStatus};
 use std::sync::Arc;
 use tonic::Request;
@@ -18,7 +19,7 @@ impl CapabilityProvider for TestEchoProvider {
         }
     }
 
-    async fn invoke(&self, call: ActionCall) -> LoomResult<ActionResult> {
+    async fn invoke(&self, call: ActionCall) -> Result<ActionResult, ActionBrokerError> {
         Ok(ActionResult {
             id: call.id,
             status: ActionStatus::ActionOk as i32,
@@ -31,9 +32,10 @@ impl CapabilityProvider for TestEchoProvider {
 #[tokio::test]
 async fn test_forward_action_success() {
     let event_bus = Arc::new(EventBus::new().await.unwrap());
+    let agent_directory = Arc::new(AgentDirectory::new());
     let action_broker = Arc::new(ActionBroker::new());
     action_broker.register_provider(Arc::new(TestEchoProvider));
-    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker));
+    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker, agent_directory));
 
     let req = ActionCall {
         id: "a1".into(),
@@ -58,8 +60,9 @@ async fn test_forward_action_success() {
 #[tokio::test]
 async fn test_forward_action_missing_capability() {
     let event_bus = Arc::new(EventBus::new().await.unwrap());
+    let agent_directory = Arc::new(AgentDirectory::new());
     let action_broker = Arc::new(ActionBroker::new());
-    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker));
+    let svc = BridgeService::new(BridgeState::new(event_bus, action_broker, agent_directory));
 
     let req = ActionCall {
         id: "a2".into(),
