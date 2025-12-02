@@ -86,9 +86,9 @@ export LOOM_BRIDGE_ADDR="bridge.example.com:50051"
 ### 2. Create Your First Agent
 
 ```python
-from loom import Agent, capability
+from loom import Agent, tool
 
-@capability("web.search", version="1.0")
+@tool("web.search", description="Search the web for information")
 def web_search(query: str) -> dict:
     return {"query": query, "results": ["example.com"]}
 
@@ -99,7 +99,7 @@ async def on_event(ctx, topic, event):
 agent = Agent(
     agent_id="py-agent-1",
     topics=["topic.test"],
-    capabilities=[web_search],
+    tools=[web_search],
     address="127.0.0.1:50051",  # LOOM_BRIDGE_ADDR
 )
 
@@ -119,12 +119,13 @@ python my_agent.py
 
 - Agent lifecycle management
 - Event pub/sub via Bridge
-- Capability system with auto schema generation
+- Tool system with auto schema generation
 - Context API (emit, reply, tool invocation)
 - Envelope for correlation and threading
 - Request/reply with timeout
 
 🚧 **Coming Soon**:
+
 - Memory backends
 - Dynamic subscriptions
 - Streaming responses

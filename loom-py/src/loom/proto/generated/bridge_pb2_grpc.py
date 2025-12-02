@@ -28,7 +28,7 @@ if _version_not_supported:
 
 class BridgeStub(object):
     """Bridge service for external agents (SDKs) to connect to Loom Core.
-    Provides registration, bidirectional event streaming, action forwarding, and heartbeat.
+    Provides registration, bidirectional event streaming, tool forwarding, and heartbeat.
     """
 
     def __init__(self, channel):
@@ -47,10 +47,10 @@ class BridgeStub(object):
                 request_serializer=bridge__pb2.ClientEvent.SerializeToString,
                 response_deserializer=bridge__pb2.ServerEvent.FromString,
                 _registered_method=True)
-        self.ForwardAction = channel.unary_unary(
-                '/loom.v1.Bridge/ForwardAction',
-                request_serializer=action__pb2.ActionCall.SerializeToString,
-                response_deserializer=action__pb2.ActionResult.FromString,
+        self.ForwardToolCall = channel.unary_unary(
+                '/loom.v1.Bridge/ForwardToolCall',
+                request_serializer=action__pb2.ToolCall.SerializeToString,
+                response_deserializer=action__pb2.ToolResult.FromString,
                 _registered_method=True)
         self.Heartbeat = channel.unary_unary(
                 '/loom.v1.Bridge/Heartbeat',
@@ -61,11 +61,11 @@ class BridgeStub(object):
 
 class BridgeServicer(object):
     """Bridge service for external agents (SDKs) to connect to Loom Core.
-    Provides registration, bidirectional event streaming, action forwarding, and heartbeat.
+    Provides registration, bidirectional event streaming, tool forwarding, and heartbeat.
     """
 
     def RegisterAgent(self, request, context):
-        """Register an agent with its subscriptions and capabilities.
+        """Register an agent with its subscriptions and tools it provides.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -78,8 +78,8 @@ class BridgeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def ForwardAction(self, request, context):
-        """Forward an action call to the ActionBroker and return result.
+    def ForwardToolCall(self, request, context):
+        """Forward a tool call to the ToolRegistry and return result.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -105,10 +105,10 @@ def add_BridgeServicer_to_server(servicer, server):
                     request_deserializer=bridge__pb2.ClientEvent.FromString,
                     response_serializer=bridge__pb2.ServerEvent.SerializeToString,
             ),
-            'ForwardAction': grpc.unary_unary_rpc_method_handler(
-                    servicer.ForwardAction,
-                    request_deserializer=action__pb2.ActionCall.FromString,
-                    response_serializer=action__pb2.ActionResult.SerializeToString,
+            'ForwardToolCall': grpc.unary_unary_rpc_method_handler(
+                    servicer.ForwardToolCall,
+                    request_deserializer=action__pb2.ToolCall.FromString,
+                    response_serializer=action__pb2.ToolResult.SerializeToString,
             ),
             'Heartbeat': grpc.unary_unary_rpc_method_handler(
                     servicer.Heartbeat,
@@ -125,7 +125,7 @@ def add_BridgeServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class Bridge(object):
     """Bridge service for external agents (SDKs) to connect to Loom Core.
-    Provides registration, bidirectional event streaming, action forwarding, and heartbeat.
+    Provides registration, bidirectional event streaming, tool forwarding, and heartbeat.
     """
 
     @staticmethod
@@ -183,7 +183,7 @@ class Bridge(object):
             _registered_method=True)
 
     @staticmethod
-    def ForwardAction(request,
+    def ForwardToolCall(request,
             target,
             options=(),
             channel_credentials=None,
@@ -196,9 +196,9 @@ class Bridge(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/loom.v1.Bridge/ForwardAction',
-            action__pb2.ActionCall.SerializeToString,
-            action__pb2.ActionResult.FromString,
+            '/loom.v1.Bridge/ForwardToolCall',
+            action__pb2.ToolCall.SerializeToString,
+            action__pb2.ToolResult.FromString,
             options,
             channel_credentials,
             insecure,

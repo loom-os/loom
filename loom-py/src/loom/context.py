@@ -78,24 +78,35 @@ class Context:
         self,
         name: str,
         *,
-        version: str = "1.0",
         payload: Any = None,
         timeout_ms: int = 5000,
         headers: Optional[Dict[str, str]] = None,
-    ) -> bytes:
-        # Create span for capability invocation
+    ) -> str:
+        """Invoke a tool via the Bridge.
+
+        Args:
+            name: Tool name to invoke
+            payload: Arguments to pass to the tool (will be JSON-serialized)
+            timeout_ms: Timeout in milliseconds
+            headers: Optional additional headers
+
+        Returns:
+            Tool output as JSON string
+        """
+        # Create span for tool invocation
         with tracer.start_as_current_span(
-            "capability.invoke",
+            "tool.invoke",
             attributes={
-                "capability.name": name,
-                "capability.version": version,
+                "tool.name": name,
                 "agent.id": self.agent_id,
                 "timeout.ms": timeout_ms,
             },
         ) as span:
-            data = payload
-            if payload is not None and not isinstance(payload, (bytes, bytearray)):
-                data = json.dumps(payload).encode("utf-8")
+            # Serialize payload to JSON string
+            arguments = ""
+            if payload is not None:
+                arguments = json.dumps(payload) if not isinstance(payload, str) else payload
+
             call_id = str(uuid.uuid4())
             correlation_id = call_id
 
@@ -107,27 +118,25 @@ class Context:
             if headers:
                 call_headers.update(headers)
 
-            call = pb_action.ActionCall(
+            call = pb_action.ToolCall(
                 id=call_id,
-                capability=name,
-                version=version,
-                payload=data or b"",
+                name=name,
+                arguments=arguments,
                 headers=call_headers,
                 timeout_ms=timeout_ms,
                 correlation_id=correlation_id,
-                qos=0,
             )
 
             try:
-                res = await self.client.forward_action(call)
+                res = await self.client.forward_tool_call(call)
 
                 # Record result status
-                span.set_attribute("capability.status", res.status)
+                span.set_attribute("tool.status", res.status)
 
-                if res.status == pb_action.ActionStatus.ACTION_OK:
-                    span.set_attribute("capability.output.size", len(res.output))
+                if res.status == pb_action.ToolStatus.TOOL_OK:
+                    span.set_attribute("tool.output.size", len(res.output))
                     span.set_status(trace.Status(trace.StatusCode.OK))
-                    return bytes(res.output)
+                    return res.output
                 else:
                     error_msg = res.error.message if res.error else "unknown"
                     span.set_status(trace.Status(trace.StatusCode.ERROR, error_msg))

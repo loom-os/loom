@@ -11,10 +11,10 @@ import json
 import pytest
 
 from loom.agent import Agent
-from loom.capability import capability
 from loom.client import BridgeClient
 from loom.envelope import Envelope
 from loom.proto import action_pb2, bridge_pb2, event_pb2
+from loom.tool import tool
 
 
 @pytest.mark.integration
@@ -43,7 +43,7 @@ async def test_agent_registration(bridge_server: str) -> None:
     success = await client.register_agent(
         agent_id="test_agent_1",
         topics=["test.topic"],
-        capabilities=[],
+        tools=[],
         metadata={"test": "true"},
     )
     assert success is True
@@ -65,7 +65,7 @@ async def test_event_publish_and_receive(bridge_server: str) -> None:
     await client.register_agent(
         agent_id=agent_id,
         topics=[test_topic],
-        capabilities=[],
+        tools=[],
     )
 
     # Create outbound queue for publishing
@@ -122,20 +122,20 @@ async def test_event_publish_and_receive(bridge_server: str) -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_agent_capability_invocation(bridge_server: str) -> None:
-    """Test that agent capabilities can be invoked through the Bridge."""
+async def test_agent_tool_invocation(bridge_server: str) -> None:
+    """Test that agent tools can be invoked through the Bridge."""
 
-    # Define a test capability
-    @capability(name="test.add", version="1.0.0")
+    # Define a test tool
+    @tool(name="test.add", description="Add two numbers")
     def add_numbers(a: int, b: int) -> int:
         """Add two numbers."""
         return a + b
 
-    # Create agent with the capability
+    # Create agent with the tool
     agent = Agent(
         agent_id="test_agent_3",
-        topics=["test.capability"],
-        capabilities=[add_numbers],
+        topics=["test.tool"],
+        tools=[add_numbers],
         address=bridge_server,
     )
 
@@ -145,20 +145,19 @@ async def test_agent_capability_invocation(bridge_server: str) -> None:
         # Give agent a moment to fully register
         await asyncio.sleep(0.5)
 
-        # Create a separate client to invoke the capability
+        # Create a separate client to invoke the tool
         client = BridgeClient(address=bridge_server)
         await client.connect()
 
-        # Forward an action call
-        action_call = action_pb2.ActionCall(
+        # Forward a tool call
+        tool_call = action_pb2.ToolCall(
             id="call_1",
-            capability="test.add",
-            payload=json.dumps({"a": 5, "b": 3}).encode("utf-8"),
+            name="test.add",
+            arguments=json.dumps({"a": 5, "b": 3}),
         )
 
-        # This should route through the ActionBroker in Core
-        # For now, we're testing the basic flow
-        result = await client.forward_action(action_call)
+        # This should route through the ToolRegistry in Core
+        result = await client.forward_tool_call(tool_call)
 
         assert result is not None
         assert result.id == "call_1"

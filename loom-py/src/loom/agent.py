@@ -11,10 +11,10 @@ from typing import Any, Callable, Optional
 from opentelemetry import trace
 from opentelemetry.trace import set_span_in_context
 
-from .capability import Capability
 from .client import BridgeClient, pb_action, pb_bridge
 from .context import Context
 from .envelope import Envelope
+from .tool import Tool
 from .tracing import init_telemetry
 
 EventHandler = Callable[[Context, str, Envelope], Awaitable[None]]
@@ -28,9 +28,11 @@ class Agent:
         self,
         agent_id: str,
         topics: Iterable[str],
-        capabilities: Optional[Iterable[Callable[..., Any]]] = None,
+        tools: Optional[Iterable[Callable[..., Any]]] = None,
         address: Optional[str] = None,
         on_event: Optional[EventHandler] = None,
+        # Deprecated parameter - use 'tools' instead
+        capabilities: Optional[Iterable[Callable[..., Any]]] = None,
     ):
         # Auto-initialize telemetry unless explicitly disabled
         if os.getenv("LOOM_TELEMETRY_AUTO", "1") != "0":
@@ -47,13 +49,18 @@ class Agent:
 
         self.agent_id = agent_id
         self.topics = list(topics)
-        self._cap_decls: list[Capability] = []
-        if capabilities:
-            for fn in capabilities:
-                cap = getattr(fn, "__loom_capability__", None)
-                if not cap:
-                    raise ValueError(f"Function {fn.__name__} is not decorated with @capability")
-                self._cap_decls.append(cap)
+        self._tool_decls: list[Tool] = []
+
+        # Support both 'tools' and deprecated 'capabilities' parameter
+        tool_funcs = tools or capabilities
+        if tool_funcs:
+            for fn in tool_funcs:
+                # Check for new @tool decorator first, then legacy @capability
+                t = getattr(fn, "__loom_tool__", None) or getattr(fn, "__loom_capability__", None)
+                if not t:
+                    raise ValueError(f"Function {fn.__name__} is not decorated with @tool")
+                self._tool_decls.append(t)
+
         self._on_event = on_event
         self.client = BridgeClient(address=address) if address else BridgeClient()
         self._ctx = Context(agent_id=self.agent_id, client=self.client)
@@ -66,15 +73,14 @@ class Agent:
 
     async def start(self):
         await self.client.connect()
-        # Convert capabilities
-        caps: list[pb_action.CapabilityDescriptor] = []
-        for c in self._cap_decls:
-            caps.append(
-                pb_action.CapabilityDescriptor(
-                    name=c.name,
-                    version=c.version,
-                    provider=pb_action.ProviderKind.PROVIDER_GRPC,
-                    metadata=c.metadata,
+        # Convert tools to ToolDescriptor
+        tool_descriptors: list[pb_action.ToolDescriptor] = []
+        for t in self._tool_decls:
+            tool_descriptors.append(
+                pb_action.ToolDescriptor(
+                    name=t.name,
+                    description=t.description,
+                    parameters_schema=t.parameters_schema,
                 )
             )
         # Ensure reply topic is always subscribed
@@ -82,7 +88,7 @@ class Agent:
         reply_topic = f"agent.{self.agent_id}.replies"
         if reply_topic not in topics:
             topics.append(reply_topic)
-        await self.client.register_agent(self.agent_id, topics, caps)
+        await self.client.register_agent(self.agent_id, topics, tool_descriptors)
 
         # Start stream
         async def outbound_iter():
@@ -127,8 +133,8 @@ class Agent:
                             },
                         ):
                             await self._on_event(self._ctx, delivery.topic, env)
-                elif which == "action_call":
-                    await self._handle_action_call(server_msg.action_call)
+                elif which == "tool_call":
+                    await self._handle_tool_call(server_msg.tool_call)
                 elif which == "pong":
                     # ignore
                     pass
@@ -154,21 +160,20 @@ class Agent:
                     await self.client.close()
                     await self.client.connect()
                     # Re-register (ensure reply topic stays present)
-                    caps: list[pb_action.CapabilityDescriptor] = []
-                    for c in self._cap_decls:
-                        caps.append(
-                            pb_action.CapabilityDescriptor(
-                                name=c.name,
-                                version=c.version,
-                                provider=pb_action.ProviderKind.PROVIDER_GRPC,
-                                metadata=c.metadata,
+                    tool_descriptors: list[pb_action.ToolDescriptor] = []
+                    for t in self._tool_decls:
+                        tool_descriptors.append(
+                            pb_action.ToolDescriptor(
+                                name=t.name,
+                                description=t.description,
+                                parameters_schema=t.parameters_schema,
                             )
                         )
                     topics = list(self.topics)
                     reply_topic = f"agent.{self.agent_id}.replies"
                     if reply_topic not in topics:
                         topics.append(reply_topic)
-                    await self.client.register_agent(self.agent_id, topics, caps)
+                    await self.client.register_agent(self.agent_id, topics, tool_descriptors)
 
                     # Restart stream
                     async def outbound_iter():
@@ -197,60 +202,71 @@ class Agent:
         except asyncio.CancelledError:
             return
 
-    async def _handle_action_call(self, call: pb_action.ActionCall):
-        # Route to matching capability by name
-        for cap in self._cap_decls:
-            if cap.name == call.capability:
-                payload = bytes(call.payload) if call.payload is not None else b""
+    async def _handle_tool_call(self, call: pb_action.ToolCall):
+        # Route to matching tool by name
+        for t in self._tool_decls:
+            if t.name == call.name:
+                # Parse arguments from JSON string
                 args = {}
-                if cap.input_model:
+                if call.arguments:
                     try:
-                        data = json.loads(payload.decode("utf-8")) if payload else {}
-                        args = cap.input_model(**data).model_dump()
-                    except Exception as e:
-                        # Failed to deserialize or validate input; send an error result and abort
-                        err_res = pb_action.ActionResult(
+                        args = json.loads(call.arguments)
+                    except json.JSONDecodeError as e:
+                        err_res = pb_action.ToolResult(
                             id=call.id,
-                            status=pb_action.ActionStatus.ACTION_ERROR,
-                            error=pb_action.ActionError(
-                                code="INVALID_INPUT",
-                                message=f"Failed to parse input for capability '{cap.name}': {e}",
+                            status=pb_action.ToolStatus.TOOL_ERROR,
+                            error=pb_action.ToolError(
+                                code="INVALID_ARGUMENTS",
+                                message=f"Failed to parse arguments JSON: {e}",
                             ),
                         )
-                        await self._outbound_queue.put(pb_bridge.ClientEvent(action_result=err_res))
+                        await self._outbound_queue.put(pb_bridge.ClientEvent(tool_result=err_res))
                         return
+
+                # Validate with input model if available
+                if t.input_model:
+                    try:
+                        args = t.input_model(**args).model_dump()
+                    except Exception as e:
+                        err_res = pb_action.ToolResult(
+                            id=call.id,
+                            status=pb_action.ToolStatus.TOOL_ERROR,
+                            error=pb_action.ToolError(
+                                code="INVALID_INPUT",
+                                message=f"Failed to validate input for tool '{t.name}': {e}",
+                            ),
+                        )
+                        await self._outbound_queue.put(pb_bridge.ClientEvent(tool_result=err_res))
+                        return
+
                 try:
-                    result = cap.func(**args)
+                    result = t.func(**args)
                     if asyncio.iscoroutine(result):
                         result = await result
-                    output = (
-                        json.dumps(result).encode("utf-8")
-                        if result is not None and not isinstance(result, (bytes, bytearray))
-                        else (result or b"")
-                    )
-                    res = pb_action.ActionResult(
+                    # Serialize output to JSON string
+                    output = json.dumps(result) if result is not None else ""
+                    res = pb_action.ToolResult(
                         id=call.id,
-                        status=pb_action.ActionStatus.ACTION_OK,
+                        status=pb_action.ToolStatus.TOOL_OK,
                         output=output,
                     )
                 except Exception as e:
-                    res = pb_action.ActionResult(
+                    res = pb_action.ToolResult(
                         id=call.id,
-                        status=pb_action.ActionStatus.ACTION_ERROR,
-                        error=pb_action.ActionError(code="CAPABILITY_ERROR", message=str(e)),
+                        status=pb_action.ToolStatus.TOOL_ERROR,
+                        error=pb_action.ToolError(code="TOOL_ERROR", message=str(e)),
                     )
-                # Send back on stream by enqueuing as action_result
-                await self._outbound_queue.put(pb_bridge.ClientEvent(action_result=res))
+                # Send back on stream by enqueuing as tool_result
+                await self._outbound_queue.put(pb_bridge.ClientEvent(tool_result=res))
                 return
-        # No capability matched
-        res = pb_action.ActionResult(
+
+        # No tool matched
+        res = pb_action.ToolResult(
             id=call.id,
-            status=pb_action.ActionStatus.ACTION_ERROR,
-            error=pb_action.ActionError(
-                code="NOT_FOUND", message=f"Capability {call.capability} not found"
-            ),
+            status=pb_action.ToolStatus.TOOL_ERROR,
+            error=pb_action.ToolError(code="NOT_FOUND", message=f"Tool '{call.name}' not found"),
         )
-        await self._outbound_queue.put(pb_bridge.ClientEvent(action_result=res))
+        await self._outbound_queue.put(pb_bridge.ClientEvent(tool_result=res))
 
     async def stop(self):
         self._stopped.set()

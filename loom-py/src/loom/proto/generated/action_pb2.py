@@ -25,41 +25,67 @@ _sym_db = _symbol_database.Default()
 from . import event_pb2 as event__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0c\x61\x63tion.proto\x12\x07loom.v1\x1a\x0b\x65vent.proto\"\xce\x01\n\x14\x43\x61pabilityDescriptor\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\t\x12\'\n\x08provider\x18\x03 \x01(\x0e\x32\x15.loom.v1.ProviderKind\x12=\n\x08metadata\x18\x04 \x03(\x0b\x32+.loom.v1.CapabilityDescriptor.MetadataEntry\x1a/\n\rMetadataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\xfd\x01\n\nActionCall\x12\n\n\x02id\x18\x01 \x01(\t\x12\x12\n\ncapability\x18\x02 \x01(\t\x12\x0f\n\x07version\x18\x03 \x01(\t\x12\x0f\n\x07payload\x18\x04 \x01(\x0c\x12\x31\n\x07headers\x18\x05 \x03(\x0b\x32 .loom.v1.ActionCall.HeadersEntry\x12\x12\n\ntimeout_ms\x18\x06 \x01(\x03\x12\x16\n\x0e\x63orrelation_id\x18\x07 \x01(\t\x12\x1e\n\x03qos\x18\x08 \x01(\x0e\x32\x11.loom.v1.QoSLevel\x1a.\n\x0cHeadersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x90\x01\n\x0b\x41\x63tionError\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x32\n\x07\x64\x65tails\x18\x03 \x03(\x0b\x32!.loom.v1.ActionError.DetailsEntry\x1a.\n\x0c\x44\x65tailsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"v\n\x0c\x41\x63tionResult\x12\n\n\x02id\x18\x01 \x01(\t\x12%\n\x06status\x18\x02 \x01(\x0e\x32\x15.loom.v1.ActionStatus\x12\x0e\n\x06output\x18\x03 \x01(\x0c\x12#\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x14.loom.v1.ActionError\"\x19\n\x17ListCapabilitiesRequest\"O\n\x18ListCapabilitiesResponse\x12\x33\n\x0c\x63\x61pabilities\x18\x01 \x03(\x0b\x32\x1d.loom.v1.CapabilityDescriptor*[\n\x0cProviderKind\x12\x13\n\x0fPROVIDER_NATIVE\x10\x00\x12\x11\n\rPROVIDER_WASM\x10\x01\x12\x11\n\rPROVIDER_GRPC\x10\x02\x12\x10\n\x0cPROVIDER_MCP\x10\x03*Y\n\x0c\x41\x63tionStatus\x12\r\n\tACTION_OK\x10\x00\x12\x10\n\x0c\x41\x43TION_ERROR\x10\x01\x12\x12\n\x0e\x41\x43TION_TIMEOUT\x10\x02\x12\x14\n\x10\x41\x43TION_RETRYABLE\x10\x03\x32\x9d\x01\n\x0c\x41\x63tionBroker\x12W\n\x10ListCapabilities\x12 .loom.v1.ListCapabilitiesRequest\x1a!.loom.v1.ListCapabilitiesResponse\x12\x34\n\x06Invoke\x12\x13.loom.v1.ActionCall\x1a\x15.loom.v1.ActionResultb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0c\x61\x63tion.proto\x12\x07loom.v1\x1a\x0b\x65vent.proto\"\xe1\x01\n\x0eToolDescriptor\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x12\x19\n\x11parameters_schema\x18\x03 \x01(\t\x12\'\n\x08provider\x18\x04 \x01(\x0e\x32\x15.loom.v1.ProviderKind\x12\x37\n\x08metadata\x18\x05 \x03(\x0b\x32%.loom.v1.ToolDescriptor.MetadataEntry\x1a/\n\rMetadataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\xe4\x01\n\x08ToolCall\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x11\n\targuments\x18\x03 \x01(\t\x12/\n\x07headers\x18\x04 \x03(\x0b\x32\x1e.loom.v1.ToolCall.HeadersEntry\x12\x12\n\ntimeout_ms\x18\x05 \x01(\x03\x12\x16\n\x0e\x63orrelation_id\x18\x06 \x01(\t\x12\x1e\n\x03qos\x18\x07 \x01(\x0e\x32\x11.loom.v1.QoSLevel\x1a.\n\x0cHeadersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"p\n\nToolResult\x12\n\n\x02id\x18\x01 \x01(\t\x12#\n\x06status\x18\x02 \x01(\x0e\x32\x13.loom.v1.ToolStatus\x12\x0e\n\x06output\x18\x03 \x01(\t\x12!\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x12.loom.v1.ToolError\"\x8c\x01\n\tToolError\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x30\n\x07\x64\x65tails\x18\x03 \x03(\x0b\x32\x1f.loom.v1.ToolError.DetailsEntry\x1a.\n\x0c\x44\x65tailsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x12\n\x10ListToolsRequest\";\n\x11ListToolsResponse\x12&\n\x05tools\x18\x01 \x03(\x0b\x32\x17.loom.v1.ToolDescriptor\"\xce\x01\n\x14\x43\x61pabilityDescriptor\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\t\x12\'\n\x08provider\x18\x03 \x01(\x0e\x32\x15.loom.v1.ProviderKind\x12=\n\x08metadata\x18\x04 \x03(\x0b\x32+.loom.v1.CapabilityDescriptor.MetadataEntry\x1a/\n\rMetadataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\xfd\x01\n\nActionCall\x12\n\n\x02id\x18\x01 \x01(\t\x12\x12\n\ncapability\x18\x02 \x01(\t\x12\x0f\n\x07version\x18\x03 \x01(\t\x12\x0f\n\x07payload\x18\x04 \x01(\x0c\x12\x31\n\x07headers\x18\x05 \x03(\x0b\x32 .loom.v1.ActionCall.HeadersEntry\x12\x12\n\ntimeout_ms\x18\x06 \x01(\x03\x12\x16\n\x0e\x63orrelation_id\x18\x07 \x01(\t\x12\x1e\n\x03qos\x18\x08 \x01(\x0e\x32\x11.loom.v1.QoSLevel\x1a.\n\x0cHeadersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x90\x01\n\x0b\x41\x63tionError\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x32\n\x07\x64\x65tails\x18\x03 \x03(\x0b\x32!.loom.v1.ActionError.DetailsEntry\x1a.\n\x0c\x44\x65tailsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"v\n\x0c\x41\x63tionResult\x12\n\n\x02id\x18\x01 \x01(\t\x12%\n\x06status\x18\x02 \x01(\x0e\x32\x15.loom.v1.ActionStatus\x12\x0e\n\x06output\x18\x03 \x01(\x0c\x12#\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x14.loom.v1.ActionError\"\x19\n\x17ListCapabilitiesRequest\"O\n\x18ListCapabilitiesResponse\x12\x33\n\x0c\x63\x61pabilities\x18\x01 \x03(\x0b\x32\x1d.loom.v1.CapabilityDescriptor*[\n\x0cProviderKind\x12\x13\n\x0fPROVIDER_NATIVE\x10\x00\x12\x11\n\rPROVIDER_WASM\x10\x01\x12\x11\n\rPROVIDER_GRPC\x10\x02\x12\x10\n\x0cPROVIDER_MCP\x10\x03*k\n\nToolStatus\x12\x0b\n\x07TOOL_OK\x10\x00\x12\x0e\n\nTOOL_ERROR\x10\x01\x12\x10\n\x0cTOOL_TIMEOUT\x10\x02\x12\x12\n\x0eTOOL_NOT_FOUND\x10\x03\x12\x1a\n\x16TOOL_INVALID_ARGUMENTS\x10\x04*Y\n\x0c\x41\x63tionStatus\x12\r\n\tACTION_OK\x10\x00\x12\x10\n\x0c\x41\x43TION_ERROR\x10\x01\x12\x12\n\x0e\x41\x43TION_TIMEOUT\x10\x02\x12\x14\n\x10\x41\x43TION_RETRYABLE\x10\x03\x32\x81\x01\n\x0bToolService\x12\x42\n\tListTools\x12\x19.loom.v1.ListToolsRequest\x1a\x1a.loom.v1.ListToolsResponse\x12.\n\x04\x43\x61ll\x12\x11.loom.v1.ToolCall\x1a\x13.loom.v1.ToolResultb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'action_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
+  _globals['_TOOLDESCRIPTOR_METADATAENTRY']._loaded_options = None
+  _globals['_TOOLDESCRIPTOR_METADATAENTRY']._serialized_options = b'8\001'
+  _globals['_TOOLCALL_HEADERSENTRY']._loaded_options = None
+  _globals['_TOOLCALL_HEADERSENTRY']._serialized_options = b'8\001'
+  _globals['_TOOLERROR_DETAILSENTRY']._loaded_options = None
+  _globals['_TOOLERROR_DETAILSENTRY']._serialized_options = b'8\001'
   _globals['_CAPABILITYDESCRIPTOR_METADATAENTRY']._loaded_options = None
   _globals['_CAPABILITYDESCRIPTOR_METADATAENTRY']._serialized_options = b'8\001'
   _globals['_ACTIONCALL_HEADERSENTRY']._loaded_options = None
   _globals['_ACTIONCALL_HEADERSENTRY']._serialized_options = b'8\001'
   _globals['_ACTIONERROR_DETAILSENTRY']._loaded_options = None
   _globals['_ACTIONERROR_DETAILSENTRY']._serialized_options = b'8\001'
-  _globals['_PROVIDERKIND']._serialized_start=878
-  _globals['_PROVIDERKIND']._serialized_end=969
-  _globals['_ACTIONSTATUS']._serialized_start=971
-  _globals['_ACTIONSTATUS']._serialized_end=1060
-  _globals['_CAPABILITYDESCRIPTOR']._serialized_start=39
-  _globals['_CAPABILITYDESCRIPTOR']._serialized_end=245
-  _globals['_CAPABILITYDESCRIPTOR_METADATAENTRY']._serialized_start=198
-  _globals['_CAPABILITYDESCRIPTOR_METADATAENTRY']._serialized_end=245
-  _globals['_ACTIONCALL']._serialized_start=248
-  _globals['_ACTIONCALL']._serialized_end=501
-  _globals['_ACTIONCALL_HEADERSENTRY']._serialized_start=455
-  _globals['_ACTIONCALL_HEADERSENTRY']._serialized_end=501
-  _globals['_ACTIONERROR']._serialized_start=504
-  _globals['_ACTIONERROR']._serialized_end=648
-  _globals['_ACTIONERROR_DETAILSENTRY']._serialized_start=602
-  _globals['_ACTIONERROR_DETAILSENTRY']._serialized_end=648
-  _globals['_ACTIONRESULT']._serialized_start=650
-  _globals['_ACTIONRESULT']._serialized_end=768
-  _globals['_LISTCAPABILITIESREQUEST']._serialized_start=770
-  _globals['_LISTCAPABILITIESREQUEST']._serialized_end=795
-  _globals['_LISTCAPABILITIESRESPONSE']._serialized_start=797
-  _globals['_LISTCAPABILITIESRESPONSE']._serialized_end=876
-  _globals['_ACTIONBROKER']._serialized_start=1063
-  _globals['_ACTIONBROKER']._serialized_end=1220
+  _globals['_PROVIDERKIND']._serialized_start=1675
+  _globals['_PROVIDERKIND']._serialized_end=1766
+  _globals['_TOOLSTATUS']._serialized_start=1768
+  _globals['_TOOLSTATUS']._serialized_end=1875
+  _globals['_ACTIONSTATUS']._serialized_start=1877
+  _globals['_ACTIONSTATUS']._serialized_end=1966
+  _globals['_TOOLDESCRIPTOR']._serialized_start=39
+  _globals['_TOOLDESCRIPTOR']._serialized_end=264
+  _globals['_TOOLDESCRIPTOR_METADATAENTRY']._serialized_start=217
+  _globals['_TOOLDESCRIPTOR_METADATAENTRY']._serialized_end=264
+  _globals['_TOOLCALL']._serialized_start=267
+  _globals['_TOOLCALL']._serialized_end=495
+  _globals['_TOOLCALL_HEADERSENTRY']._serialized_start=449
+  _globals['_TOOLCALL_HEADERSENTRY']._serialized_end=495
+  _globals['_TOOLRESULT']._serialized_start=497
+  _globals['_TOOLRESULT']._serialized_end=609
+  _globals['_TOOLERROR']._serialized_start=612
+  _globals['_TOOLERROR']._serialized_end=752
+  _globals['_TOOLERROR_DETAILSENTRY']._serialized_start=706
+  _globals['_TOOLERROR_DETAILSENTRY']._serialized_end=752
+  _globals['_LISTTOOLSREQUEST']._serialized_start=754
+  _globals['_LISTTOOLSREQUEST']._serialized_end=772
+  _globals['_LISTTOOLSRESPONSE']._serialized_start=774
+  _globals['_LISTTOOLSRESPONSE']._serialized_end=833
+  _globals['_CAPABILITYDESCRIPTOR']._serialized_start=836
+  _globals['_CAPABILITYDESCRIPTOR']._serialized_end=1042
+  _globals['_CAPABILITYDESCRIPTOR_METADATAENTRY']._serialized_start=217
+  _globals['_CAPABILITYDESCRIPTOR_METADATAENTRY']._serialized_end=264
+  _globals['_ACTIONCALL']._serialized_start=1045
+  _globals['_ACTIONCALL']._serialized_end=1298
+  _globals['_ACTIONCALL_HEADERSENTRY']._serialized_start=449
+  _globals['_ACTIONCALL_HEADERSENTRY']._serialized_end=495
+  _globals['_ACTIONERROR']._serialized_start=1301
+  _globals['_ACTIONERROR']._serialized_end=1445
+  _globals['_ACTIONERROR_DETAILSENTRY']._serialized_start=706
+  _globals['_ACTIONERROR_DETAILSENTRY']._serialized_end=752
+  _globals['_ACTIONRESULT']._serialized_start=1447
+  _globals['_ACTIONRESULT']._serialized_end=1565
+  _globals['_LISTCAPABILITIESREQUEST']._serialized_start=1567
+  _globals['_LISTCAPABILITIESREQUEST']._serialized_end=1592
+  _globals['_LISTCAPABILITIESRESPONSE']._serialized_start=1594
+  _globals['_LISTCAPABILITIESRESPONSE']._serialized_end=1673
+  _globals['_TOOLSERVICE']._serialized_start=1969
+  _globals['_TOOLSERVICE']._serialized_end=2098
 # @@protoc_insertion_point(module_scope)
