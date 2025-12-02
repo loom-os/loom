@@ -2,77 +2,137 @@
 
 The Bridge connects external SDK agents (Python/JS) to Loom Core via gRPC. It provides:
 
-- Agent registration (subscriptions and capability descriptors)
+- Agent registration (subscriptions and tool descriptors)
 - Bidirectional event streaming (client → publish; server → deliveries)
-- Action forwarding to ActionBroker
+- Tool forwarding to ToolRegistry
 - Optional heartbeat
 - Reconnection-friendly behavior
 
 ## Services
 
-service Bridge
+```protobuf
+service Bridge {
+  rpc RegisterAgent(AgentRegisterRequest) returns (AgentRegisterResponse);
+  rpc EventStream(stream ClientEvent) returns (stream ServerEvent);
+  rpc ForwardToolCall(ToolCall) returns (ToolResult);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+```
 
-- RegisterAgent(AgentRegisterRequest) → AgentRegisterResponse
-- EventStream(stream ClientEvent) ↔ (stream ServerEvent)
-- ForwardAction(ActionCall) → ActionResult
-- Heartbeat(HeartbeatRequest) → HeartbeatResponse
+## Key Types
 
-## Stream handshake
+### ToolCall / ToolResult
+
+Tool invocations use JSON-encoded arguments:
+
+```protobuf
+message ToolCall {
+  string id = 1;                   // Unique call id
+  string name = 2;                 // Tool name (e.g., "web.search")
+  string arguments = 3;            // JSON-encoded arguments
+  map<string, string> headers = 4; // Trace context, auth, etc.
+  int64 timeout_ms = 5;            // Hard timeout
+}
+
+message ToolResult {
+  string id = 1;                   // Matches ToolCall.id
+  ToolStatus status = 2;           // OK, ERROR, TIMEOUT, NOT_FOUND, INVALID_ARGUMENTS
+  string output = 3;               // JSON-encoded result
+  ToolError error = 4;             // Error details if any
+}
+```
+
+## Stream Handshake
 
 - The server expects the first stream message to be an Ack carrying `agent_id`.
-- Clients must enqueue this Ack into the outbound stream BEFORE awaiting the RPC result, otherwise both sides can deadlock (server waits for Ack; client waits for response).
+- Clients must enqueue this Ack into the outbound stream BEFORE awaiting the RPC result, otherwise both sides can deadlock.
 
 Client outline (tonic):
 
-- Create `mpsc::channel` → wrap with `ReceiverStream` as outbound
-- Send first `ClientEvent::Ack { message_id: agent_id }` into the channel
-- Call `client.event_stream(outbound).await?` and use the returned inbound stream
+```rust
+// Create channel and wrap with ReceiverStream as outbound
+let (tx, rx) = mpsc::channel(32);
+let outbound = ReceiverStream::new(rx);
 
-## Event publish/receive
+// Send first Ack with agent_id BEFORE calling event_stream
+tx.send(ClientEvent {
+    msg: Some(client_event::Msg::Ack(Ack {
+        message_id: agent_id.clone(),
+    })),
+}).await?;
+
+// Now call event_stream
+let response = client.event_stream(outbound).await?;
+let mut inbound = response.into_inner();
+```
+
+## Event Publish/Receive
 
 - After registering with `subscribed_topics`, any publish to those topics is delivered on the server→client stream as `ServerEvent::Delivery`.
-- QoS mapping: current default uses `QoS_Batched` with bounded channel sizes and drops applied to realtime when backpressured.
+- QoS mapping: default uses `QoS_Batched` with bounded channel sizes.
 
-## Action forwarding modes
+## Tool Forwarding
 
-- Client-initiated: Call `ForwardAction(ActionCall)` to run capabilities registered in the Loom Core `ActionBroker`.
-- Server-initiated (planned): The protocol includes `ServerEvent::action_call` and `ClientEvent::action_result` variants for pushing actions to agents and receiving results back on the same stream. The service will add an entry point to trigger server push in a future patch.
+### Client-Initiated
+
+Call `ForwardToolCall(ToolCall)` to invoke tools registered in the `ToolRegistry`:
+
+```rust
+let call = ToolCall {
+    id: "call_123".into(),
+    name: "web.search".into(),
+    arguments: r#"{"query": "rust async"}"#.into(),
+    ..Default::default()
+};
+
+let result = client.forward_tool_call(call).await?;
+```
+
+### Server-Initiated
+
+The protocol supports pushing tool calls to agents via the stream:
+
+- Server sends `ServerEvent::tool_call`
+- Agent executes and replies with `ClientEvent::tool_result`
 
 ## Heartbeat
 
-- Optional unary endpoint `Heartbeat` or inline stream ping/pong (`ClientEvent::ping` / `ServerEvent::pong`).
+Optional unary endpoint `Heartbeat` or inline stream ping/pong.
 
 ## Reconnection
 
-- Bridge is stateless. On stream end, the server cleans up the agent’s sender; clients can re-register with the same agent_id and re-open a stream.
+Bridge is stateless. On stream end, the server cleans up; clients can re-register with the same agent_id.
 
-## Testing notes
+## Architecture
 
-- Integration tests live under `bridge/tests/integration`: basic register/stream/publish and ForwardAction echo.
-- Unit tests live under `bridge/tests/unit`: register_agent, heartbeat, forward_action success/error.
-- For stream tests, always send the Ack before awaiting `event_stream` to avoid handshake deadlocks.
+```
+┌─────────────────┐         gRPC          ┌─────────────────┐
+│  External SDK   │◄─────────────────────►│  Loom Bridge    │
+│  (Python/JS)    │                       │                 │
+└─────────────────┘                       └────────┬────────┘
+                                                   │
+                                                   ▼
+                                          ┌─────────────────┐
+                                          │  ToolRegistry   │
+                                          │  (loom-core)    │
+                                          └────────┬────────┘
+                                                   │
+                              ┌────────────────────┼────────────────────┐
+                              ▼                    ▼                    ▼
+                      ┌───────────────┐    ┌───────────────┐    ┌───────────────┐
+                      │  web.search   │    │  weather.get  │    │  mcp:*        │
+                      └───────────────┘    └───────────────┘    └───────────────┘
+```
 
-## Next
+## Testing Notes
 
-Short-term tasks we can add when business needs require them:
+- Integration tests: `bridge/tests/integration/`
+- Unit tests: `bridge/tests/`
+- Always send Ack before awaiting `event_stream` to avoid deadlocks.
 
-- Expose server-initiated ActionCall externally
-  - Add a gRPC admin endpoint (e.g., `PushAction(agent_id, ActionCall)`), or wire to CLI/HTTP control plane.
-  - Correlate results by either:
-    - Adding `GetActionResult(call_id)` RPC, and/or
-    - Publishing an `action.result.{call_id}` event to the EventBus for subscribers (Dashboard/SDKs) to consume.
-- Metrics and backpressure
-  - Prometheus counters/histograms for event deliveries, drops, action latency; expose via Dashboard.
-  - Surface backpressure signals (queue depth, drop counts) on the Bridge surface.
-- AuthN/Z and namespaces
-  - Token-based auth on RegisterAgent/EventStream; per-namespace topics and capability access control.
-- SDK ergonomics
-  - Reference Python/JS helpers to standardize handshake (pre-enqueue Ack), reconnection with exponential backoff, and stream error handling.
-- Transport parity
-  - Optional WebSocket implementation mirroring the gRPC surface for environments where HTTP/2 is constrained.
+## Next Steps
 
-## Future improvements
-
-- Server-initiated action push + correlation of action_result
-- Backpressure/metrics exposure on the Bridge surface
-- AuthN/Z and namespaces/ACLs
+- Server-initiated tool calls via admin endpoint
+- Prometheus metrics for tool latency
+- Token-based auth and namespaces
+- WebSocket transport option
