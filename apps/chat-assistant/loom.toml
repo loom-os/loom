@@ -1,0 +1,33 @@
+name = "chat-agent"
+description = "Interactive chat agent with cognitive loop and tool use"
+version = "0.1.0"
+
+[bridge]
+address = "127.0.0.1:50051"
+mode = "full"
+
+[dashboard]
+enabled = false
+
+[agents.chat-assistant]
+topics = ["chat.input", "chat.replies"]
+llm_provider = "deepseek"
+thinking_strategy = "react"
+max_iterations = 10
+
+[llm.deepseek]
+type = "http"
+api_key = "${DEEPSEEK_API_KEY}"
+api_base = "https://api.deepseek.com/v1"
+model = "deepseek-chat"
+max_tokens = 4096
+temperature = 0.7
+timeout_sec = 60
+
+[llm.local]
+type = "http"
+api_base = "http://localhost:8000/v1"
+model = "qwen2.5-7b-instruct"
+max_tokens = 2048
+temperature = 0.8
+timeout_sec = 30

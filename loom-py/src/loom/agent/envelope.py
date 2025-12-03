@@ -1,0 +1,225 @@
+"""Agent Envelope - Message wrapper for event-driven communication.
+
+This module provides the Envelope class for wrapping events with
+metadata, tracing context, and routing information.
+"""
+
+from __future__ import annotations
+
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional
+
+from opentelemetry.trace import SpanContext, TraceFlags, TraceState, get_current_span
+
+META_PREFIX = "loom"
+
+
+@dataclass
+class Envelope:
+    """Message envelope for agent communication.
+
+    Wraps event payloads with metadata for routing, correlation, and tracing.
+
+    Attributes:
+        id: Unique envelope ID
+        type: Event type string
+        timestamp_ms: Creation timestamp in milliseconds
+        source: Source identifier (usually "python")
+        payload: Event payload bytes
+        metadata: Key-value metadata
+        tags: Tags for filtering
+        priority: Priority level (0-100, default 50)
+        thread_id: Conversation thread ID
+        correlation_id: For request-response correlation
+        sender: Sending agent ID
+        reply_to: Topic for replies
+        ttl_ms: Time-to-live in milliseconds
+        trace_id: OpenTelemetry trace ID
+        span_id: OpenTelemetry span ID
+        trace_flags: OpenTelemetry trace flags
+    """
+
+    id: str
+    type: str
+    timestamp_ms: int
+    source: str
+    payload: bytes
+    metadata: Dict[str, str] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
+    priority: int = 50
+    # Extended fields (Roadmap unified envelope)
+    thread_id: Optional[str] = None
+    correlation_id: Optional[str] = None
+    sender: Optional[str] = None
+    reply_to: Optional[str] = None
+    ttl_ms: Optional[int] = None
+    # OpenTelemetry trace context for distributed tracing
+    trace_id: Optional[str] = None
+    span_id: Optional[str] = None
+    trace_flags: Optional[str] = None
+
+    @classmethod
+    def new(
+        cls,
+        type: str,
+        payload: bytes = b"",
+        source: str = "python",
+        thread_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        sender: Optional[str] = None,
+        reply_to: Optional[str] = None,
+        ttl_ms: Optional[int] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> Envelope:
+        """Create a new envelope.
+
+        Args:
+            type: Event type
+            payload: Event payload
+            source: Source identifier
+            thread_id: Conversation thread ID
+            correlation_id: For request-response correlation
+            sender: Sending agent ID
+            reply_to: Topic for replies
+            ttl_ms: Time-to-live
+            metadata: Additional metadata
+
+        Returns:
+            New Envelope instance
+        """
+        now = int(time.time() * 1000)
+        # Use random UUID for envelope id to avoid collisions across processes
+        eid = str(uuid.uuid4())
+        meta = metadata.copy() if metadata else {}
+
+        def set_opt(key: str, value: Optional[str | int]):
+            if value is not None:
+                meta[f"{META_PREFIX}.{key}"] = str(value)
+
+        set_opt("thread_id", thread_id)
+        set_opt("correlation_id", correlation_id)
+        set_opt("sender", sender)
+        set_opt("reply_to", reply_to)
+        set_opt("ttl_ms", ttl_ms)
+        return cls(
+            id=eid,
+            type=type,
+            timestamp_ms=now,
+            source=source,
+            payload=payload,
+            metadata=meta,
+            thread_id=thread_id,
+            correlation_id=correlation_id,
+            sender=sender,
+            reply_to=reply_to,
+            ttl_ms=ttl_ms,
+        )
+
+    @classmethod
+    def from_proto(cls, ev) -> Envelope:
+        """Create envelope from protobuf Event.
+
+        Args:
+            ev: loom.v1.Event protobuf message
+
+        Returns:
+            Envelope instance
+        """
+        meta = dict(ev.metadata)
+
+        def get_opt(key: str) -> Optional[str]:
+            # Try with loom prefix first, then without
+            return meta.get(f"{META_PREFIX}.{key}") or meta.get(key)
+
+        ttl_str = get_opt("ttl_ms") or get_opt("ttl")
+
+        return cls(
+            id=ev.id,
+            type=ev.type,
+            timestamp_ms=ev.timestamp_ms,
+            source=ev.source,
+            payload=ev.payload,
+            metadata=meta,
+            tags=list(ev.tags),
+            priority=ev.priority,
+            thread_id=get_opt("thread_id"),
+            correlation_id=get_opt("correlation_id"),
+            sender=get_opt("sender"),
+            reply_to=get_opt("reply_to"),
+            ttl_ms=int(ttl_str) if ttl_str is not None else None,
+            trace_id=get_opt("trace_id"),
+            span_id=get_opt("span_id"),
+            trace_flags=get_opt("trace_flags"),
+        )
+
+    def to_proto(self, pb_event_cls) -> Any:
+        """Convert to protobuf Event.
+
+        Args:
+            pb_event_cls: Generated protobuf Event class
+
+        Returns:
+            Protobuf Event instance
+        """
+        ev = pb_event_cls(
+            id=self.id,
+            type=self.type,
+            timestamp_ms=self.timestamp_ms,
+            source=self.source,
+            metadata=self.metadata,
+            payload=self.payload,
+            confidence=1.0,
+            tags=self.tags,
+            priority=self.priority,
+        )
+        return ev
+
+    def inject_trace_context(self) -> None:
+        """Inject current OpenTelemetry trace context into envelope metadata.
+
+        Extracts trace_id, span_id, and trace_flags from the current span
+        and stores them in the envelope for propagation across process boundaries.
+        """
+        span = get_current_span()
+        span_context = span.get_span_context()
+        if span and span_context.is_valid:
+            self.trace_id = format(span_context.trace_id, "032x")
+            self.span_id = format(span_context.span_id, "016x")
+            self.trace_flags = format(span_context.trace_flags, "02x")
+            # Also store in metadata for Rust side
+            self.metadata["trace_id"] = self.trace_id
+            self.metadata["span_id"] = self.span_id
+            self.metadata["trace_flags"] = self.trace_flags
+
+    def extract_trace_context(self) -> Optional[SpanContext]:
+        """Extract OpenTelemetry trace context from envelope metadata.
+
+        Parses trace_id, span_id, and trace_flags from the envelope and creates
+        a remote parent span context. This enables distributed tracing across
+        process boundaries.
+
+        Returns:
+            SpanContext if valid, otherwise None.
+        """
+        if not self.trace_id or not self.span_id:
+            return None
+
+        try:
+            trace_id = int(self.trace_id, 16)
+            span_id = int(self.span_id, 16)
+            trace_flags_int = int(self.trace_flags or "00", 16)
+
+            return SpanContext(
+                trace_id=trace_id,
+                span_id=span_id,
+                is_remote=True,
+                trace_flags=TraceFlags(trace_flags_int),
+                trace_state=TraceState(),
+            )
+        except (ValueError, TypeError):
+            return None
+
+
+__all__ = ["Envelope"]

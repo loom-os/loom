@@ -37,10 +37,10 @@ jobs:
           pip install ruff black
 
       - name: Run ruff
-        run: ruff check src/ tests/ --extend-exclude 'src/loom/proto/generated'
+        run: ruff check src/ tests/ --extend-exclude 'src/loom/bridge/proto/generated'
 
       - name: Run black check
-        run: black --check src/ tests/ --exclude 'proto/generated'
+        run: black --check src/ tests/ --exclude 'bridge/proto/generated'
 
   test:
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }}
@@ -66,7 +66,7 @@ jobs:
           pip install pytest-asyncio pytest-cov
 
       - name: Generate proto files
-        run: python -m loom.proto.generate
+        run: python -m loom.bridge.proto.generate
 
       - name: Run tests (unit + non-integration)
         run: pytest -v -m "not integration" --cov=loom --cov-report=xml --cov-report=term-missing --cov-branch
@@ -135,7 +135,7 @@ jobs:
           pip install pytest-asyncio
 
       - name: Generate proto files
-        run: python -m loom.proto.generate
+        run: python -m loom.bridge.proto.generate
 
       - name: Start Bridge server
         run: |

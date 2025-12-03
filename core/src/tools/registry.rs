@@ -90,6 +90,7 @@ impl ToolRegistry {
     }
 
     /// Call a tool by name with timeout
+    #[tracing::instrument(skip(self, arguments), fields(tool.name = %name))]
     pub async fn call(
         &self,
         name: &str,
@@ -106,6 +107,7 @@ impl ToolRegistry {
         // Default timeout 30s, TODO: make configurable
         let timeout_duration = Duration::from_secs(30);
 
+        // Execute tool with timeout
         let fut = tool.call(arguments);
         let result = match timeout(timeout_duration, fut).await {
             Ok(res) => res,

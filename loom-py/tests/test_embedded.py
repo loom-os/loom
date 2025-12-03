@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from loom.embedded import (
+from loom.runtime.embedded import (
     binary_path,
     cache_dir,
     find_local_build,
