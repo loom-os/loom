@@ -6,10 +6,10 @@ Tests native tools that are registered by Core at startup.
 
 Usage:
     1. Start Core+Bridge in one terminal:
-       cd /home/jared/loom && cargo run -p bridge --bin server
+       cargo run -p bridge --bin server
 
     2. Run this test in another terminal:
-       cd /home/jared/loom/loom-py && python tests/test_native_tools.py
+       cd loom-py && python tests/test_native_tools.py
 """
 
 import asyncio
