@@ -293,33 +293,59 @@ class LLMProvider:
 
         url = f"{self.config.base_url.rstrip('/')}/chat/completions"
 
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                async with client.stream("POST", url, json=payload, headers=headers) as response:
-                    response.raise_for_status()
+        # Start streaming span
+        with tracer.start_as_current_span(
+            "llm.generate_stream",
+            attributes={
+                "llm.provider": self.config.base_url,
+                "llm.model": self.config.model,
+                "llm.temperature": temp,
+                "llm.max_tokens": tokens,
+                "prompt.length": len(prompt),
+            },
+        ) as span:
+            total_tokens = 0
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with client.stream(
+                        "POST", url, json=payload, headers=headers
+                    ) as response:
+                        response.raise_for_status()
 
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-                            try:
-                                import json
-
-                                chunk = json.loads(data)
-                                delta = chunk.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-                                if content:
-                                    yield content
-                            except (json.JSONDecodeError, IndexError, KeyError):
+                        async for line in response.aiter_lines():
+                            if not line:
                                 continue
+                            if line.startswith("data: "):
+                                data = line[6:]
+                                if data == "[DONE]":
+                                    break
+                                try:
+                                    import json
 
-        except httpx.HTTPStatusError as e:
-            raise RuntimeError(f"LLM HTTP error {e.response.status_code}: {e.response.text}") from e
-        except Exception as e:
-            raise RuntimeError(f"LLM generation failed: {e}") from e
+                                    chunk = json.loads(data)
+                                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                    content = delta.get("content", "")
+                                    if content:
+                                        total_tokens += 1  # Approximate token count
+                                        yield content
+                                except (json.JSONDecodeError, IndexError, KeyError):
+                                    continue
+
+                span.set_attribute("llm.chunks", total_tokens)
+                span.set_attribute("llm.status", "success")
+
+            except httpx.HTTPStatusError as e:
+                span.set_attribute("llm.status", "error")
+                span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                span.record_exception(e)
+                raise RuntimeError(
+                    f"LLM HTTP error {e.response.status_code}: {e.response.text}"
+                ) from e
+            except Exception as e:
+                span.set_attribute("llm.status", "error")
+                span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                span.record_exception(e)
+                raise RuntimeError(f"LLM generation failed: {e}") from e
 
     async def chat(
         self,

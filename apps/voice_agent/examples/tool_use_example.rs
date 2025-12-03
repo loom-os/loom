@@ -4,7 +4,7 @@
 /// capabilities using the ToolRegistry API.
 ///
 /// Run with: cargo run --example tool_use_example
-use loom_core::cognitive::llm::orchestrator::{OrchestratorOptions, ToolChoice, ToolOrchestrator};
+use loom_core::cognitive::llm::{OrchestratorOptions, ToolChoice, ToolOrchestrator};
 use loom_core::context::{PromptBundle, TokenBudget};
 use loom_core::{LlmClient, LlmClientConfig, Result, ToolRegistry, WeatherTool, WebSearchTool};
 use std::sync::Arc;
@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
                 if !answer.tool_results.is_empty() {
                     info!("📊 Tool results ({}):", answer.tool_results.len());
                     for (idx, result) in answer.tool_results.iter().enumerate() {
-                        info!("   {}. {}", idx + 1, result);
+                        info!("   {}. {:?}", idx + 1, result);
                     }
                 }
             }
@@ -124,20 +124,15 @@ async fn main() -> Result<()> {
         }
     }
 
-    // 5. Display statistics
+    // 5. Statistics are now collected via OpenTelemetry metrics
     println!("\n{}", "=".repeat(80));
-    info!("📈 Orchestrator Statistics");
+    info!("📈 Orchestrator run complete");
     println!("{}", "=".repeat(80));
-    info!(
-        "Total invocations: {}",
-        orchestrator.stats.total_invocations
-    );
-    info!("Total tool calls: {}", orchestrator.stats.total_tool_calls);
-    info!("Tool errors: {}", orchestrator.stats.total_tool_errors);
-    info!(
-        "Average tool latency: {:.2}ms",
-        orchestrator.stats.avg_tool_latency_ms
-    );
+    info!("Statistics are exported to OpenTelemetry metrics:");
+    info!("  - loom.llm.runs_total");
+    info!("  - loom.llm.tool_calls_total");
+    info!("  - loom.llm.tool_errors_total");
+    info!("  - loom.llm.tool_latency_ms");
 
     Ok(())
 }

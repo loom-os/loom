@@ -460,7 +460,11 @@ impl Bridge for BridgeService {
 
         // Call the tool via ToolRegistry
         let registry = Arc::clone(&self.state.tool_registry);
-        match registry.call(&call.name, arguments).await {
+
+        // Execute tool - tracing spans are already set via #[tracing::instrument] on the registry.call method
+        let tool_result = registry.call(&call.name, arguments).await;
+
+        match tool_result {
             Ok(output) => {
                 let output_str = serde_json::to_string(&output).unwrap_or_default();
                 Ok(Response::new(ToolResult {

@@ -320,28 +320,39 @@ class CognitiveAgent:
 
             with tracer.start_as_current_span(
                 "cognitive.react_stream_iteration",
-                attributes={"iteration": iteration + 1},
-            ):
+                attributes={
+                    "iteration": iteration + 1,
+                    "goal": goal[:100],
+                    "steps_so_far": len(result.steps),
+                },
+            ) as iter_span:
                 # Build prompt with history
                 prompt = build_react_prompt(goal, result.steps)
 
-                # Stream the LLM response
+                # Stream the LLM response with thinking span
                 full_response = ""
-                async for chunk in self.llm.generate_stream(
-                    prompt=prompt,
-                    system=system,
-                    temperature=self.config.temperature,
-                ):
-                    full_response += chunk
-                    yield chunk  # Stream each chunk to caller
+                with tracer.start_as_current_span(
+                    "cognitive.think_stream",
+                    attributes={"prompt.length": len(prompt)},
+                ) as think_span:
+                    async for chunk in self.llm.generate_stream(
+                        prompt=prompt,
+                        system=system,
+                        temperature=self.config.temperature,
+                    ):
+                        full_response += chunk
+                        yield chunk  # Stream each chunk to caller
+                    think_span.set_attribute("response.length", len(full_response))
 
                 # Parse the complete response
                 parsed = parse_react_response(full_response)
+                iter_span.set_attribute("response.type", parsed["type"])
 
                 if parsed["type"] == "final_answer":
                     result.answer = parsed["content"]
                     result.success = True
                     self.memory.add("assistant", result.answer)
+                    iter_span.set_attribute("final_answer", True)
                     break
 
                 elif parsed["type"] == "tool_call":
@@ -353,6 +364,8 @@ class CognitiveAgent:
                             arguments=parsed.get("args", {}),
                         ),
                     )
+
+                    iter_span.set_attribute("tool.name", parsed["tool"])
 
                     # Execute tool
                     observation = await self._execute_tool(step.tool_call)
