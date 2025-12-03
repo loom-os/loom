@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, AsyncIterator, Optional, Union
 
 from opentelemetry import trace
 
@@ -256,6 +256,129 @@ class CognitiveAgent:
             iterations=1,
             success=True,
         )
+
+    async def run_stream(
+        self,
+        goal: str,
+        *,
+        context: Optional[list[str]] = None,
+    ) -> AsyncIterator[Union[str, ThoughtStep, CognitiveResult]]:
+        """
+        Stream the cognitive process, yielding:
+        - str: LLM response chunks as they arrive
+        - ThoughtStep: Complete thought/action/observation steps
+        - CognitiveResult: Final result at the end
+
+        Args:
+            goal: The goal/question to process
+            context: Optional list of context strings to include
+        """
+        # Add goal to memory
+        self.memory.add("user", goal)
+
+        # Add context if provided
+        if context:
+            for ctx_item in context:
+                self.memory.add("system", f"Context: {ctx_item}")
+
+        if self.config.thinking_strategy != ThinkingStrategy.REACT:
+            # For non-ReAct strategies, fall back to non-streaming
+            result = await self.run(goal, context=context)
+            yield result
+            return
+
+        with tracer.start_as_current_span(
+            "cognitive.run_stream",
+            attributes={
+                "strategy": self.config.thinking_strategy.value,
+                "goal_length": len(goal),
+            },
+        ):
+            async for item in self._run_react_stream(goal):
+                yield item
+
+    async def _run_react_stream(
+        self,
+        goal: str,
+    ) -> AsyncIterator[Union[str, ThoughtStep, CognitiveResult]]:
+        """ReAct pattern with streaming: yield chunks and steps as they happen."""
+        result = CognitiveResult(answer="", iterations=0)
+
+        system = build_react_system_prompt(self.config.system_prompt, self.available_tools)
+
+        for iteration in range(self.config.max_iterations):
+            result.iterations = iteration + 1
+
+            with tracer.start_as_current_span(
+                "cognitive.react_stream_iteration",
+                attributes={"iteration": iteration + 1},
+            ):
+                # Build prompt with history
+                prompt = build_react_prompt(goal, result.steps)
+
+                # Stream the LLM response
+                full_response = ""
+                async for chunk in self.llm.generate_stream(
+                    prompt=prompt,
+                    system=system,
+                    temperature=self.config.temperature,
+                ):
+                    full_response += chunk
+                    yield chunk  # Stream each chunk to caller
+
+                # Parse the complete response
+                parsed = parse_react_response(full_response)
+
+                if parsed["type"] == "final_answer":
+                    result.answer = parsed["content"]
+                    result.success = True
+                    self.memory.add("assistant", result.answer)
+                    break
+
+                elif parsed["type"] == "tool_call":
+                    step = ThoughtStep(
+                        step=iteration + 1,
+                        reasoning=parsed.get("thought", ""),
+                        tool_call=ToolCall(
+                            name=parsed["tool"],
+                            arguments=parsed.get("args", {}),
+                        ),
+                    )
+
+                    # Execute tool
+                    observation = await self._execute_tool(step.tool_call)
+                    step.observation = observation
+
+                    result.steps.append(step)
+                    self.memory.add(
+                        "assistant",
+                        f"Thought: {step.reasoning}\nAction: {step.tool_call.name}",
+                    )
+                    self.memory.add(
+                        "system",
+                        f"Observation: {observation.output if observation.success else observation.error}",
+                    )
+
+                    # Yield the complete step
+                    yield step
+
+                else:
+                    # Just reasoning, continue
+                    step = ThoughtStep(
+                        step=iteration + 1,
+                        reasoning=parsed.get("content", full_response),
+                    )
+                    result.steps.append(step)
+                    self.memory.add("assistant", f"Thought: {step.reasoning}")
+                    yield step
+
+        # If we exhausted iterations without final answer
+        if not result.answer:
+            result.answer = synthesize_answer(result.steps)
+            result.success = bool(result.answer)
+
+        # Yield final result
+        yield result
 
     async def _execute_tool(self, tool_call: ToolCall) -> Observation:
         """Execute a tool call via context."""

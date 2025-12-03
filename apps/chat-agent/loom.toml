@@ -9,11 +9,6 @@ mode = "full"
 [dashboard]
 enabled = false
 
-[scripts]
-chat = "python agents/chat.py"
-web = "python web_ui.py"
-default = "web"
-
 [agents.chat-assistant]
 topics = ["chat.input", "chat.replies"]
 llm_provider = "deepseek"

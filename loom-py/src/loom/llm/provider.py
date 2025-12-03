@@ -11,7 +11,7 @@ This is part of the Brain/Hand separation:
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, AsyncIterator, Dict, List, Optional
 
 import httpx
 from opentelemetry import trace
@@ -242,6 +242,84 @@ class LLMProvider:
                 span.set_status(trace.Status(trace.StatusCode.ERROR, f"LLM generation failed: {e}"))
                 span.record_exception(e)
                 raise RuntimeError(f"LLM generation failed: {e}") from e
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        *,
+        system: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        timeout_ms: Optional[int] = None,
+    ) -> AsyncIterator[str]:
+        """Generate text completion with streaming via direct HTTP call.
+
+        Args:
+            prompt: User prompt/input
+            system: Optional system prompt
+            temperature: Override default temperature
+            max_tokens: Override default max tokens
+            timeout_ms: Override default timeout
+
+        Yields:
+            Text chunks as they are generated
+
+        Raises:
+            RuntimeError: If LLM call fails
+        """
+        temp = temperature if temperature is not None else self.config.temperature
+        tokens = max_tokens or self.config.max_tokens
+        timeout = (timeout_ms or self.config.timeout_ms) / 1000.0
+
+        # Build messages for chat completions API
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        # Build request payload with streaming enabled
+        payload = {
+            "model": self.config.model,
+            "messages": messages,
+            "temperature": temp,
+            "max_tokens": tokens,
+            "stream": True,
+        }
+
+        # Build headers
+        headers = {"Content-Type": "application/json"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+
+        url = f"{self.config.base_url.rstrip('/')}/chat/completions"
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as response:
+                    response.raise_for_status()
+
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+                        if line.startswith("data: "):
+                            data = line[6:]
+                            if data == "[DONE]":
+                                break
+                            try:
+                                import json
+
+                                chunk = json.loads(data)
+                                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                content = delta.get("content", "")
+                                if content:
+                                    yield content
+                            except (json.JSONDecodeError, IndexError, KeyError):
+                                continue
+
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(f"LLM HTTP error {e.response.status_code}: {e.response.text}") from e
+        except Exception as e:
+            raise RuntimeError(f"LLM generation failed: {e}") from e
 
     async def chat(
         self,

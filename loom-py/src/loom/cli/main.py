@@ -287,8 +287,8 @@ def cmd_down(args):
             cmdline_str = " ".join(cmdline)
 
             # Check if it's a Loom runtime process
-            if "loom-bridge-server" in cmdline_str:
-                print(f"[loom] Killing loom-bridge-server (PID {proc.pid})")
+            if "loom-bridge-server" in cmdline_str or "loom-server" in cmdline_str:
+                print(f"[loom] Killing Loom server (PID {proc.pid})")
                 proc.terminate()
                 killed_count += 1
                 try:
@@ -298,7 +298,7 @@ def cmd_down(args):
                     proc.kill()
 
             # Check if it's a Loom agent process (Python scripts in agents/ directory)
-            elif "python" in proc.info["name"] and any(
+            elif "python" in proc.info["name"].lower() and any(
                 "loom" in arg.lower() or "/agents/" in arg for arg in cmdline
             ):
                 # More specific check: look for loom SDK imports or agents directory
@@ -319,6 +319,23 @@ def cmd_down(args):
         print("[loom] No Loom processes found")
     else:
         print(f"[loom] Shutdown complete ({killed_count} processes killed)")
+
+
+def cmd_chat(args):
+    """Start interactive chat with a cognitive agent."""
+    import asyncio
+
+    from .chat import run_chat_cli
+
+    bridge_addr = args.address
+    agent_id = args.agent_id
+
+    try:
+        exit_code = asyncio.run(run_chat_cli(bridge_addr=bridge_addr, agent_id=agent_id))
+        sys.exit(exit_code or 0)
+    except KeyboardInterrupt:
+        print("\nGoodbye! 👋")
+        sys.exit(0)
 
 
 def main():
@@ -400,6 +417,21 @@ def main():
 
     sdown = sub.add_parser("down", help="Shutdown all Loom processes (runtime + agents)")
     sdown.set_defaults(func=cmd_down)
+
+    schat = sub.add_parser("chat", help="Start interactive chat with a cognitive agent")
+    schat.add_argument(
+        "--address",
+        "-a",
+        default=None,
+        help="Bridge server address (default: from loom.toml or LOOM_BRIDGE_ADDR)",
+    )
+    schat.add_argument(
+        "--agent-id",
+        "-i",
+        default="chat-assistant",
+        help="Agent ID for the chat session (default: chat-assistant)",
+    )
+    schat.set_defaults(func=cmd_chat)
 
     args = p.parse_args()
     args.func(args)
