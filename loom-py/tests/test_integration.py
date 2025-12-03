@@ -10,11 +10,9 @@ import json
 
 import pytest
 
-from loom.agent import Agent
-from loom.client import BridgeClient
-from loom.envelope import Envelope
-from loom.proto import action_pb2, bridge_pb2, event_pb2
-from loom.tool import tool
+from loom import Agent, Envelope, tool
+from loom.bridge.client import BridgeClient
+from loom.bridge.proto import action_pb2, bridge_pb2, event_pb2
 
 
 @pytest.mark.integration

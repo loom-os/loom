@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from loom.orchestrator import Orchestrator, OrchestratorConfig
+from loom.runtime.orchestrator import Orchestrator, OrchestratorConfig
 
 
 def test_orchestrator_config_defaults():

@@ -61,7 +61,7 @@ include = [
 dependency-groups = ["dev"]
 
 [tool.hatch.envs.default.scripts]
-proto = "python -m loom.proto.generate"
+proto = "python -m loom.bridge.proto.generate"
 
 [project.optional-dependencies]
 dev = [
@@ -76,7 +76,7 @@ llm = [
 ]
 
 [project.scripts]
-loom = "loom.cli:main"
+loom = "loom.cli.main:main"
 
 [tool.pytest.ini_options]
 minversion = "7.4"

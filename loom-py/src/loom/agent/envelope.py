@@ -1,3 +1,9 @@
+"""Agent Envelope - Message wrapper for event-driven communication.
+
+This module provides the Envelope class for wrapping events with
+metadata, tracing context, and routing information.
+"""
+
 from __future__ import annotations
 
 import time
@@ -12,6 +18,29 @@ META_PREFIX = "loom"
 
 @dataclass
 class Envelope:
+    """Message envelope for agent communication.
+
+    Wraps event payloads with metadata for routing, correlation, and tracing.
+
+    Attributes:
+        id: Unique envelope ID
+        type: Event type string
+        timestamp_ms: Creation timestamp in milliseconds
+        source: Source identifier (usually "python")
+        payload: Event payload bytes
+        metadata: Key-value metadata
+        tags: Tags for filtering
+        priority: Priority level (0-100, default 50)
+        thread_id: Conversation thread ID
+        correlation_id: For request-response correlation
+        sender: Sending agent ID
+        reply_to: Topic for replies
+        ttl_ms: Time-to-live in milliseconds
+        trace_id: OpenTelemetry trace ID
+        span_id: OpenTelemetry span ID
+        trace_flags: OpenTelemetry trace flags
+    """
+
     id: str
     type: str
     timestamp_ms: int
@@ -44,6 +73,22 @@ class Envelope:
         ttl_ms: Optional[int] = None,
         metadata: Optional[Dict[str, str]] = None,
     ) -> Envelope:
+        """Create a new envelope.
+
+        Args:
+            type: Event type
+            payload: Event payload
+            source: Source identifier
+            thread_id: Conversation thread ID
+            correlation_id: For request-response correlation
+            sender: Sending agent ID
+            reply_to: Topic for replies
+            ttl_ms: Time-to-live
+            metadata: Additional metadata
+
+        Returns:
+            New Envelope instance
+        """
         now = int(time.time() * 1000)
         # Use random UUID for envelope id to avoid collisions across processes
         eid = str(uuid.uuid4())
@@ -73,7 +118,15 @@ class Envelope:
         )
 
     @classmethod
-    def from_proto(cls, ev) -> Envelope:  # ev is loom.v1.Event
+    def from_proto(cls, ev) -> Envelope:
+        """Create envelope from protobuf Event.
+
+        Args:
+            ev: loom.v1.Event protobuf message
+
+        Returns:
+            Envelope instance
+        """
         meta = dict(ev.metadata)
 
         def get_opt(key: str) -> Optional[str]:
@@ -102,7 +155,14 @@ class Envelope:
         )
 
     def to_proto(self, pb_event_cls) -> Any:
-        # pb_event_cls: generated protobuf Event class
+        """Convert to protobuf Event.
+
+        Args:
+            pb_event_cls: Generated protobuf Event class
+
+        Returns:
+            Protobuf Event instance
+        """
         ev = pb_event_cls(
             id=self.id,
             type=self.type,
@@ -140,7 +200,8 @@ class Envelope:
         a remote parent span context. This enables distributed tracing across
         process boundaries.
 
-        Returns the SpanContext if valid, otherwise None.
+        Returns:
+            SpanContext if valid, otherwise None.
         """
         if not self.trace_id or not self.span_id:
             return None
@@ -159,3 +220,6 @@ class Envelope:
             )
         except (ValueError, TypeError):
             return None
+
+
+__all__ = ["Envelope"]

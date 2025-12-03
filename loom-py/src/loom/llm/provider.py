@@ -1,45 +1,38 @@
-"""LLM Provider for Loom Agents
+"""LLM Provider - Direct HTTP calls to LLM APIs.
 
-Provides direct HTTP calls to LLM APIs (OpenAI-compatible).
-Supports multiple providers: DeepSeek, OpenAI, local models, etc.
+This module provides the LLMProvider class for making LLM API calls.
+Python agents use this for direct LLM access, bypassing Rust Core's llm:generate tool.
 
-This module makes direct HTTP requests to LLM APIs, bypassing the Rust Core's
-llm:generate tool. This gives Python agents full control over LLM configuration
-and allows for faster iteration on prompt engineering.
+This is part of the Brain/Hand separation:
+- Brain (Python): Makes LLM calls directly for fast iteration
+- Hands (Rust Core): Handles tool execution, but NOT LLM calls for Python agents
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 import httpx
 from opentelemetry import trace
 
-from .context import Context
+from .config import LLMConfig
 
 if TYPE_CHECKING:
-    from .config import ProjectConfig
+    from ..agent import Context
+    from ..runtime.config import ProjectConfig
 
 # Get tracer for LLM operation spans
 tracer = trace.get_tracer(__name__)
 
 
-@dataclass
-class LLMConfig:
-    """Configuration for an LLM provider."""
-
-    base_url: str
-    model: str
-    api_key: Optional[str] = None
-    temperature: float = 0.7
-    max_tokens: int = 4096
-    timeout_ms: int = 30000
-
-
 class LLMProvider:
-    """Helper class for calling LLM providers via ActionBroker."""
+    """Helper class for calling LLM providers via direct HTTP.
+
+    Supports multiple providers: DeepSeek, OpenAI, local models, etc.
+    Makes direct HTTP requests, giving Python agents full control over
+    LLM configuration and allowing fast iteration on prompt engineering.
+    """
 
     # Pre-configured popular providers
     DEEPSEEK = LLMConfig(
@@ -332,4 +325,4 @@ class LLMProvider:
                 raise RuntimeError(f"LLM chat failed: {e}") from e
 
 
-__all__ = ["LLMProvider", "LLMConfig"]
+__all__ = ["LLMProvider"]

@@ -1,3 +1,9 @@
+"""Agent Base - Core Agent class for connecting to Loom Runtime.
+
+This module provides the Agent class - the primary interface for Python agents
+to connect to Rust Core via Bridge.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,16 +12,16 @@ import logging
 import os
 import signal
 from collections.abc import Awaitable, Iterable
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from opentelemetry import trace
 from opentelemetry.trace import set_span_in_context
 
-from .client import BridgeClient, pb_action, pb_bridge
 from .context import Context
 from .envelope import Envelope
-from .tool import Tool
-from .tracing import init_telemetry
+
+if TYPE_CHECKING:
+    from ..tools import Tool
 
 EventHandler = Callable[[Context, str, Envelope], Awaitable[None]]
 
@@ -24,6 +30,29 @@ tracer = trace.get_tracer(__name__)
 
 
 class Agent:
+    """Loom Agent - connects to Rust Core via Bridge.
+
+    Manages the agent lifecycle: registration, event handling, tool execution,
+    and cleanup.
+
+    Example:
+        @tool("hello.echo", description="Echo a message")
+        def echo(text: str):
+            return {"echo": text}
+
+        async def on_event(ctx, topic, event):
+            print(f"Received: {event.type}")
+
+        agent = Agent(
+            agent_id="my-agent",
+            topics=["my.topic"],
+            tools=[echo],
+            on_event=on_event,
+        )
+
+        agent.run()  # Blocks until Ctrl+C
+    """
+
     def __init__(
         self,
         agent_id: str,
@@ -34,6 +63,19 @@ class Agent:
         # Deprecated parameter - use 'tools' instead
         capabilities: Optional[Iterable[Callable[..., Any]]] = None,
     ):
+        """Initialize agent.
+
+        Args:
+            agent_id: Unique identifier for this agent
+            topics: Topics to subscribe to
+            tools: Tool functions decorated with @tool
+            address: Bridge address (default from LOOM_BRIDGE_ADDR or 127.0.0.1:50051)
+            on_event: Async event handler callback
+            capabilities: Deprecated, use tools instead
+        """
+        from ..bridge.client import BridgeClient
+        from ..telemetry.tracing import init_telemetry
+
         # Auto-initialize telemetry unless explicitly disabled
         if os.getenv("LOOM_TELEMETRY_AUTO", "1") != "0":
             # Derive a sensible default service name per agent process
@@ -64,14 +106,22 @@ class Agent:
         self._on_event = on_event
         self.client = BridgeClient(address=address) if address else BridgeClient()
         self._ctx = Context(agent_id=self.agent_id, client=self.client)
-        self._outbound_queue: asyncio.Queue[pb_bridge.ClientEvent] = asyncio.Queue(maxsize=1024)
+        self._outbound_queue: asyncio.Queue = asyncio.Queue(maxsize=1024)
         self._ctx._bind(self._outbound_queue)
         self._stream_task: Optional[asyncio.Task] = None
         self._stopped = asyncio.Event()
         self._heartbeat_task = None
         self._reconnect_lock = asyncio.Lock()
 
+    @property
+    def ctx(self) -> Context:
+        """Get the agent's context."""
+        return self._ctx
+
     async def start(self):
+        """Start the agent - connect to Bridge and begin processing."""
+        from ..bridge.proto import action_pb2 as pb_action
+
         await self.client.connect()
         # Convert tools to ToolDescriptor
         tool_descriptors: list[pb_action.ToolDescriptor] = []
@@ -102,6 +152,8 @@ class Agent:
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
     async def _run_stream(self):
+        """Process incoming stream messages."""
+
         try:
             async for server_msg in self._stream:
                 which = server_msg.WhichOneof("msg")
@@ -151,6 +203,9 @@ class Agent:
             await self._reconnect()
 
     async def _reconnect(self):
+        """Attempt to reconnect to Bridge."""
+        from ..bridge.proto import action_pb2 as pb_action
+
         if self._stopped.is_set():
             return
         async with self._reconnect_lock:
@@ -191,6 +246,7 @@ class Agent:
                     backoff = min(backoff * 2, 10.0)
 
     async def _heartbeat_loop(self):
+        """Send periodic heartbeats to detect disconnection."""
         try:
             while not self._stopped.is_set():
                 await asyncio.sleep(15)
@@ -202,7 +258,11 @@ class Agent:
         except asyncio.CancelledError:
             return
 
-    async def _handle_tool_call(self, call: pb_action.ToolCall):
+    async def _handle_tool_call(self, call):
+        """Handle incoming tool call from Bridge."""
+        from ..bridge.proto import action_pb2 as pb_action
+        from ..bridge.proto import bridge_pb2 as pb_bridge
+
         # Route to matching tool by name
         for t in self._tool_decls:
             if t.name == call.name:
@@ -261,6 +321,9 @@ class Agent:
                 return
 
         # No tool matched
+        from ..bridge.proto import action_pb2 as pb_action
+        from ..bridge.proto import bridge_pb2 as pb_bridge
+
         res = pb_action.ToolResult(
             id=call.id,
             status=pb_action.ToolStatus.TOOL_ERROR,
@@ -269,6 +332,7 @@ class Agent:
         await self._outbound_queue.put(pb_bridge.ClientEvent(tool_result=res))
 
     async def stop(self):
+        """Stop the agent gracefully."""
         self._stopped.set()
         if self._stream_task:
             self._stream_task.cancel()
@@ -285,6 +349,8 @@ class Agent:
         await self.client.close()
 
     def run(self):
+        """Run the agent (blocking). Waits for Ctrl+C to stop."""
+
         async def _main():
             await self.start()
             # Wait for Ctrl+C

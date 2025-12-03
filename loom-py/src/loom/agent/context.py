@@ -1,3 +1,11 @@
+"""Agent Context - Agent's interface to Rust Core.
+
+This module provides the Context class which is the agent's handle for:
+- Publishing/subscribing to events
+- Invoking tools via Bridge
+- Managing memory via Core
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,21 +13,35 @@ import hashlib
 import json
 import time
 import uuid
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 
 from opentelemetry import trace
 
-from .client import BridgeClient, pb_action, pb_bridge, pb_event, pb_memory
 from .envelope import Envelope
+
+if TYPE_CHECKING:
+    from ..bridge import BridgeClient
 
 EventHandler = Callable[["Context", str, Envelope], Awaitable[None]]
 
-# Get tracer for capability invocation spans
+# Get tracer for tool invocation spans
 tracer = trace.get_tracer(__name__)
 
 
 class Context:
+    """Agent context - interface to Rust Core via Bridge.
+
+    Provides event publishing, tool invocation, and memory operations.
+    Each agent has one Context instance.
+    """
+
     def __init__(self, agent_id: str, client: BridgeClient):
+        """Initialize context.
+
+        Args:
+            agent_id: This agent's ID
+            client: Bridge client for communication
+        """
         self.agent_id = agent_id
         self.client = client
         self._pending: Dict[str, asyncio.Future[Envelope]] = {}
@@ -40,6 +62,9 @@ class Context:
             QoS level is configured at subscription time in the Bridge (QosBatched by default),
             not per-event. The Bridge uses channel size of 2048 for batched processing.
         """
+        from ..bridge.proto import bridge_pb2 as pb_bridge
+        from ..bridge.proto import event_pb2 as pb_event
+
         env = envelope or Envelope.new(type=type, payload=payload, sender=self.agent_id)
         # Inject trace context from current span before sending
         env.inject_trace_context()
@@ -51,6 +76,17 @@ class Context:
     async def request(
         self, topic: str, *, type: str, payload: bytes = b"", timeout_ms: int = 5000
     ) -> Envelope:
+        """Send a request and wait for a reply.
+
+        Args:
+            topic: Topic to send request to
+            type: Event type
+            payload: Request payload
+            timeout_ms: Timeout in milliseconds
+
+        Returns:
+            Reply envelope
+        """
         # Create correlation id and wait for a matching reply
         env = Envelope.new(type=type, payload=payload, sender=self.agent_id)
         env.correlation_id = env.id
@@ -64,6 +100,13 @@ class Context:
             self._pending.pop(env.correlation_id, None)
 
     async def reply(self, original: Envelope, *, type: str, payload: bytes = b"") -> None:
+        """Reply to a received envelope.
+
+        Args:
+            original: The envelope being replied to
+            type: Reply event type
+            payload: Reply payload
+        """
         thread_topic = original.reply_to or f"agent.{original.sender}.replies"
         env = Envelope.new(
             type=type,
@@ -93,6 +136,8 @@ class Context:
         Returns:
             Tool output as JSON string
         """
+        from ..bridge.proto import action_pb2 as pb_action
+
         # Create span for tool invocation
         with tracer.start_as_current_span(
             "tool.invoke",
@@ -148,21 +193,24 @@ class Context:
                 raise
 
     async def join_thread(self, thread_id: str) -> None:
+        """Join a conversation thread (future implementation)."""
         # MVP: use topic naming convention (doc): thread.{thread_id}.events
         # Requires subscription at registration time.
         return None
 
     # Internal wiring
-    async def _send(self, client_event: pb_bridge.ClientEvent) -> None:
-        # Agent sets this handler to push into the active stream
+    async def _send(self, client_event) -> None:
+        """Send a client event via the outbound queue."""
         if not hasattr(self, "_outbound_queue"):
             raise RuntimeError("Context not bound to Agent stream")
         await self._outbound_queue.put(client_event)
 
-    def _bind(self, outbound_queue: "asyncio.Queue[pb_bridge.ClientEvent]") -> None:
+    def _bind(self, outbound_queue: asyncio.Queue) -> None:
+        """Bind context to an outbound queue."""
         self._outbound_queue = outbound_queue
 
-    def _on_delivery(self, delivery: pb_bridge.Delivery) -> None:
+    def _on_delivery(self, delivery) -> None:
+        """Handle a delivery from the stream."""
         if delivery.event is None:
             return
         env = Envelope.from_proto(delivery.event)
@@ -196,6 +244,8 @@ class Context:
         Returns:
             plan_hash: Unique hash for this plan
         """
+        from ..bridge.proto import memory_pb2 as pb_memory
+
         # Generate plan hash for deduplication
         plan_content = f"{symbol}|{action}|{reasoning}"
         plan_hash = hashlib.md5(plan_content.encode()).hexdigest()[:8]
@@ -236,6 +286,8 @@ class Context:
         Returns:
             List of plan dictionaries
         """
+        from ..bridge.proto import memory_pb2 as pb_memory
+
         req = pb_memory.GetRecentPlansRequest(
             session_id=self.agent_id,
             symbol=symbol,
@@ -281,6 +333,8 @@ class Context:
         Returns:
             (is_duplicate, duplicate_plan_dict or None)
         """
+        from ..bridge.proto import memory_pb2 as pb_memory
+
         plan_content = f"{symbol}|{action}|{reasoning}"
         plan_hash = hashlib.md5(plan_content.encode()).hexdigest()[:8]
 
@@ -342,6 +396,8 @@ class Context:
             order_size_usdt: Order size in USDT
             error_message: Error message if failed
         """
+        from ..bridge.proto import memory_pb2 as pb_memory
+
         execution = pb_memory.ExecutionRecord(
             timestamp_ms=int(time.time() * 1000),
             plan_hash=plan_hash,
@@ -377,6 +433,8 @@ class Context:
         Returns:
             (is_executed, execution_record_dict or None)
         """
+        from ..bridge.proto import memory_pb2 as pb_memory
+
         req = pb_memory.CheckExecutedRequest(
             session_id=self.agent_id,
             plan_hash=plan_hash,
@@ -413,6 +471,8 @@ class Context:
         Returns:
             Statistics dictionary with total, successful, failed counts and win rate
         """
+        from ..bridge.proto import memory_pb2 as pb_memory
+
         req = pb_memory.GetExecutionStatsRequest(
             session_id=self.agent_id,
             symbol=symbol,

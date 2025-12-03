@@ -1,3 +1,9 @@
+"""Tool Decorator - Define tools for Loom agents.
+
+This module provides the @tool decorator for declaring Python functions
+as Loom tools that can be invoked via Bridge.
+"""
+
 from __future__ import annotations
 
 import inspect
@@ -10,8 +16,12 @@ from pydantic import BaseModel, create_model
 class Tool:
     """Represents a registered tool with its metadata and handler function.
 
-    This replaces the deprecated Capability class to align with loom-core's
-    unified Tool API.
+    Attributes:
+        name: Unique tool name (e.g., "web.search")
+        description: Human-readable description
+        func: The underlying Python function
+        input_model: Pydantic model for input validation
+        output_model: Pydantic model for output (if specified)
     """
 
     def __init__(
@@ -39,7 +49,14 @@ class Tool:
 def _model_from_signature(
     func: Callable[..., Any],
 ) -> tuple[Optional[type[BaseModel]], Optional[type[BaseModel]]]:
-    """Extract input/output Pydantic models from function signature."""
+    """Extract input/output Pydantic models from function signature.
+
+    Args:
+        func: Function to analyze
+
+    Returns:
+        (input_model, output_model) tuple
+    """
     sig = inspect.signature(func)
     fields = {}
     for name, param in sig.parameters.items():
@@ -69,12 +86,12 @@ def _model_from_signature(
 def tool(name: str, description: str = ""):
     """Decorator to declare a callable as a Loom tool.
 
-    This replaces the deprecated @capability decorator to align with
-    loom-core's unified Tool API.
-
     Args:
         name: Unique tool name (e.g., "web.search", "file.read")
         description: Human-readable description of what the tool does
+
+    Returns:
+        Decorator function
 
     Example:
         @tool("web.search", description="Search the web for information")

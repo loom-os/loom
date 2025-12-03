@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from loom import Context, Envelope
-from loom.client import BridgeClient
+from loom.bridge.client import BridgeClient
 
 
 @pytest.fixture
@@ -87,7 +87,7 @@ class TestContext:
     async def test_tool_invocation(self, context: Context, mock_client: BridgeClient) -> None:
         """Test tool invocation via forward_tool_call."""
         # Mock the forward_tool_call response
-        from loom.proto.generated import action_pb2
+        from loom.bridge.proto.generated import action_pb2
 
         mock_result = action_pb2.ToolResult(
             status=action_pb2.ToolStatus.TOOL_OK,

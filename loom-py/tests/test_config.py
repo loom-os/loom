@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from loom.config import (
+from loom.runtime.config import (
     BridgeConfig,
     DashboardConfig,
     LLMProviderConfig,

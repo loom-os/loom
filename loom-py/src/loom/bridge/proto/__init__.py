@@ -25,7 +25,7 @@ _NAMES = [
 
 for _name in _NAMES:
     try:
-        globals()[_name] = import_module(f"loom.proto.generated.{_name}")
+        globals()[_name] = import_module(f"loom.bridge.proto.generated.{_name}")
     except Exception:
         # Modules may not exist yet if user hasn't generated them; remain lazy.
         pass

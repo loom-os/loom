@@ -38,7 +38,7 @@ jobs:
       - name: Generate proto files
         run: |
           pip install grpcio-tools
-          python -m loom.proto.generate
+          python -m loom.bridge.proto.generate
 
       - name: Build package
         run: python -m build

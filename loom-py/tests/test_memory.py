@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from loom.context import Context
-from loom.proto import memory_pb2 as pb_memory
+from loom import Context
+from loom.bridge.proto import memory_pb2 as pb_memory
 
 
 class TestMemoryHashGeneration:

@@ -31,117 +31,30 @@ Example:
 from __future__ import annotations
 
 import json
-import re
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Optional
+import time
+from typing import TYPE_CHECKING, Optional
 
 from opentelemetry import trace
 
-from .context import Context
-from .llm import LLMProvider
+from .config import CognitiveConfig, ThinkingStrategy
+from .loop import (
+    build_cot_prompt,
+    build_react_prompt,
+    build_react_system_prompt,
+    parse_react_response,
+    synthesize_answer,
+)
+from .types import CognitiveResult, Observation, ThoughtStep, ToolCall
+
+if TYPE_CHECKING:
+    from ..agent import Context
+    from ..llm import LLMProvider
+
+# Import for backwards compatibility - these are re-exported
+from ..context.memory import WorkingMemory
 
 # Get tracer for cognitive spans
 tracer = trace.get_tracer(__name__)
-
-
-class ThinkingStrategy(Enum):
-    """Strategy for cognitive processing."""
-
-    SINGLE_SHOT = "single_shot"  # One LLM call, no tools
-    REACT = "react"  # ReAct pattern: Thought -> Action -> Observation
-    CHAIN_OF_THOUGHT = "cot"  # Chain of thought reasoning
-
-
-@dataclass
-class CognitiveConfig:
-    """Configuration for cognitive loop."""
-
-    system_prompt: Optional[str] = None
-    thinking_strategy: ThinkingStrategy = ThinkingStrategy.REACT
-    max_iterations: int = 10
-    max_tools_per_step: int = 3
-    temperature: float = 0.7
-    stop_on_final_answer: bool = True
-
-
-@dataclass
-class ToolCall:
-    """A tool call to be executed."""
-
-    name: str
-    arguments: dict[str, Any]
-
-    def to_dict(self) -> dict:
-        return {"tool": self.name, "args": self.arguments}
-
-
-@dataclass
-class Observation:
-    """Result of a tool execution."""
-
-    tool_name: str
-    success: bool
-    output: str
-    error: Optional[str] = None
-    latency_ms: int = 0
-
-
-@dataclass
-class ThoughtStep:
-    """A single step in the reasoning process."""
-
-    step: int
-    reasoning: str
-    tool_call: Optional[ToolCall] = None
-    observation: Optional[Observation] = None
-
-
-@dataclass
-class CognitiveResult:
-    """Result of a cognitive loop execution."""
-
-    answer: str
-    steps: list[ThoughtStep] = field(default_factory=list)
-    iterations: int = 0
-    success: bool = True
-    error: Optional[str] = None
-    total_latency_ms: int = 0
-
-
-class WorkingMemory:
-    """Working memory for the cognitive loop.
-
-    Stores conversation history and intermediate results.
-    """
-
-    def __init__(self, max_items: int = 50):
-        self.max_items = max_items
-        self._items: list[dict[str, Any]] = []
-
-    def add(self, role: str, content: str, metadata: Optional[dict] = None) -> None:
-        """Add an item to working memory."""
-        item = {"role": role, "content": content}
-        if metadata:
-            item["metadata"] = metadata
-        self._items.append(item)
-
-        # Trim if over limit
-        if len(self._items) > self.max_items:
-            self._items = self._items[-self.max_items :]
-
-    def get_context(self, max_items: Optional[int] = None) -> list[dict[str, Any]]:
-        """Get recent items from memory."""
-        n = max_items or len(self._items)
-        return self._items[-n:]
-
-    def to_messages(self) -> list[dict[str, str]]:
-        """Convert memory to chat messages format."""
-        return [{"role": item["role"], "content": item["content"]} for item in self._items]
-
-    def clear(self) -> None:
-        """Clear all items."""
-        self._items.clear()
 
 
 class CognitiveAgent:
@@ -195,8 +108,6 @@ class CognitiveAgent:
                 "max_iterations": self.config.max_iterations,
             },
         ) as span:
-            import time
-
             start_time = time.time()
 
             # Initialize result
@@ -253,7 +164,7 @@ class CognitiveAgent:
         """ReAct pattern: iterative Thought -> Action -> Observation."""
         result = CognitiveResult(answer="", iterations=0)
 
-        system = self._build_react_system_prompt()
+        system = build_react_system_prompt(self.config.system_prompt, self.available_tools)
 
         for iteration in range(self.config.max_iterations):
             result.iterations = iteration + 1
@@ -263,7 +174,7 @@ class CognitiveAgent:
                 attributes={"iteration": iteration + 1},
             ):
                 # Build prompt with history
-                prompt = self._build_react_prompt(goal, result.steps)
+                prompt = build_react_prompt(goal, result.steps)
 
                 # Think
                 response = await self.llm.generate(
@@ -273,7 +184,7 @@ class CognitiveAgent:
                 )
 
                 # Parse response
-                parsed = self._parse_react_response(response)
+                parsed = parse_react_response(response)
 
                 if parsed["type"] == "final_answer":
                     result.answer = parsed["content"]
@@ -318,7 +229,7 @@ class CognitiveAgent:
         # If we exhausted iterations without final answer
         if not result.answer:
             # Try to synthesize from observations
-            result.answer = self._synthesize_answer(result.steps)
+            result.answer = synthesize_answer(result.steps)
             result.success = bool(result.answer)
 
         return result
@@ -330,14 +241,7 @@ class CognitiveAgent:
             "Show your reasoning process clearly."
         )
 
-        prompt = f"""Task: {goal}
-
-Let's think through this step by step:
-1. First, I'll identify what we need to do
-2. Then, I'll work through the logic
-3. Finally, I'll provide the answer
-
-Begin:"""
+        prompt = build_cot_prompt(goal)
 
         response = await self.llm.generate(
             prompt=prompt,
@@ -353,117 +257,8 @@ Begin:"""
             success=True,
         )
 
-    def _build_react_system_prompt(self) -> str:
-        """Build system prompt for ReAct."""
-        base = self.config.system_prompt or "You are a helpful AI assistant."
-
-        tools_desc = ""
-        if self.available_tools:
-            tools_list = ", ".join(self.available_tools)
-            tools_desc = f"\n\nAvailable tools: {tools_list}"
-
-        return f"""{base}
-
-You follow the ReAct (Reasoning + Acting) pattern:
-1. Thought: Analyze the situation and decide what to do
-2. Action: If needed, call a tool using JSON format: {{"tool": "tool_name", "args": {{"key": "value"}}}}
-3. Observation: You'll receive the tool result
-4. Repeat until you have enough information
-
-When you have the final answer, respond with:
-FINAL ANSWER: <your complete answer here>
-{tools_desc}"""
-
-    def _build_react_prompt(self, goal: str, steps: list[ThoughtStep]) -> str:
-        """Build prompt for current ReAct iteration."""
-        parts = [f"Goal: {goal}"]
-
-        if steps:
-            parts.append("\nPrevious steps:")
-            for step in steps:
-                parts.append(f"\nThought {step.step}: {step.reasoning}")
-                if step.tool_call:
-                    parts.append(f"Action: {step.tool_call.name}({step.tool_call.arguments})")
-                if step.observation:
-                    if step.observation.success:
-                        parts.append(f"Observation: {step.observation.output}")
-                    else:
-                        parts.append(f"Observation: Error - {step.observation.error}")
-
-        parts.append("\nWhat is your next thought or final answer?")
-
-        return "\n".join(parts)
-
-    def _parse_react_response(self, response: str) -> dict[str, Any]:
-        """Parse LLM response to extract thought, action, or final answer."""
-        response = response.strip()
-
-        # Check for final answer
-        final_match = re.search(r"FINAL ANSWER:\s*(.+)", response, re.IGNORECASE | re.DOTALL)
-        if final_match:
-            return {"type": "final_answer", "content": final_match.group(1).strip()}
-
-        # Try to extract tool call JSON
-        tool_call = self._extract_tool_call(response)
-        if tool_call:
-            # Extract thought before tool call
-            thought = response.split("{")[0].strip()
-            # Remove "Thought:" prefix if present
-            thought = re.sub(r"^Thought\s*\d*:\s*", "", thought, flags=re.IGNORECASE)
-            return {
-                "type": "tool_call",
-                "thought": thought,
-                "tool": tool_call["tool"],
-                "args": tool_call.get("args", {}),
-            }
-
-        # Just reasoning
-        content = re.sub(r"^Thought\s*\d*:\s*", "", response, flags=re.IGNORECASE)
-        return {"type": "reasoning", "content": content}
-
-    def _extract_tool_call(self, text: str) -> Optional[dict]:
-        """Extract tool call JSON from text."""
-        # Find JSON object - handle nested braces
-        # Look for balanced braces
-        start_idx = text.find("{")
-        if start_idx == -1:
-            return None
-
-        # Find matching closing brace
-        depth = 0
-        end_idx = start_idx
-        for i, char in enumerate(text[start_idx:], start_idx):
-            if char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-                if depth == 0:
-                    end_idx = i
-                    break
-
-        if depth != 0:
-            return None
-
-        json_str = text[start_idx : end_idx + 1]
-
-        try:
-            obj = json.loads(json_str)
-
-            # Support multiple formats
-            tool_name = obj.get("tool") or obj.get("action") or obj.get("name")
-            if not tool_name:
-                return None
-
-            args = obj.get("args") or obj.get("arguments") or obj.get("input") or {}
-
-            return {"tool": tool_name, "args": args}
-        except json.JSONDecodeError:
-            return None
-
     async def _execute_tool(self, tool_call: ToolCall) -> Observation:
         """Execute a tool call via context."""
-        import time
-
         start = time.time()
 
         try:
@@ -501,31 +296,7 @@ FINAL ANSWER: <your complete answer here>
                 latency_ms=latency_ms,
             )
 
-    def _synthesize_answer(self, steps: list[ThoughtStep]) -> str:
-        """Synthesize answer from steps if no explicit final answer."""
-        if not steps:
-            return ""
-
-        # Collect successful observations
-        observations = []
-        for step in steps:
-            if step.observation and step.observation.success:
-                observations.append(f"- {step.observation.output[:500]}")
-
-        if observations:
-            return "Based on the gathered information:\n" + "\n".join(observations)
-
-        # Fall back to last reasoning
-        return steps[-1].reasoning
-
 
 __all__ = [
     "CognitiveAgent",
-    "CognitiveConfig",
-    "CognitiveResult",
-    "ThinkingStrategy",
-    "ToolCall",
-    "Observation",
-    "ThoughtStep",
-    "WorkingMemory",
 ]

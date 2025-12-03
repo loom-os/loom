@@ -1,7 +1,7 @@
 """Unit tests for loom.Envelope."""
 
 from loom import Envelope
-from loom.proto.generated import event_pb2
+from loom.bridge.proto.generated import event_pb2
 
 
 class TestEnvelope:

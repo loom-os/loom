@@ -20,7 +20,7 @@ def _pick_free_port() -> int:
 
 def cmd_proto(args):
     """Generate gRPC stubs into proto/generated/ (dev workflow)."""
-    from .proto import generate  # type: ignore
+    from ..bridge.proto import generate  # type: ignore
 
     generate.main()
 
@@ -92,7 +92,7 @@ def cmd_run(args):
     import asyncio
     from pathlib import Path
 
-    from .orchestrator import OrchestratorConfig, run_orchestrator
+    from ..runtime.orchestrator import OrchestratorConfig, run_orchestrator
 
     # If a script is provided and it's a file, just execute it directly (legacy behavior)
     if args.script and Path(args.script).exists() and Path(args.script).is_file():
