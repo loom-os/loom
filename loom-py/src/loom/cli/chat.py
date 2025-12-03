@@ -198,9 +198,14 @@ def print_help():
         f"  {Colors.DIM}• system:shell   - Run shell commands (ls, echo, cat, grep){Colors.RESET}"
     )
     print(f"  {Colors.DIM}• fs:read_file   - Read file contents{Colors.RESET}")
-    print(f"  {Colors.DIM}• fs:write_file  - Write content to a file{Colors.RESET}")
+    print(
+        f"  {Colors.DIM}• fs:write_file  - Write content to a file (requires approval){Colors.RESET}"
+    )
     print(f"  {Colors.DIM}• fs:list_dir    - List directory contents{Colors.RESET}")
-    print(f"  {Colors.DIM}• fs:delete      - Delete a file or empty directory{Colors.RESET}")
+    print(
+        f"  {Colors.DIM}• fs:delete      - Delete a file or directory (requires approval){Colors.RESET}"
+    )
+    print(f"  {Colors.DIM}• web:search     - Search the web (DuckDuckGo){Colors.RESET}")
     print(f"{Colors.CYAN}{'─' * width}{Colors.RESET}\n")
 
 
@@ -306,9 +311,10 @@ Available tools:
 - weather:get: Get current weather. Args: {"location": "city name"}
 - system:shell: Run shell commands. Args: {"command": "cmd"} (some commands may require user approval)
 - fs:read_file: Read file contents. Args: {"path": "relative/path"}
-- fs:write_file: Write content to file. Args: {"path": "relative/path", "content": "text"}
+- fs:write_file: Write content to file. Args: {"path": "relative/path", "content": "text"} (requires approval)
 - fs:list_dir: List directory. Args: {"path": "relative/path"} (optional, defaults to workspace root)
-- fs:delete: Delete file or empty directory. Args: {"path": "relative/path"}
+- fs:delete: Delete file or empty directory. Args: {"path": "relative/path"} (requires approval)
+- web:search: Search the web for information. Args: {"query": "search terms", "limit": 5}
 
 When you need information, use the appropriate tool.
 Think step by step and explain your reasoning.
@@ -324,6 +330,7 @@ Be helpful, concise, and friendly.""",
                 "fs:write_file",
                 "fs:list_dir",
                 "fs:delete",
+                "web:search",
             ],
             permission_callback=self._request_permission,
         )

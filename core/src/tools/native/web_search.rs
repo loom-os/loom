@@ -3,28 +3,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Duration;
-use tracing::debug;
-
-/// Configuration for web search provider
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WebSearchConfig {
-    /// API endpoint (default: DuckDuckGo)
-    pub api_endpoint: String,
-    /// Timeout for API requests in milliseconds
-    pub timeout_ms: u64,
-    /// User agent string
-    pub user_agent: String,
-}
-
-impl Default for WebSearchConfig {
-    fn default() -> Self {
-        Self {
-            api_endpoint: "https://api.duckduckgo.com/".to_string(),
-            timeout_ms: 10_000,
-            user_agent: "loom-agent/0.1".to_string(),
-        }
-    }
-}
+use tracing::{debug, warn};
 
 /// Search result item
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,35 +13,27 @@ pub struct SearchResult {
     pub snippet: Option<String>,
 }
 
-/// DuckDuckGo API response structure
+/// Brave Search API response structures
 #[derive(Debug, Deserialize)]
-struct DuckDuckGoResponse {
-    #[serde(rename = "AbstractText")]
-    abstract_text: String,
-    #[serde(rename = "AbstractURL")]
-    abstract_url: String,
-    #[serde(rename = "RelatedTopics")]
-    related_topics: Vec<RelatedTopic>,
+struct BraveSearchResponse {
+    web: Option<BraveWebResults>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum RelatedTopic {
-    Result {
-        #[serde(rename = "Text")]
-        text: String,
-        #[serde(rename = "FirstURL")]
-        first_url: String,
-    },
-    Group {
-        #[serde(rename = "Topics")]
-        topics: Vec<RelatedTopic>,
-    },
+struct BraveWebResults {
+    results: Vec<BraveWebResult>,
 }
 
-/// Web search capability provider
+#[derive(Debug, Deserialize)]
+struct BraveWebResult {
+    title: String,
+    url: String,
+    description: Option<String>,
+}
+
+/// Web search tool using Brave Search API
 pub struct WebSearchTool {
-    config: WebSearchConfig,
+    api_key: Option<String>,
     http_client: reqwest::Client,
 }
 
@@ -73,104 +44,128 @@ impl Default for WebSearchTool {
 }
 
 impl WebSearchTool {
-    /// Create a new web search provider with default configuration
+    /// Create a new web search tool, reading API key from environment
     pub fn new() -> Self {
-        Self::with_config(WebSearchConfig::default())
-    }
+        let api_key = std::env::var("BRAVE_API_KEY").ok();
 
-    /// Create a new web search provider with custom configuration
-    pub fn with_config(config: WebSearchConfig) -> Self {
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_millis(config.timeout_ms))
-            .user_agent(&config.user_agent)
+        if api_key.is_some() {
+            tracing::info!(target: "web_search", "Brave Search API key configured");
+        } else {
+            warn!(target: "web_search", "BRAVE_API_KEY not set, web search will not work");
+        }
+
+        // Build HTTP client with optional proxy support
+        let mut client_builder = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36");
+
+        // Check for proxy settings (HTTP_PROXY, HTTPS_PROXY, or ALL_PROXY)
+        if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
+            .or_else(|_| std::env::var("HTTP_PROXY"))
+            .or_else(|_| std::env::var("ALL_PROXY"))
+            .or_else(|_| std::env::var("https_proxy"))
+            .or_else(|_| std::env::var("http_proxy"))
+            .or_else(|_| std::env::var("all_proxy"))
+        {
+            tracing::info!(target: "web_search", proxy = %proxy_url, "Using proxy for web search");
+            if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+                client_builder = client_builder.proxy(proxy);
+            }
+        }
+
+        let http_client = client_builder
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
         Self {
-            config,
+            api_key,
             http_client,
         }
     }
 
-    /// Perform actual search using DuckDuckGo API
-    async fn search_duckduckgo(&self, query: &str, top_k: usize) -> ToolResult<Vec<SearchResult>> {
-        debug!(target: "web_search", query=%query, top_k=%top_k, "Performing DuckDuckGo search");
+    /// Create with explicit API key
+    pub fn with_api_key(api_key: String) -> Self {
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(15_000))
+            .user_agent("loom-agent/0.1")
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
+        Self {
+            api_key: Some(api_key),
+            http_client,
+        }
+    }
+
+    /// Perform search using Brave Search API
+    async fn search_brave(&self, query: &str, count: usize) -> ToolResult<Vec<SearchResult>> {
+        let api_key = self.api_key.as_ref().ok_or_else(|| {
+            ToolError::ExecutionFailed(
+                "BRAVE_API_KEY not configured. Set it in environment or loom.toml".to_string(),
+            )
+        })?;
+
+        debug!(target: "web_search", query=%query, count=%count, "Performing Brave search");
 
         let url = format!(
-            "{}?q={}&format=json&no_html=1&skip_disambig=1",
-            self.config.api_endpoint, query
+            "https://api.search.brave.com/res/v1/web/search?q={}&count={}",
+            urlencoding::encode(query),
+            count
         );
 
         let resp = self
             .http_client
             .get(&url)
+            .header("Accept", "application/json")
+            .header("Accept-Encoding", "gzip")
+            .header("X-Subscription-Token", api_key)
             .send()
             .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("Search request failed: {}", e)))?;
+            .map_err(|e| {
+                tracing::error!(target: "web_search", error = %e, "Request failed");
+                if e.is_timeout() {
+                    ToolError::ExecutionFailed(format!("Search request timed out: {}", e))
+                } else if e.is_connect() {
+                    ToolError::ExecutionFailed(format!("Connection failed: {}", e))
+                } else {
+                    ToolError::ExecutionFailed(format!(
+                        "Search request failed: {} (is_request={}, is_body={}, is_decode={})",
+                        e,
+                        e.is_request(),
+                        e.is_body(),
+                        e.is_decode()
+                    ))
+                }
+            })?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
             return Err(ToolError::ExecutionFailed(format!(
-                "Search API error: {}",
-                resp.status()
+                "Brave Search API error: {} - {}",
+                status, body
             )));
         }
 
-        let data: DuckDuckGoResponse = resp.json().await.map_err(|e| {
+        let data: BraveSearchResponse = resp.json().await.map_err(|e| {
             ToolError::ExecutionFailed(format!("Failed to parse search response: {}", e))
         })?;
 
-        let mut results = Vec::new();
+        let results: Vec<SearchResult> = data
+            .web
+            .map(|web| {
+                web.results
+                    .into_iter()
+                    .map(|r| SearchResult {
+                        title: r.title,
+                        url: r.url,
+                        snippet: r.description,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
-        // Add abstract if available
-        if !data.abstract_text.is_empty() {
-            results.push(SearchResult {
-                title: "Abstract".to_string(),
-                url: data.abstract_url,
-                snippet: Some(data.abstract_text),
-            });
-        }
-
-        // Add related topics
-        for topic in data.related_topics {
-            match topic {
-                RelatedTopic::Result { text, first_url } => {
-                    // Split text into title and snippet if possible (DDG format is usually "Title - Snippet")
-                    let (title, snippet) = if let Some((t, s)) = text.split_once(" - ") {
-                        (t.to_string(), Some(s.to_string()))
-                    } else {
-                        (text.clone(), Some(text))
-                    };
-
-                    results.push(SearchResult {
-                        title,
-                        url: first_url,
-                        snippet,
-                    });
-                }
-                RelatedTopic::Group { topics } => {
-                    for sub_topic in topics {
-                        if let RelatedTopic::Result { text, first_url } = sub_topic {
-                            let (title, snippet) = if let Some((t, s)) = text.split_once(" - ") {
-                                (t.to_string(), Some(s.to_string()))
-                            } else {
-                                (text.clone(), Some(text))
-                            };
-
-                            results.push(SearchResult {
-                                title,
-                                url: first_url,
-                                snippet,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        // Limit results
-        if results.len() > top_k {
-            results.truncate(top_k);
-        }
+        debug!(target: "web_search", result_count=%results.len(), "Search completed");
 
         Ok(results)
     }
@@ -183,7 +178,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> String {
-        "Search the web for information".to_string()
+        "Search the web for information using Brave Search".to_string()
     }
 
     fn parameters(&self) -> Value {
@@ -196,7 +191,7 @@ impl Tool for WebSearchTool {
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of results (default: 5)"
+                    "description": "Maximum number of results (default: 5, max: 20)"
                 }
             },
             "required": ["query"]
@@ -208,10 +203,14 @@ impl Tool for WebSearchTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArguments("Missing 'query'".to_string()))?;
 
-        let limit = arguments["limit"].as_u64().unwrap_or(5) as usize;
+        let limit = arguments["limit"].as_u64().unwrap_or(5).min(20) as usize;
 
-        let results = self.search_duckduckgo(query, limit).await?;
+        let results = self.search_brave(query, limit).await?;
 
-        Ok(json!(results))
+        Ok(json!({
+            "query": query,
+            "results": results,
+            "count": results.len()
+        }))
     }
 }
