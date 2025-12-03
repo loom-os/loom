@@ -56,8 +56,7 @@ def start_server_with_mcp(bridge_addr: str, mcp_config: Union[dict, list]) -> su
     binary = Path(__file__).parent.parent.parent / "target" / "release" / "loom-bridge-server"
 
     if not binary.exists():
-        print(f"[!] Binary not found: {binary}")
-        sys.exit(1)
+        pytest.skip(f"Binary not found: {binary} - run 'cargo build --release' first")
 
     env = os.environ.copy()
     env["LOOM_BRIDGE_ADDR"] = bridge_addr
@@ -224,6 +223,9 @@ async def test_no_mcp_config():
     bridge_addr = "127.0.0.1:50056"
 
     binary = Path(__file__).parent.parent.parent / "target" / "release" / "loom-bridge-server"
+
+    if not binary.exists():
+        pytest.skip(f"Binary not found: {binary} - run 'cargo build --release' first")
 
     env = os.environ.copy()
     env["LOOM_BRIDGE_ADDR"] = bridge_addr

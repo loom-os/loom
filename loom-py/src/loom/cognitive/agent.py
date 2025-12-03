@@ -171,25 +171,34 @@ class CognitiveAgent:
 
             with tracer.start_as_current_span(
                 "cognitive.react_iteration",
-                attributes={"iteration": iteration + 1},
-            ):
+                attributes={
+                    "iteration": iteration + 1,
+                    "goal": goal[:100],
+                },
+            ) as iter_span:
                 # Build prompt with history
                 prompt = build_react_prompt(goal, result.steps)
 
-                # Think
-                response = await self.llm.generate(
-                    prompt=prompt,
-                    system=system,
-                    temperature=self.config.temperature,
-                )
+                # Think - LLM call
+                with tracer.start_as_current_span(
+                    "cognitive.think",
+                    attributes={"prompt.length": len(prompt)},
+                ):
+                    response = await self.llm.generate(
+                        prompt=prompt,
+                        system=system,
+                        temperature=self.config.temperature,
+                    )
 
                 # Parse response
                 parsed = parse_react_response(response)
+                iter_span.set_attribute("response.type", parsed["type"])
 
                 if parsed["type"] == "final_answer":
                     result.answer = parsed["content"]
                     result.success = True
                     self.memory.add("assistant", result.answer)
+                    iter_span.set_attribute("final_answer", True)
                     break
 
                 elif parsed["type"] == "tool_call":
@@ -382,42 +391,58 @@ class CognitiveAgent:
 
     async def _execute_tool(self, tool_call: ToolCall) -> Observation:
         """Execute a tool call via context."""
-        start = time.time()
+        with tracer.start_as_current_span(
+            "cognitive.tool_call",
+            attributes={
+                "tool.name": tool_call.name,
+                "tool.arguments": json.dumps(tool_call.arguments)[:500],
+            },
+        ) as span:
+            start = time.time()
 
-        try:
-            result = await self.ctx.tool(
-                tool_call.name,
-                payload=tool_call.arguments,
-                timeout_ms=30000,
-            )
-
-            latency_ms = int((time.time() - start) * 1000)
-
-            # Parse result if JSON
             try:
-                if isinstance(result, bytes):
-                    result = result.decode("utf-8")
-                parsed = json.loads(result)
-                output = json.dumps(parsed, indent=2)
-            except (json.JSONDecodeError, AttributeError):
-                output = str(result)
+                result = await self.ctx.tool(
+                    tool_call.name,
+                    payload=tool_call.arguments,
+                    timeout_ms=30000,
+                )
 
-            return Observation(
-                tool_name=tool_call.name,
-                success=True,
-                output=output[:2000],  # Truncate long outputs
-                latency_ms=latency_ms,
-            )
+                latency_ms = int((time.time() - start) * 1000)
 
-        except Exception as e:
-            latency_ms = int((time.time() - start) * 1000)
-            return Observation(
-                tool_name=tool_call.name,
-                success=False,
-                output="",
-                error=str(e),
-                latency_ms=latency_ms,
-            )
+                # Parse result if JSON
+                try:
+                    if isinstance(result, bytes):
+                        result = result.decode("utf-8")
+                    parsed = json.loads(result)
+                    output = json.dumps(parsed, indent=2)
+                except (json.JSONDecodeError, AttributeError):
+                    output = str(result)
+
+                span.set_attribute("tool.success", True)
+                span.set_attribute("tool.latency_ms", latency_ms)
+                span.set_attribute("tool.output.size", len(output))
+
+                return Observation(
+                    tool_name=tool_call.name,
+                    success=True,
+                    output=output[:2000],  # Truncate long outputs
+                    latency_ms=latency_ms,
+                )
+
+            except Exception as e:
+                latency_ms = int((time.time() - start) * 1000)
+                span.set_attribute("tool.success", False)
+                span.set_attribute("tool.latency_ms", latency_ms)
+                span.set_attribute("tool.error", str(e))
+                span.record_exception(e)
+
+                return Observation(
+                    tool_name=tool_call.name,
+                    success=False,
+                    output="",
+                    error=str(e),
+                    latency_ms=latency_ms,
+                )
 
 
 __all__ = [
