@@ -188,11 +188,19 @@ def print_help():
     print(f"  {Colors.YELLOW}/history{Colors.RESET}   - Show conversation history")
     print(f"  {Colors.YELLOW}/verbose{Colors.RESET}   - Toggle verbose mode (show thinking)")
     print(f"  {Colors.YELLOW}/stream{Colors.RESET}    - Toggle streaming mode")
+    print(
+        f"  {Colors.YELLOW}/research{Colors.RESET}  - Deep research mode (e.g., /research AI frameworks)"
+    )
     print(f"  {Colors.YELLOW}/quit{Colors.RESET}      - Exit the chat")
     print(f"\n{Colors.DIM}Available Tools:{Colors.RESET}")
-    print(f"  {Colors.DIM}• weather:get   - Get weather for a location{Colors.RESET}")
-    print(f"  {Colors.DIM}• system:shell  - Run shell commands (ls, echo, cat, grep){Colors.RESET}")
-    print(f"  {Colors.DIM}• fs:read_file  - Read file contents{Colors.RESET}")
+    print(f"  {Colors.DIM}• weather:get    - Get weather for a location{Colors.RESET}")
+    print(
+        f"  {Colors.DIM}• system:shell   - Run shell commands (ls, echo, cat, grep){Colors.RESET}"
+    )
+    print(f"  {Colors.DIM}• fs:read_file   - Read file contents{Colors.RESET}")
+    print(f"  {Colors.DIM}• fs:write_file  - Write content to a file{Colors.RESET}")
+    print(f"  {Colors.DIM}• fs:list_dir    - List directory contents{Colors.RESET}")
+    print(f"  {Colors.DIM}• fs:delete      - Delete a file or empty directory{Colors.RESET}")
     print(f"{Colors.CYAN}{'─' * width}{Colors.RESET}\n")
 
 
@@ -297,7 +305,10 @@ class ChatSession:
 Available tools:
 - weather:get: Get current weather. Args: {"location": "city name"}
 - system:shell: Run shell commands. Args: {"command": "cmd"} (limited to: ls, echo, cat, grep)
-- fs:read_file: Read file contents. Args: {"path": "file path"}
+- fs:read_file: Read file contents. Args: {"path": "relative/path"}
+- fs:write_file: Write content to file. Args: {"path": "relative/path", "content": "text"}
+- fs:list_dir: List directory. Args: {"path": "relative/path"} (optional, defaults to workspace root)
+- fs:delete: Delete file or empty directory. Args: {"path": "relative/path"}
 
 When you need information, use the appropriate tool.
 Think step by step and explain your reasoning.
@@ -306,7 +317,14 @@ Be helpful, concise, and friendly.""",
                 max_iterations=max_iterations,
                 temperature=0.7,
             ),
-            available_tools=["weather:get", "system:shell", "fs:read_file"],
+            available_tools=[
+                "weather:get",
+                "system:shell",
+                "fs:read_file",
+                "fs:write_file",
+                "fs:list_dir",
+                "fs:delete",
+            ],
         )
 
         return self
@@ -439,6 +457,132 @@ Be helpful, concise, and friendly.""",
         if self.cognitive:
             self.cognitive.memory.clear()
 
+    async def research(self, topic: str, on_progress=None) -> dict:
+        """Deep research mode: multi-step investigation on a topic.
+
+        This method:
+        1. Plans research approach
+        2. Gathers information using tools
+        3. Synthesizes findings
+        4. Saves report to workspace/reports/
+
+        Args:
+            topic: Research topic/question
+            on_progress: Callback for progress updates (str)
+
+        Returns:
+            Dict with report path and summary
+        """
+        from datetime import datetime
+
+        if not self.cognitive:
+            raise RuntimeError("Chat session not started")
+
+        def log(msg: str):
+            if on_progress:
+                on_progress(msg)
+
+        log(f"📚 Starting deep research on: {topic}")
+
+        # Phase 1: Plan research
+        log("📋 Phase 1: Planning research approach...")
+        plan_prompt = f"""Plan a research approach for: {topic}
+
+Create a brief research plan with 3-5 specific questions to investigate.
+Format as a numbered list."""
+
+        plan_result = await self.cognitive.run(plan_prompt)
+        research_plan = plan_result.answer
+        log("   ✅ Research plan created")
+
+        # Phase 2: Investigate each question
+        log("🔍 Phase 2: Investigating questions...")
+        findings = []
+
+        # Extract questions from plan and investigate
+        investigate_prompt = f"""Based on this research plan:
+{research_plan}
+
+Now investigate the topic: {topic}
+
+Use available tools (web search, file reading) to gather information.
+Provide detailed findings with sources where possible."""
+
+        investigate_result = await self.cognitive.run(investigate_prompt)
+        findings.append(investigate_result.answer)
+        log(f"   ✅ Investigation complete ({investigate_result.iterations} iterations)")
+
+        # Phase 3: Synthesize findings
+        log("📝 Phase 3: Synthesizing report...")
+        synthesis_prompt = f"""Synthesize these research findings into a comprehensive report:
+
+Topic: {topic}
+
+Plan:
+{research_plan}
+
+Findings:
+{chr(10).join(findings)}
+
+Create a well-structured markdown report with:
+1. Executive Summary
+2. Key Findings
+3. Detailed Analysis
+4. Conclusions
+5. References (if any)"""
+
+        synthesis_result = await self.cognitive.run(synthesis_prompt)
+        report_content = synthesis_result.answer
+
+        # Phase 4: Save report
+        log("💾 Phase 4: Saving report...")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_topic = "".join(c if c.isalnum() or c in "-_ " else "_" for c in topic)[:50]
+        report_filename = f"workspace/reports/{timestamp}_{safe_topic}.md"
+
+        # Create full report with metadata
+        full_report = f"""# Research Report: {topic}
+
+**Generated**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+**Agent**: {self.agent_id}
+
+---
+
+{report_content}
+
+---
+
+## Research Metadata
+
+- **Topic**: {topic}
+- **Total Iterations**: {plan_result.iterations + investigate_result.iterations + synthesis_result.iterations}
+- **Research Plan**: {len(research_plan)} chars
+- **Findings**: {len(chr(10).join(findings))} chars
+"""
+
+        # Save using fs:write_file tool
+        try:
+            await self.cognitive.ctx.tool(
+                "fs:write_file",
+                payload={"path": report_filename, "content": full_report},
+            )
+            log(f"   ✅ Report saved to: {report_filename}")
+        except Exception as e:
+            log(f"   ⚠️ Could not save report: {e}")
+            report_filename = None
+
+        return {
+            "topic": topic,
+            "report_path": report_filename,
+            "summary": (
+                report_content[:500] + "..." if len(report_content) > 500 else report_content
+            ),
+            "full_report": full_report,
+            "iterations": plan_result.iterations
+            + investigate_result.iterations
+            + synthesis_result.iterations,
+        }
+
 
 # ============================================================================
 # CLI Runner
@@ -525,6 +669,48 @@ async def run_chat_cli(bridge_addr: Optional[str] = None, agent_id: str = "chat-
                     session.streaming = not session.streaming
                     state = "ON" if session.streaming else "OFF"
                     print(f"{Colors.GREEN}Streaming mode: {state}{Colors.RESET}\n")
+                    continue
+
+                if cmd == "/research":
+                    # Extract topic from command
+                    parts = user_input.split(maxsplit=1)
+                    if len(parts) < 2:
+                        print(f"{Colors.RED}Usage: /research <topic>{Colors.RESET}")
+                        print(f"{Colors.DIM}Example: /research AI agent frameworks{Colors.RESET}\n")
+                        continue
+
+                    topic = parts[1].strip()
+                    print(
+                        f"\n{Colors.BRIGHT_MAGENTA}{Colors.BOLD}🔬 Deep Research Mode{Colors.RESET}"
+                    )
+                    print(f"{Colors.DIM}Topic: {topic}{Colors.RESET}")
+                    print_divider()
+
+                    def progress_callback(msg: str):
+                        print(f"{Colors.CYAN}{msg}{Colors.RESET}")
+
+                    try:
+                        result = await session.research(topic, on_progress=progress_callback)
+                        print()
+                        print(f"{Colors.BRIGHT_GREEN}{'═' * 50}{Colors.RESET}")
+                        print(
+                            f"{Colors.BRIGHT_GREEN}{Colors.BOLD}📊 Research Complete{Colors.RESET}"
+                        )
+                        print()
+                        if result.get("report_path"):
+                            print(
+                                f"{Colors.GREEN}📄 Report saved: {result['report_path']}{Colors.RESET}"
+                            )
+                        print(f"{Colors.DIM}Total iterations: {result['iterations']}{Colors.RESET}")
+                        print()
+                        print(f"{Colors.BOLD}Summary:{Colors.RESET}")
+                        print(result["summary"])
+                        print(f"{Colors.BRIGHT_GREEN}{'═' * 50}{Colors.RESET}\n")
+                    except Exception as e:
+                        print(f"{Colors.RED}❌ Research failed: {e}{Colors.RESET}\n")
+                        import traceback
+
+                        traceback.print_exc()
                     continue
 
                 print(
