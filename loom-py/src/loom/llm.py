@@ -202,7 +202,9 @@ class LLMProvider:
                     "max_output_tokens": max_tokens or self.config.max_tokens,
                 }
 
+                # Payload must have 'input' field (required by llm:generate)
                 payload = {
+                    "input": prompt,
                     "bundle": bundle,
                     "budget": budget,
                 }
@@ -219,17 +221,18 @@ class LLMProvider:
                 if self.config.api_key:
                     headers["api_key"] = self.config.api_key
 
-                # Call llm.generate capability
+                # Call llm:generate tool
                 result = await self.ctx.tool(
-                    "llm.generate",
-                    version="0.1.0",
+                    "llm:generate",
                     payload=payload,
                     timeout_ms=timeout_ms or self.config.timeout_ms,
                     headers=headers,
                 )
 
-                # Parse response
-                response = json.loads(result.decode("utf-8"))
+                # Parse response (result is already a string)
+                if isinstance(result, bytes):
+                    result = result.decode("utf-8")
+                response = json.loads(result)
                 generated_text = response.get("text", "")
 
                 # Record success metrics
@@ -299,7 +302,9 @@ class LLMProvider:
             "max_output_tokens": max_tokens or self.config.max_tokens,
         }
 
+        # Payload must have 'input' field (required by llm:generate)
         payload = {
+            "input": instructions,
             "bundle": bundle,
             "budget": budget,
         }
@@ -314,14 +319,16 @@ class LLMProvider:
             headers["api_key"] = self.config.api_key
 
         result = await self.ctx.tool(
-            "llm.generate",
-            version="0.1.0",
+            "llm:generate",
             payload=payload,
             timeout_ms=timeout_ms or self.config.timeout_ms,
             headers=headers,
         )
 
-        response = json.loads(result.decode("utf-8"))
+        # Parse response (result is already a string)
+        if isinstance(result, bytes):
+            result = result.decode("utf-8")
+        response = json.loads(result)
         return response.get("text", "")
 
 
