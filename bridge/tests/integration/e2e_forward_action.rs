@@ -1,6 +1,6 @@
 use super::*;
-use loom_core::{EventBus, Tool, ToolRegistry};
 use loom_core::tools::ToolResult as CoreToolResult;
+use loom_core::{EventBus, Tool, ToolRegistry};
 
 /// A simple echo tool for testing
 struct EchoTool;

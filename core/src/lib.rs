@@ -38,7 +38,9 @@ pub use messaging::{
 
 // Export tool types
 pub use tools::mcp::{McpClient, McpManager, McpToolAdapter};
-pub use tools::native::{ReadFileTool, ShellTool, WeatherTool, WebSearchTool};
+pub use tools::native::{
+    DeleteFileTool, ListDirTool, ReadFileTool, ShellTool, WeatherTool, WebSearchTool, WriteFileTool,
+};
 pub use tools::{Tool, ToolError, ToolRegistry};
 
 // Export telemetry
@@ -95,7 +97,10 @@ impl Loom {
         // Register built-in tools
         {
             use crate::cognitive::llm::LlmGenerateProvider;
-            use crate::tools::native::{ReadFileTool, ShellTool, WeatherTool, WebSearchTool};
+            use crate::tools::native::{
+                DeleteFileTool, ListDirTool, ReadFileTool, ShellTool, WeatherTool, WebSearchTool,
+                WriteFileTool,
+            };
             use std::sync::Arc as SyncArc;
 
             if let Ok(provider) = LlmGenerateProvider::new(None) {
@@ -108,8 +113,19 @@ impl Loom {
             }
 
             let workspace_root = std::env::current_dir().unwrap_or_default();
+
+            // File system tools (workspace-scoped)
             tool_registry
-                .register(SyncArc::new(ReadFileTool::new(workspace_root)))
+                .register(SyncArc::new(ReadFileTool::new(workspace_root.clone())))
+                .await;
+            tool_registry
+                .register(SyncArc::new(WriteFileTool::new(workspace_root.clone())))
+                .await;
+            tool_registry
+                .register(SyncArc::new(ListDirTool::new(workspace_root.clone())))
+                .await;
+            tool_registry
+                .register(SyncArc::new(DeleteFileTool::new(workspace_root)))
                 .await;
 
             tool_registry
