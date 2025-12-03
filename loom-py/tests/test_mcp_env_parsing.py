@@ -10,6 +10,8 @@ Usage:
     python tests/test_mcp_env_parsing.py
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import os
@@ -17,13 +19,14 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import List, Tuple, Union
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from loom import Agent
 
 
-def check_logs_for_mcp_parsing(logs: list[str], server_names: list[str]) -> tuple[bool, list[str]]:
+def check_logs_for_mcp_parsing(logs: List[str], server_names: List[str]) -> Tuple[bool, List[str]]:
     """Check if MCP parsing messages appear in logs.
 
     Note: Since MCP loading is serial and may block on failed connections,
@@ -46,7 +49,7 @@ def check_logs_for_mcp_parsing(logs: list[str], server_names: list[str]) -> tupl
     return len(issues) == 0, issues
 
 
-def start_server_with_mcp(bridge_addr: str, mcp_config: dict | list) -> subprocess.Popen:
+def start_server_with_mcp(bridge_addr: str, mcp_config: Union[dict, list]) -> subprocess.Popen:
     """Start loom-bridge-server with MCP configuration."""
     binary = Path(__file__).parent.parent.parent / "target" / "release" / "loom-bridge-server"
 

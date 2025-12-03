@@ -20,6 +20,8 @@ from pathlib import Path
 # Add loom-py to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+import pytest
+
 from loom import Agent
 
 
@@ -54,8 +56,19 @@ def start_server_with_mcp(bridge_addr: str, mcp_config: dict) -> subprocess.Pope
     return proc
 
 
-async def test_mcp_brave_search(bridge_addr: str):
-    """Test Brave Search MCP tool."""
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_mcp_brave_search(bridge_addr: str = "127.0.0.1:50051"):
+    """Test Brave Search MCP tool.
+
+    This test requires:
+    - A running bridge server with MCP configured
+    - BRAVE_API_KEY environment variable set
+    """
+    brave_api_key = os.environ.get("BRAVE_API_KEY")
+    if not brave_api_key:
+        pytest.skip("BRAVE_API_KEY not set")
+
     print("\n" + "=" * 60)
     print("Test: Brave Search MCP Tool")
     print("=" * 60)

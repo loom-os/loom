@@ -30,8 +30,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from loom import Agent
 
 
+@pytest.mark.integration
 class TestToolCallChain:
-    """Test tool invocation through the full stack."""
+    """Test tool invocation through the full stack.
+
+    These tests require a running bridge server.
+    Run with: pytest -m integration
+    """
 
     @pytest.fixture
     def bridge_address(self):
