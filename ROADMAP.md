@@ -90,47 +90,69 @@ App 4: Desktop Assistant              📋 Planned
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Chat Assistant (Enhanced)                     │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Cognitive Loop (Python)                                │   │
-│  │  • Interactive chat with tool use                       │   │
-│  │  • Deep research mode (spawn sub-agents)                │   │
-│  │  • Workspace file management                            │   │
-│  │  • Report generation                                    │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                              │                                  │
-│              ┌───────────────┼───────────────┐                 │
-│              ▼               ▼               ▼                 │
-│         fs:write        fs:read         agent:spawn            │
-│         fs:list         web:search      agent:result           │
-│              │               │               │                 │
-│              └───────────────┴───────────────┘                 │
-│                              │                                  │
-│                    workspace/reports/                           │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  Cognitive Loop (Python)                                    ││
+│  │  • Interactive chat with tool use                           ││
+│  │  • Deep research mode (spawn sub-agents)                    ││
+│  │  • Workspace file management                                ││
+│  │  • Human-in-the-loop approval for destructive ops           ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                              │                                   │
+│              ┌───────────────┼───────────────┐                  │
+│              ▼               ▼               ▼                  │
+│         fs:write        fs:read         agent:spawn             │
+│         fs:list         web:search      agent:result            │
+│         fs:delete       system:shell                            │
+│              │               │               │                  │
+│              └───────────────┴───────────────┘                  │
+│                              │                                   │
+│                    workspace/reports/                            │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Tasks
 
-**2.1 Workspace & File System**
+**2.1 Workspace & File System** ✅ Complete
 
-- [ ] `fs:write` - Write files to workspace
-- [ ] `fs:list` - List directory contents
-- [ ] `fs:delete` - Delete files
-- [ ] Workspace isolation (agents can only access their workspace)
+- [x] `fs:write_file` - Write files to workspace (with approval)
+- [x] `fs:list_dir` - List directory contents
+- [x] `fs:delete` - Delete files (with approval)
+- [x] `fs:read_file` - Read file contents
+- [x] Workspace isolation (agents can only access their workspace)
 
-**2.2 Agent Spawning (Research Mode)**
+**2.2 Human-in-the-Loop** ✅ Complete
 
-- [ ] `/research` command to enter research mode
+- [x] Permission callback system for destructive operations
+- [x] `fs:write_file` and `fs:delete` require user approval
+- [x] Shell commands auto-approved for safe commands (ls, pwd, cat, grep, etc.)
+- [x] Denied shell commands can be approved interactively
+
+**2.3 Shell Command Safety** ✅ Complete
+
+- [x] Expanded safe command allowlist (60+ commands)
+- [x] Read-only commands: `pwd`, `ls`, `cat`, `grep`, `find`, `which`, etc.
+- [x] Development tools: `git`, `python`, `node`, `cargo`, etc.
+- [x] Network diagnostics: `ping`, `curl`, `wget`, etc.
+
+**2.4 ReAct Loop Improvements** ✅ Complete
+
+- [x] Fixed LLM hallucination (fake Observation generation)
+- [x] Parser handles multiple action formats
+- [x] Truncation of hallucinated multi-step responses
+
+**2.5 Agent Spawning (Research Mode)** 🚧 In Progress
+
+- [x] `/research` command to enter research mode
 - [ ] Agent spawning via events (`agent.spawn`)
 - [ ] Result collection via events (`agent.result`)
 - [ ] Context isolation per sub-agent
 
-**2.3 Web Search Integration**
+**2.6 Web Search Integration** 📋 Planned
 
 - [ ] Web search tool (Brave Search MCP)
 - [ ] Citation extraction and formatting
 
-**2.4 Report Generation**
+**2.7 Report Generation** 📋 Planned
 
 - [ ] Markdown report structure
 - [ ] Save to `workspace/reports/`
@@ -138,9 +160,11 @@ App 4: Desktop Assistant              📋 Planned
 **Acceptance Criteria**:
 
 - ✅ User can chat normally with tool use
-- ✅ User types `/research "AI frameworks"` → spawns researchers
-- ✅ Researchers have isolated context
-- ✅ Final report saved to workspace
+- ✅ File operations require user approval (human-in-the-loop)
+- ✅ Safe shell commands execute without prompts
+- 🚧 User types `/research "AI frameworks"` → spawns researchers
+- 📋 Researchers have isolated context
+- 📋 Final report saved to workspace
 
 ---
 
