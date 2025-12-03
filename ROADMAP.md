@@ -147,9 +147,11 @@ App 4: Desktop Assistant              📋 Planned
 - [ ] Result collection via events (`agent.result`)
 - [ ] Context isolation per sub-agent
 
-**2.6 Web Search Integration** 📋 Planned
+**2.6 Web Search Integration** ✅ Complete
 
-- [ ] Web search tool (Brave Search MCP)
+- [x] Web search tool (Brave Search API - native implementation)
+- [x] Proxy support for network access
+- [x] Environment-based configuration (`BRAVE_API_KEY`)
 - [ ] Citation extraction and formatting
 
 **2.7 Report Generation** 📋 Planned
