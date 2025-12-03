@@ -70,6 +70,7 @@ class CognitiveAgent:
         llm: LLMProvider,
         config: Optional[CognitiveConfig] = None,
         available_tools: Optional[list[str]] = None,
+        permission_callback: Optional[callable] = None,
     ):
         """Initialize cognitive agent.
 
@@ -78,12 +79,18 @@ class CognitiveAgent:
             llm: LLM provider for reasoning
             config: Cognitive configuration
             available_tools: List of available tool names (e.g., ["weather:get", "web:search"])
+            permission_callback: Optional async callback for permission requests.
+                                 Called with (tool_name, args, error_message) -> bool
+                                 If returns True, the tool will be retried with approval.
         """
         self.ctx = ctx
         self.llm = llm
         self.config = config or CognitiveConfig()
         self.available_tools = available_tools or []
         self.memory = WorkingMemory()
+        self.permission_callback = permission_callback
+        # Track commands that have been approved by the user
+        self._approved_commands: set[str] = set()
 
     def set_available_tools(self, tools: list[str]) -> None:
         """Update the list of available tools."""
@@ -403,7 +410,7 @@ class CognitiveAgent:
         yield result
 
     async def _execute_tool(self, tool_call: ToolCall) -> Observation:
-        """Execute a tool call via context."""
+        """Execute a tool call via context, with optional human-in-the-loop approval."""
         with tracer.start_as_current_span(
             "cognitive.tool_call",
             attributes={
@@ -443,19 +450,128 @@ class CognitiveAgent:
                 )
 
             except Exception as e:
+                error_str = str(e)
                 latency_ms = int((time.time() - start) * 1000)
+
+                # Check if this is a permission denied error and we have a callback
+                if "Permission denied" in error_str and self.permission_callback:
+                    # Extract the denied command/action from the error
+                    approved = await self._request_permission(tool_call, error_str)
+
+                    if approved:
+                        # User approved - retry with the approved flag
+                        # For shell commands, we need to tell the bridge to allow it
+                        return await self._execute_tool_with_approval(tool_call, span, start)
+
                 span.set_attribute("tool.success", False)
                 span.set_attribute("tool.latency_ms", latency_ms)
-                span.set_attribute("tool.error", str(e))
+                span.set_attribute("tool.error", error_str)
                 span.record_exception(e)
 
                 return Observation(
                     tool_name=tool_call.name,
                     success=False,
                     output="",
-                    error=str(e),
+                    error=error_str,
                     latency_ms=latency_ms,
                 )
+
+    async def _request_permission(self, tool_call: ToolCall, error_msg: str) -> bool:
+        """Request permission from user for a denied action."""
+        if not self.permission_callback:
+            return False
+
+        try:
+            # Call the permission callback (should be async)
+            result = self.permission_callback(tool_call.name, tool_call.arguments, error_msg)
+            if hasattr(result, "__await__"):
+                return await result
+            return bool(result)
+        except Exception:
+            return False
+
+    async def _execute_tool_with_approval(
+        self, tool_call: ToolCall, span, start_time
+    ) -> Observation:
+        """Execute a tool that was previously denied but now approved.
+
+        For shell commands, we execute directly in Python since the Rust
+        sandbox won't allow dynamic approval.
+        """
+        import subprocess
+
+        if tool_call.name == "system:shell":
+            # Execute shell command directly (user approved)
+            command = tool_call.arguments.get("command", "")
+            args = tool_call.arguments.get("args", [])
+
+            # Track this command as approved for this session
+            self._approved_commands.add(command)
+
+            try:
+                if args:
+                    proc_result = subprocess.run(
+                        [command] + args,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                else:
+                    proc_result = subprocess.run(
+                        command,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+
+                latency_ms = int((time.time() - start_time) * 1000)
+                output = json.dumps(
+                    {
+                        "stdout": proc_result.stdout,
+                        "stderr": proc_result.stderr,
+                        "exit_code": proc_result.returncode,
+                        "approved_by_user": True,
+                    },
+                    indent=2,
+                )
+
+                span.set_attribute("tool.success", True)
+                span.set_attribute("tool.approved_by_user", True)
+                span.set_attribute("tool.latency_ms", latency_ms)
+
+                return Observation(
+                    tool_name=tool_call.name,
+                    success=True,
+                    output=output[:2000],
+                    latency_ms=latency_ms,
+                )
+
+            except subprocess.TimeoutExpired:
+                return Observation(
+                    tool_name=tool_call.name,
+                    success=False,
+                    output="",
+                    error="Command timed out after 30 seconds",
+                    latency_ms=int((time.time() - start_time) * 1000),
+                )
+            except Exception as e:
+                return Observation(
+                    tool_name=tool_call.name,
+                    success=False,
+                    output="",
+                    error=str(e),
+                    latency_ms=int((time.time() - start_time) * 1000),
+                )
+        else:
+            # For other tools, we can't bypass the Rust sandbox
+            return Observation(
+                tool_name=tool_call.name,
+                success=False,
+                output="",
+                error="Cannot approve this tool type dynamically",
+                latency_ms=int((time.time() - start_time) * 1000),
+            )
 
 
 __all__ = [

@@ -295,7 +295,7 @@ class ChatSession:
 
         max_iterations = project_config.agents.get(self.agent_id, {}).get("max_iterations", 10)
 
-        # Create cognitive agent
+        # Create cognitive agent with permission callback for human-in-the-loop
         self.cognitive = CognitiveAgent(
             ctx=self.agent._ctx,
             llm=llm,
@@ -304,7 +304,7 @@ class ChatSession:
 
 Available tools:
 - weather:get: Get current weather. Args: {"location": "city name"}
-- system:shell: Run shell commands. Args: {"command": "cmd"} (limited to: ls, echo, cat, grep)
+- system:shell: Run shell commands. Args: {"command": "cmd"} (some commands may require user approval)
 - fs:read_file: Read file contents. Args: {"path": "relative/path"}
 - fs:write_file: Write content to file. Args: {"path": "relative/path", "content": "text"}
 - fs:list_dir: List directory. Args: {"path": "relative/path"} (optional, defaults to workspace root)
@@ -325,9 +325,42 @@ Be helpful, concise, and friendly.""",
                 "fs:list_dir",
                 "fs:delete",
             ],
+            permission_callback=self._request_permission,
         )
 
         return self
+
+    def _request_permission(self, tool_name: str, args: dict, error_msg: str) -> bool:
+        """Request user permission for a denied tool action.
+
+        This is called when a tool (e.g., shell command) is denied by the sandbox.
+        Returns True if user approves, False otherwise.
+        """
+        print()
+        print(f"{Colors.YELLOW}{'─' * 50}{Colors.RESET}")
+        print(f"{Colors.YELLOW}⚠️  Permission Required{Colors.RESET}")
+        print(f"{Colors.DIM}Tool: {tool_name}{Colors.RESET}")
+        print(f"{Colors.DIM}Args: {args}{Colors.RESET}")
+        print(f"{Colors.DIM}Reason: {error_msg}{Colors.RESET}")
+        print(f"{Colors.YELLOW}{'─' * 50}{Colors.RESET}")
+
+        try:
+            response = (
+                input(f"{Colors.BRIGHT_YELLOW}Allow this action? [y/N]: {Colors.RESET}")
+                .strip()
+                .lower()
+            )
+            approved = response in ("y", "yes")
+
+            if approved:
+                print(f"{Colors.GREEN}✅ Approved by user{Colors.RESET}")
+            else:
+                print(f"{Colors.RED}❌ Denied by user{Colors.RESET}")
+
+            return approved
+        except (EOFError, KeyboardInterrupt):
+            print(f"\n{Colors.RED}❌ Denied (interrupted){Colors.RESET}")
+            return False
 
     async def chat(self, message: str) -> dict:
         """Process a chat message and return response with reasoning steps."""
