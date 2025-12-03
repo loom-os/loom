@@ -21,6 +21,8 @@ import time
 from pathlib import Path
 from typing import List, Tuple, Union
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from loom import Agent
@@ -123,8 +125,13 @@ async def verify_server_responds(bridge_addr: str) -> bool:
         await agent.stop()
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_object_format():
-    """Test MCP config as object format (name is key)."""
+    """Test MCP config as object format (name is key).
+
+    Requires compiled bridge server binary.
+    """
     print("\n" + "=" * 60)
     print("Test 1: Object format (name as key) - Parsing only")
     print("=" * 60)
@@ -162,8 +169,13 @@ async def test_object_format():
             proc.kill()
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_array_format():
-    """Test MCP config as array format (name in each object)."""
+    """Test MCP config as array format (name in each object).
+
+    Requires compiled bridge server binary.
+    """
     print("\n" + "=" * 60)
     print("Test 2: Array format (name in each object) - Parsing only")
     print("=" * 60)
@@ -198,8 +210,13 @@ async def test_array_format():
             proc.kill()
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_no_mcp_config():
-    """Test server starts normally without MCP config."""
+    """Test server starts normally without MCP config.
+
+    Requires compiled bridge server binary.
+    """
     print("\n" + "=" * 60)
     print("Test 3: No MCP config (server starts normally)")
     print("=" * 60)
