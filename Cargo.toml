@@ -4,14 +4,14 @@
 # - core
 # - loom-proto
 # - loom-audio
-# Demo app
-# - demo/voice_agent
+# Apps
+# - apps/voice_agent
 
 members = [
     "core",
     "loom-proto",
     "loom-audio",
-    "demo/voice_agent",
+    "apps/voice_agent",
     "bridge",
 ]
 resolver = "2"
