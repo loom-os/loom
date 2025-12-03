@@ -45,120 +45,106 @@
 
 ---
 
-## Demo Progression
+## App Progression
 
 ```
-Demo 1: Chat Agent (MVP)              ✅ Working
-    ↓ validates: brain/hand separation, direct LLM calls
+App 1: Chat Assistant (MVP)           ✅ Working
+    ↓ validates: brain/hand separation, direct LLM calls, tool use
 
-Demo 2: DeepResearch                  🚧 In Progress
-    ↓ unlocks: multi-agent, context isolation, report generation
+App 2: Chat Assistant + Research      🚧 In Progress
+    ↓ enhances: workspace, file system, agent spawning
 
-Demo 3: Market Analyst                📋 Planned
+App 3: Market Analyst                 📋 Planned
     ↓ unlocks: long lifecycle, proactive agents, memory tiers
 
-Demo 4: Desktop Assistant             📋 Planned
+App 4: Desktop Assistant              📋 Planned
     ↓ unlocks: hotkeys, clipboard, system integration
 ```
 
 ---
 
-## Phase 1: Foundation Refactor (Current)
+## Phase 1: Foundation ✅ Complete
 
 **Objective**: Establish clean brain/hand separation. Python owns cognition, Rust owns execution.
 
 ### ✅ Completed
 
 - [x] Python `LLMProvider` direct HTTP calls (bypass Rust `llm:generate`)
-- [x] Chat Agent demo working with new architecture
+- [x] Chat Assistant app working with new architecture
 - [x] `loom.toml` configuration for LLM providers
-
-### 🚧 In Progress
-
-**1.1 Python SDK Refactor (loom-py)**
-
-- [ ] Context Engineering module
-  - [ ] `ContextBuilder` - assemble prompts from memory
-  - [ ] `TokenBudget` - manage context window limits
-  - [ ] `MemoryStore` - in-memory conversation history
-- [ ] Cognitive Loop improvements
-  - [ ] Better ReAct parsing
-  - [ ] Configurable tool schemas
-  - [ ] Step-by-step streaming
-
-**1.2 Rust Core Cleanup**
-
-- [ ] Deprecate `cognitive/llm/` module (keep for Rust-native agents only)
-- [ ] Ensure `llm:generate` tool still works for backward compat
-- [ ] Document that Python agents should use direct HTTP
-
-**1.3 Documentation**
-
+- [x] Cognitive Loop with ReAct pattern
+- [x] Tool calling via Rust Bridge (weather, shell, fs:read_file)
+- [x] Multi-turn conversation with memory
+- [x] Streaming support (`run_stream`, `loom chat /stream`)
+- [x] Comprehensive unit tests (cognitive, LLM provider)
 - [x] Update ARCHITECTURE.md with brain/hand model
-- [x] Update ROADMAP.md with new direction
-- [ ] Python SDK guide for cognitive agents
 
 ---
 
-## Phase 2: DeepResearch Demo (2-3 weeks)
+## Phase 2: Chat Assistant Enhancement (Current)
 
-**Objective**: Multi-agent research system with context isolation.
+**Objective**: Extend chat assistant with workspace, file system, and research capabilities.
 
 ### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Lead Agent                                │
+│                    Chat Assistant (Enhanced)                     │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │  Cognitive Loop (Python)                                │   │
-│  │  • Decompose query into sub-tasks                       │   │
-│  │  • Spawn researcher agents via Event Bus                │   │
-│  │  • Aggregate results into final report                  │   │
+│  │  • Interactive chat with tool use                       │   │
+│  │  • Deep research mode (spawn sub-agents)                │   │
+│  │  • Workspace file management                            │   │
+│  │  • Report generation                                    │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                              │                                  │
 │              ┌───────────────┼───────────────┐                 │
 │              ▼               ▼               ▼                 │
-│         Researcher 1    Researcher 2    Researcher 3           │
-│         (isolated ctx)  (isolated ctx)  (isolated ctx)         │
+│         fs:write        fs:read         agent:spawn            │
+│         fs:list         web:search      agent:result           │
 │              │               │               │                 │
 │              └───────────────┴───────────────┘                 │
 │                              │                                  │
-│                              ▼                                  │
-│                      Final Report (MD)                          │
+│                    workspace/reports/                           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Tasks
 
-**2.1 Multi-Agent Communication**
+**2.1 Workspace & File System**
 
-- [ ] Agent spawning via events (`research.spawn`)
-- [ ] Result collection via events (`research.result`)
-- [ ] Context isolation per agent (no cross-contamination)
+- [ ] `fs:write` - Write files to workspace
+- [ ] `fs:list` - List directory contents
+- [ ] `fs:delete` - Delete files
+- [ ] Workspace isolation (agents can only access their workspace)
 
-**2.2 Tool Integration**
+**2.2 Agent Spawning (Research Mode)**
+
+- [ ] `/research` command to enter research mode
+- [ ] Agent spawning via events (`agent.spawn`)
+- [ ] Result collection via events (`agent.result`)
+- [ ] Context isolation per sub-agent
+
+**2.3 Web Search Integration**
 
 - [ ] Web search tool (Brave Search MCP)
-- [ ] File system tools (`fs:write` for reports)
 - [ ] Citation extraction and formatting
 
-**2.3 Report Generation**
+**2.4 Report Generation**
 
 - [ ] Markdown report structure
-- [ ] Source deduplication
-- [ ] Table of contents generation
+- [ ] Save to `workspace/reports/`
 
 **Acceptance Criteria**:
 
-- ✅ User asks "What are the latest AI agent frameworks?"
-- ✅ Lead spawns 3 researchers with different sub-queries
-- ✅ Each researcher has isolated context
-- ✅ Final report written to `workspace/reports/`
-- ✅ Full traces visible in dashboard
+- ✅ User can chat normally with tool use
+- ✅ User types `/research "AI frameworks"` → spawns researchers
+- ✅ Researchers have isolated context
+- ✅ Final report saved to workspace
 
 ---
 
-## Phase 3: Market Analyst Demo (3-4 weeks)
+## Phase 3: Market Analyst App (3-4 weeks)
 
 **Objective**: Long-lifecycle trading system with proactive monitoring.
 
@@ -220,7 +206,7 @@ Demo 4: Desktop Assistant             📋 Planned
 
 ---
 
-## Phase 4: Desktop Assistant Demo (4 weeks)
+## Phase 4: Desktop Assistant App (4 weeks)
 
 **Objective**: Personal assistant with system integration.
 
@@ -301,15 +287,15 @@ Demo 4: Desktop Assistant             📋 Planned
 
 ## Timeline Summary
 
-| Phase   | Duration  | Deliverable            |
-| ------- | --------- | ---------------------- |
-| Phase 1 | 1 week    | Foundation refactor ✅ |
-| Phase 2 | 2-3 weeks | DeepResearch demo      |
-| Phase 3 | 3-4 weeks | Market Analyst demo    |
-| Phase 4 | 4 weeks   | Desktop Assistant demo |
-| Phase 5 | Ongoing   | Architecture cleanup   |
+| Phase   | Duration  | Deliverable                |
+| ------- | --------- | -------------------------- |
+| Phase 1 | 1 week    | Foundation ✅              |
+| Phase 2 | 2 weeks   | Chat Assistant Enhancement |
+| Phase 3 | 3-4 weeks | Market Analyst app         |
+| Phase 4 | 4 weeks   | Desktop Assistant app      |
+| Phase 5 | Ongoing   | Architecture cleanup       |
 
-**Total**: ~12 weeks to Desktop Assistant
+**Total**: ~11 weeks to Desktop Assistant
 
 ---
 
@@ -329,4 +315,4 @@ Demo 4: Desktop Assistant             📋 Planned
 
 ---
 
-_Last updated: 2024-12-03_
+_Last updated: 2025-12-03_
