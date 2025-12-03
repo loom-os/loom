@@ -1,515 +1,332 @@
-# Loom OS Roadmap
+# Loom Roadmap
 
-**Vision**: Build an event-driven AI agent operating system that enables intelligent multi-agent collaboration with proper context engineering, observable reasoning, and long-lifecycle support.
+**Vision**: Build an event-driven AI agent runtime that enables long-lifecycle, desktop/edge agents with proper context engineering and observable reasoning.
 
-**Strategy**: Incremental demos that progressively unlock core capabilities.
+**Key Insight**: Loom is a **Runtime**, not a library. The differentiation from LangChain/CrewAI is:
 
-**Core Principles** (Inspired by [Anthropic](https://www.anthropic.com/engineering/building-effective-agents) & [DeepAgents](https://github.com/langchain-ai/deepagents)):
-
-- **Context Isolation**: Each sub-agent operates with its own context window, preventing information bleed
-- **True Parallelism**: Multiple agents work simultaneously via event-driven architecture
-- **Unified CLI**: `loom run` starts everything — Core, Bridge, Dashboard, and Agents
-
----
-
-## 🎯 Demo Progression
-
-```
-Demo 1: DeepResearch (MVP)           ← Current Focus
-    ↓ unlocks: spawn agents, cognitive loop, report aggregation
-Demo 2: DeepResearch (Enhanced)
-    ↓ unlocks: file system reports, working memory, tool ecosystem
-Demo 3: Market Analyst (Long Lifecycle)
-    ↓ unlocks: memory tiers, proactive agents, real-time data
-Demo 4: Production Market Analyst
-    ↓ unlocks: trading execution, risk management, 24/7 operation
-```
+- Long-running agents (not script execution)
+- Event-driven triggers (not code calls)
+- System integration (hotkeys, files, clipboard)
+- Cross-process agent collaboration
 
 ---
 
-## Phase 1: DeepResearch MVP (4 weeks)
+## Architecture Principles
 
-**Objective**: Build a single, fully functional Research Agent with complete cognitive loop, tool calling, and context engineering. Then extend to multi-agent orchestration with "subagent as a tool" pattern.
-
-**Philosophy**: A single useful agent first, then composition. Agent spawning is just another tool.
-
-### Architecture Evolution
+### Brain/Hand Separation
 
 ```
-Stage 1: Single Agent (Weeks 1-2)
-┌─────────────────────────────────────────────┐
-│              Research Agent                  │
-│  ┌─────────────────────────────────────┐    │
-│  │         Cognitive Loop              │    │
-│  │   perceive → think → act → reflect  │    │
-│  └─────────────────────────────────────┘    │
-│                    │                         │
-│        ┌──────────┼──────────┐              │
-│        ▼          ▼          ▼              │
-│   web.search   fs.write   llm.think         │
-│        │          │          │              │
-│        └──────────┴──────────┘              │
-│                    │                         │
-│           Context Window                     │
-│   [system prompt + memory + tool results]   │
-└─────────────────────────────────────────────┘
-                    │
-                    ▼
-            Research Report (Markdown)
-
-Stage 2: Multi-Agent (Weeks 3-4)
-┌─────────────────────────────────────────────┐
-│              Lead Agent                      │
-│         (same cognitive loop)               │
-│                    │                         │
-│        ┌──────────┼──────────┐              │
-│        ▼          ▼          ▼              │
-│   web.search   fs.write  subagent.spawn ◄── NEW TOOL
-│                              │              │
-│              ┌───────────────┼───────────┐  │
-│              ▼               ▼           ▼  │
-│         Researcher 1    Researcher 2   ...  │
-│         (isolated)      (isolated)          │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  Python (Brain 🧠)                  Rust Core (Hands 🤚)            │
+│  ════════════════                   ══════════════════              │
+│  • LLM calls (direct HTTP)          • Event Bus                     │
+│  • Cognitive Loop (ReAct/CoT)       • Tool Registry + Sandbox       │
+│  • Context Engineering              • Agent Lifecycle               │
+│  • Memory strategies                • Persistent Store              │
+│  • Business logic                   • System Integration            │
+│                                     • MCP Proxy                     │
+│  Fast iteration needed              Stable infrastructure           │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key Insight**: `subagent.spawn` is just another tool. The cognitive loop doesn't change.
+### Responsibility Matrix
+
+| Component           | Rust Core    | Python SDK       | Agent Code |
+| ------------------- | ------------ | ---------------- | ---------- |
+| Event Bus           | ✅           | -                | -          |
+| Tool Execution      | ✅ (sandbox) | -                | -          |
+| Agent Lifecycle     | ✅           | -                | -          |
+| Persistent Store    | ✅           | -                | -          |
+| MCP Proxy           | ✅           | -                | -          |
+| LLM Calls           | ❌           | ✅ (direct HTTP) | -          |
+| Cognitive Loop      | ❌           | ✅               | -          |
+| Context Engineering | ❌           | ✅               | -          |
+| Business Logic      | -            | -                | ✅         |
 
 ---
 
-### Week 1: Single Agent Foundation (Cognitive Loop + Tools)
+## Demo Progression
 
-**1.1 Python SDK: Cognitive Loop**
+```
+Demo 1: Chat Agent (MVP)              ✅ Working
+    ↓ validates: brain/hand separation, direct LLM calls
 
-- [ ] `CognitiveAgent` class with perceive-think-act-reflect loop
-- [ ] System prompt configuration
-- [ ] ReAct strategy with configurable max iterations
-- [ ] Tool result handling and context accumulation
-- [ ] Automatic context recording to memory
+Demo 2: DeepResearch                  🚧 In Progress
+    ↓ unlocks: multi-agent, context isolation, report generation
 
-**Files to create/modify**:
+Demo 3: Market Analyst                📋 Planned
+    ↓ unlocks: long lifecycle, proactive agents, memory tiers
 
-- `loom-py/src/loom/cognitive.py` - CognitiveAgent implementation
-- `loom-py/src/loom/context.py` - Context accumulation helpers
-
-**1.2 Tool Calling Infrastructure**
-
-- [ ] Fix MCP tool invocation in Python SDK
-- [ ] Native tool bridge (Rust → Python)
-- [ ] Tool result parsing and error handling
-- [ ] Tool timeout and retry logic
-
-**Files to modify**:
-
-- `loom-py/src/loom/context.py` - Fix `ctx.tool()` for MCP
-- `bridge/src/lib.rs` - Improve tool call handling
-
-**1.3 Web Search Tool**
-
-- [ ] Integrate Brave Search MCP server
-- [ ] Result extraction and summarization
-- [ ] Handle rate limits gracefully
-- [ ] Source citation formatting
-
-**Files to modify**:
-
-- `demo/deep-research/loom.toml` - MCP server config
-
-### Week 2: Context Engineering + File Output
-
-**2.1 Context Engineering**
-
-- [ ] Working memory: auto-managed context window
-- [ ] Context budget management (token counting)
-- [ ] Intelligent summarization when context exceeds budget
-- [ ] Priority-based context pruning
-
-**Files to create**:
-
-- `loom-py/src/loom/memory.py` - Memory management
-- `loom-py/src/loom/context_engineering.py` - Context budget & pruning
-
-**2.2 Native File Tool**
-
-- [ ] `fs.write` - Write report sections to workspace
-- [ ] `fs.read` - Read existing reports
-- [ ] `fs.list` - List workspace files
-- [ ] Workspace sandboxing (prevent path traversal)
-
-**Files to create**:
-
-- `core/src/tools/native/fs.rs` - File system tool
-
-**2.3 Single Agent Demo**
-
-- [ ] CLI interface for user queries
-- [ ] Agent receives query, does web search
-- [ ] Generates comprehensive report with citations
-- [ ] Writes report to `workspace/reports/`
-
-**Files to create**:
-
-- `demo/deep-research/agents/researcher.py` - Complete research agent
-- `demo/deep-research/query.py` - CLI interface
-
-**Milestone 1 Acceptance Criteria**:
-
-- ✅ Single agent receives "What are AI agents?"
-- ✅ Agent does 3+ web searches autonomously
-- ✅ Agent writes structured report with citations
-- ✅ Context stays within budget (no overflow)
-- ✅ Full trace visible in Jaeger
+Demo 4: Desktop Assistant             📋 Planned
+    ↓ unlocks: hotkeys, clipboard, system integration
+```
 
 ---
 
-### Week 3: Subagent as a Tool
+## Phase 1: Foundation Refactor (Current)
 
-**3.1 Subagent Tool**
+**Objective**: Establish clean brain/hand separation. Python owns cognition, Rust owns execution.
 
-- [ ] `subagent.spawn(agent_type, task, timeout)` - Spawn and wait
-- [ ] `subagent.spawn_async(agent_type, task)` - Spawn without blocking
-- [ ] `subagent.wait(agent_id)` - Wait for completion
-- [ ] `subagent.cancel(agent_id)` - Cancel running agent
-- [ ] Agent lifecycle events for observability
+### ✅ Completed
 
-**Files to modify**:
+- [x] Python `LLMProvider` direct HTTP calls (bypass Rust `llm:generate`)
+- [x] Chat Agent demo working with new architecture
+- [x] `loom.toml` configuration for LLM providers
 
-- `loom-py/src/loom/context.py` - Add subagent tool methods
-- `bridge/src/lib.rs` - Add SpawnAgent/WaitAgent RPC
-- `core/src/agent/runtime.rs` - Expose spawn API via Bridge
+### 🚧 In Progress
 
-**3.2 Context Isolation**
+**1.1 Python SDK Refactor (loom-py)**
 
-- [ ] Each subagent gets fresh context window
-- [ ] Parent passes task description only (not full context)
-- [ ] Child returns structured result only
-- [ ] No context bleed between siblings
+- [ ] Context Engineering module
+  - [ ] `ContextBuilder` - assemble prompts from memory
+  - [ ] `TokenBudget` - manage context window limits
+  - [ ] `MemoryStore` - in-memory conversation history
+- [ ] Cognitive Loop improvements
+  - [ ] Better ReAct parsing
+  - [ ] Configurable tool schemas
+  - [ ] Step-by-step streaming
 
-**3.3 Lead Agent Implementation**
+**1.2 Rust Core Cleanup**
 
-- [ ] Query decomposition into sub-tasks
-- [ ] Spawn researchers using `subagent.spawn` tool
-- [ ] Aggregate results from children
-- [ ] Synthesize final report
+- [ ] Deprecate `cognitive/llm/` module (keep for Rust-native agents only)
+- [ ] Ensure `llm:generate` tool still works for backward compat
+- [ ] Document that Python agents should use direct HTTP
 
-**Files to create**:
+**1.3 Documentation**
 
-- `demo/deep-research/agents/lead.py` - Orchestrating agent
+- [x] Update ARCHITECTURE.md with brain/hand model
+- [x] Update ROADMAP.md with new direction
+- [ ] Python SDK guide for cognitive agents
 
-### Week 4: Polish + Multi-Agent Demo
+---
 
-**4.1 Report Aggregation**
+## Phase 2: DeepResearch Demo (2-3 weeks)
 
-- [ ] Collect all researcher outputs
-- [ ] LLM-based synthesis pass
-- [ ] Deduplicate sources across agents
+**Objective**: Multi-agent research system with context isolation.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Lead Agent                                │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Cognitive Loop (Python)                                │   │
+│  │  • Decompose query into sub-tasks                       │   │
+│  │  • Spawn researcher agents via Event Bus                │   │
+│  │  • Aggregate results into final report                  │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                              │                                  │
+│              ┌───────────────┼───────────────┐                 │
+│              ▼               ▼               ▼                 │
+│         Researcher 1    Researcher 2    Researcher 3           │
+│         (isolated ctx)  (isolated ctx)  (isolated ctx)         │
+│              │               │               │                 │
+│              └───────────────┴───────────────┘                 │
+│                              │                                  │
+│                              ▼                                  │
+│                      Final Report (MD)                          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Tasks
+
+**2.1 Multi-Agent Communication**
+
+- [ ] Agent spawning via events (`research.spawn`)
+- [ ] Result collection via events (`research.result`)
+- [ ] Context isolation per agent (no cross-contamination)
+
+**2.2 Tool Integration**
+
+- [ ] Web search tool (Brave Search MCP)
+- [ ] File system tools (`fs:write` for reports)
+- [ ] Citation extraction and formatting
+
+**2.3 Report Generation**
+
+- [ ] Markdown report structure
+- [ ] Source deduplication
 - [ ] Table of contents generation
 
-**4.2 Error Handling**
+**Acceptance Criteria**:
 
-- [ ] Timeout handling for slow agents
-- [ ] Retry logic for failed searches
-- [ ] Graceful degradation (partial reports)
-
-**4.3 Observability**
-
-- [ ] Full span instrumentation in Python SDK
-- [ ] Dashboard shows agent spawning tree
-- [ ] Report preview in Dashboard
-
-**4.4 Testing**
-
-- [ ] Unit tests for cognitive loop
-- [ ] Unit tests for context engineering
-- [ ] Integration test: single agent query → report
-- [ ] Integration test: multi-agent query → report
-
-**Milestone 2 Acceptance Criteria**:
-
-- ✅ User asks "What are the latest developments in AI agents?"
-- ✅ Lead decomposes into 3 sub-queries
-- ✅ 3 Research Agents spawned via `subagent.spawn` tool
-- ✅ Each agent has isolated context (no bleed)
+- ✅ User asks "What are the latest AI agent frameworks?"
+- ✅ Lead spawns 3 researchers with different sub-queries
+- ✅ Each researcher has isolated context
 - ✅ Final report written to `workspace/reports/`
-- ✅ Full trace visible in Jaeger (10+ spans)
-- ✅ Dashboard shows agent topology
+- ✅ Full traces visible in dashboard
 
 ---
 
-## Phase 2: DeepResearch Enhanced (3 weeks)
+## Phase 3: Market Analyst Demo (3-4 weeks)
 
-**Objective**: Add working memory, shell execution, and interactive refinement.
+**Objective**: Long-lifecycle trading system with proactive monitoring.
 
-### Week 5: Working Memory
+### Architecture
 
-**2.1 Memory Tiers (Python SDK)**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Market Analyst System                         │
+│                    (runs 24/7)                                   │
+│                                                                  │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐│
+│   │ Data Agent  │  │ Sentiment   │  │ Lead Agent              ││
+│   │             │  │ Agent       │  │                         ││
+│   │ • Price     │  │ • News      │  │ • Decision making       ││
+│   │   monitoring│  │   scraping  │  │ • Trading execution     ││
+│   │ • Alerts    │  │ • Analysis  │  │ • Risk management       ││
+│   └──────┬──────┘  └──────┬──────┘  └───────────┬─────────────┘│
+│          │                │                      │              │
+│          └────────────────┴──────────────────────┘              │
+│                           │                                      │
+│                    Event Bus (Rust Core)                         │
+│                           │                                      │
+│                    Persistent Memory                             │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-- [ ] `ctx.memory.working` - Current task context (auto-managed)
-- [ ] `ctx.memory.session` - Conversation history
-- [ ] `ctx.memory.save(key, value)` / `ctx.memory.get(key)`
-- [ ] Auto-summarization when working memory exceeds budget
+### Tasks
 
-**Files to modify**:
+**3.1 Long Lifecycle Support**
 
-- `loom-py/src/loom/context.py` - Memory API
-- `loom-py/src/loom/memory.py` - Memory tiers implementation
+- [ ] Agent auto-restart on crash
+- [ ] State persistence across restarts
+- [ ] Graceful shutdown handling
 
-**2.2 Memory in Cognitive Loop**
+**3.2 Memory Tiers**
 
-- [ ] Auto-record LLM calls and tool results
-- [ ] Context retrieval before each LLM call
-- [ ] Memory pruning based on relevance
+- [ ] Working memory (current task)
+- [ ] Short-term memory (session, 1 hour)
+- [ ] Long-term memory (persistent, RocksDB)
 
-### Week 6: Shell + Interactive Mode
+**3.3 Proactive Agents**
 
-**2.3 Shell Tool**
+- [ ] Scheduled triggers (every N minutes)
+- [ ] Threshold-based alerts
+- [ ] Background monitoring
 
-- [ ] `shell.exec` - Execute bash commands
-- [ ] Output capture and truncation
-- [ ] Timeout and resource limits
-- [ ] Allowlist/blocklist for safety
+**3.4 Trading Integration**
 
-**Files to create**:
+- [ ] OKX API integration
+- [ ] Order execution tool
+- [ ] Position tracking
 
-- `core/src/tools/native/shell.rs`
+**Acceptance Criteria**:
 
-**2.4 Interactive Refinement**
-
-- [ ] User can ask follow-up questions
-- [ ] Lead remembers previous research
-- [ ] Incremental report updates
-- [ ] "Expand on section X" capability
-
-### Week 7: Report Quality
-
-**2.5 Source Verification**
-
-- [ ] Deduplicate sources across agents
-- [ ] Rank sources by relevance
-- [ ] Include publication dates
-- [ ] Flag conflicting information
-
-**2.6 Report Formatting**
-
-- [ ] Code block syntax highlighting
-- [ ] Bullet points and numbered lists
-- [ ] Inline citations `[1]`, `[2]`
-- [ ] Summary section at top
-
-**Acceptance Criteria (Phase 2)**:
-
-- ✅ Multi-turn conversation with Lead
-- ✅ Working memory persists across turns
-- ✅ Shell commands can be executed (e.g., `ls`, `cat`)
-- ✅ Reports have proper citations
+- ✅ System runs 1+ hour continuously
+- ✅ Memory persists across agent restarts
+- ✅ Periodic reports generated automatically
+- ✅ Trading decisions logged and traceable
 
 ---
 
-## Phase 3: Market Analyst - Long Lifecycle (4 weeks)
+## Phase 4: Desktop Assistant Demo (4 weeks)
 
-**Objective**: Transform Market Analyst into a long-running system with proactive agents.
+**Objective**: Personal assistant with system integration.
 
-### Week 8-9: Architecture Refactor
+### Unique Capabilities
 
-**3.1 Lead Agent (formerly Planner)**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Desktop Assistant                             │
+│                                                                  │
+│   Triggers:                        Actions:                      │
+│   ┌─────────────┐                 ┌─────────────┐               │
+│   │ 🔥 Hotkey   │ ──────────────▶ │ 💬 Chat     │               │
+│   │ (Cmd+L)     │                 │             │               │
+│   └─────────────┘                 └─────────────┘               │
+│   ┌─────────────┐                 ┌─────────────┐               │
+│   │ 📋 Clipboard│ ──────────────▶ │ 📝 Summarize│               │
+│   │ (copy text) │                 │             │               │
+│   └─────────────┘                 └─────────────┘               │
+│   ┌─────────────┐                 ┌─────────────┐               │
+│   │ 📁 File     │ ──────────────▶ │ 🗂️ Organize │               │
+│   │ (download)  │                 │             │               │
+│   └─────────────┘                 └─────────────┘               │
+│   ┌─────────────┐                 ┌─────────────┐               │
+│   │ ⏰ Schedule │ ──────────────▶ │ 🔔 Notify   │               │
+│   │ (timer)     │                 │             │               │
+│   └─────────────┘                 └─────────────┘               │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-- [ ] Proactive monitoring loop (not just reactive)
-- [ ] Periodic context refresh from sub-agents
-- [ ] Decision-making with full context
-- [ ] Spawn Research Agents for deep dives
+### Tasks
 
-**3.2 Data Agent Refactor**
+**4.1 System Integration (Rust Core)**
 
-- [ ] Internal price buffer (no per-tick events)
-- [ ] Smart alerting (significant moves only)
-- [ ] Write data reports to file system
-- [ ] Configurable alert thresholds
+- [ ] Global hotkey registration
+- [ ] Clipboard monitoring
+- [ ] File system watching
+- [ ] System notifications
+- [ ] System tray icon
 
-**3.3 Sentiment Agent Refactor**
+**4.2 Voice Integration (loom-audio)**
 
-- [ ] Periodic web search (every N minutes)
-- [ ] News aggregation and deduplication
-- [ ] Sentiment scoring with LLM
-- [ ] Write sentiment reports to file system
+- [ ] Wake word detection
+- [ ] Speech-to-text
+- [ ] Text-to-speech response
 
-### Week 10-11: Memory + Context
+**Acceptance Criteria**:
 
-**3.4 Memory Tiers**
-
-- [ ] Working memory: current market state
-- [ ] Short-term: recent decisions (1 hour)
-- [ ] Long-term: historical patterns (persistent)
-
-**3.5 Context Compression**
-
-- [ ] Summarize old tool calls
-- [ ] Compress repeated patterns
-- [ ] Priority-based context windowing
-
-**3.6 Executor as Tool**
-
-- [ ] Convert Executor Agent to `@tool("trading.execute")`
-- [ ] Lead directly invokes trading
-- [ ] Order tracking in memory
-
-**Acceptance Criteria (Phase 3)**:
-
-- ✅ System runs for 1+ hour without restart
-- ✅ Reports generated every 5 minutes
-- ✅ Memory persists across report cycles
-- ✅ Dashboard shows file system reports
-- ✅ Lead makes informed decisions from reports
+- ✅ Press Cmd+Shift+L → Agent responds to query
+- ✅ Copy text → Agent offers to summarize
+- ✅ File downloaded → Agent suggests organization
+- ✅ Voice activation works
 
 ---
 
-## Phase 4: Production Market Analyst (4 weeks)
+## Phase 5: Architecture Cleanup (Ongoing)
 
-**Objective**: Production-ready trading system with safety controls.
+### loom-dashboard Extraction
 
-### Features
+- [ ] Extract dashboard from `core/src/dashboard/` to `loom-dashboard/`
+- [ ] Standalone deployment option
+- [ ] WebSocket-based real-time updates
 
-- [ ] Real OKX trading integration
-- [ ] Position management
-- [ ] Risk limits and circuit breakers
-- [ ] 24-hour continuous operation
-- [ ] Alerting and notifications
+### Rust Core Cleanup
 
----
+- [ ] Remove/deprecate `cognitive/llm/` (or mark as Rust-agent-only)
+- [ ] Clean up `context/` module (keep storage, remove Python-competing parts)
+- [ ] Improve MCP client robustness
 
-## Technical Debt & Infrastructure
+### Python SDK Improvements
 
-### Python SDK Improvements (Ongoing)
-
-- [ ] Full span instrumentation
-- [ ] Type hints for all APIs
-- [ ] Async context managers
+- [ ] Full Context Engineering module
+- [ ] Streaming LLM responses
 - [ ] Better error messages
+- [ ] Type hints throughout
 - [ ] `pip install loom` ready
-
-### Core Improvements (Ongoing)
-
-- [ ] Topic wildcard subscription fix
-- [ ] LLM config from loom.toml
-- [ ] Persistent memory backend (SQLite)
-- [ ] Dashboard report viewer
-
-### Documentation (Ongoing)
-
-- [ ] DeepResearch tutorial
-- [ ] Cognitive Agent guide
-- [ ] Memory system docs
-- [ ] Tool development guide
-
----
-
-## Quality Gates
-
-### DeepResearch MVP Must:
-
-- ✅ 3+ agents collaborate on a query
-- ✅ Web search returns real results
-- ✅ Report written to file system
-- ✅ Full traces in Jaeger
-- ✅ < 60s end-to-end latency
-
-### DeepResearch Enhanced Must:
-
-- ✅ Multi-turn conversation works
-- ✅ Memory persists across turns
-- ✅ Shell tool executes safely
-- ✅ Reports have proper citations
-
-### Market Analyst Must:
-
-- ✅ 1+ hour continuous operation
-- ✅ Reports generated periodically
-- ✅ Context engineering prevents drift
-- ✅ Observable decision-making
-
----
-
-## Responsibility Matrix
-
-| Component        | Loom Core (Rust) | Python SDK   | Business Code |
-| ---------------- | ---------------- | ------------ | ------------- |
-| EventBus + QoS   | ✅               | -            | -             |
-| Agent Runtime    | ✅               | -            | -             |
-| Cognitive Loop   | ✅ (base)        | ✅ (wrapper) | -             |
-| Memory Storage   | ✅               | -            | -             |
-| Memory API       | -                | ✅           | -             |
-| Tool Registry    | ✅               | -            | -             |
-| Tool Definition  | -                | ✅ (@tool)   | ✅ (custom)   |
-| Agent Logic      | -                | -            | ✅            |
-| Report Templates | -                | -            | ✅            |
-| Trading Strategy | -                | -            | ✅            |
 
 ---
 
 ## Timeline Summary
 
-| Phase   | Duration | Deliverable                   |
-| ------- | -------- | ----------------------------- |
-| Phase 1 | 4 weeks  | DeepResearch MVP              |
-| Phase 2 | 3 weeks  | DeepResearch Enhanced         |
-| Phase 3 | 4 weeks  | Market Analyst Long Lifecycle |
-| Phase 4 | 4 weeks  | Production Market Analyst     |
+| Phase   | Duration  | Deliverable            |
+| ------- | --------- | ---------------------- |
+| Phase 1 | 1 week    | Foundation refactor ✅ |
+| Phase 2 | 2-3 weeks | DeepResearch demo      |
+| Phase 3 | 3-4 weeks | Market Analyst demo    |
+| Phase 4 | 4 weeks   | Desktop Assistant demo |
+| Phase 5 | Ongoing   | Architecture cleanup   |
 
-**Total**: ~15 weeks to production-ready Market Analyst
-
----
-
-## Current Sprint (Week 1: Single Agent Foundation)
-
-**Goal**: One fully functional Research Agent that can take a query and produce a report.
-
-| Day | Task                        | Deliverable                        |
-| --- | --------------------------- | ---------------------------------- |
-| Mon | CognitiveAgent class        | Python cognitive loop skeleton     |
-| Tue | Tool calling infrastructure | `ctx.tool()` works with MCP        |
-| Wed | Web search integration      | Brave Search returns results       |
-| Thu | Context engineering basics  | Working memory + budget management |
-| Fri | Single agent demo           | Query → web search → report        |
-
-### Success Criteria (End of Week 1)
-
-```bash
-# Run single agent research demo
-cd demo/deep-research
-loom run
-
-# In another terminal
-python query.py "What are AI agents?"
-
-# Expected output:
-# - Agent does 3+ web searches
-# - Report written to workspace/reports/ai_agents_*.md
-# - Report has introduction, body sections, citations
-# - Traces visible in Jaeger
-```
-
-### Key Files to Create This Week
-
-```
-loom-py/src/loom/
-├── cognitive.py          # CognitiveAgent class
-├── memory.py             # Working memory management
-└── context_engineering.py # Context budget & pruning
-
-demo/deep-research/
-├── loom.toml             # MCP config (Brave Search)
-├── query.py              # CLI interface
-└── agents/
-    └── researcher.py     # Single research agent
-```
+**Total**: ~12 weeks to Desktop Assistant
 
 ---
 
-_Last updated: 2025-12-03_
+## Success Metrics
+
+### Loom vs LangChain Differentiation
+
+| Metric              | LangChain        | Loom Target                       |
+| ------------------- | ---------------- | --------------------------------- |
+| Agent lifecycle     | Script (seconds) | **Service (hours/days)**          |
+| Trigger types       | Code only        | **Events (hotkey, file, timer)**  |
+| Agent communication | In-process       | **Event Bus (cross-process)**     |
+| Desktop integration | None             | **Native (tray, notify, hotkey)** |
+| Tool safety         | None             | **Sandbox**                       |
+| Cold start          | N/A              | **< 100ms**                       |
+| Memory footprint    | N/A              | **< 50MB (Rust runtime)**         |
 
 ---
 
-## References
-
-- [Anthropic: Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)
-- [LangChain DeepAgents](https://github.com/langchain-ai/deepagents) - Similar architecture with subagent isolation
-- [METR: Measuring AI Task Length](https://metr.org/blog/2025-03-19-measuring-ai-ability-to-complete-long-tasks/) - Agent task complexity research
+_Last updated: 2024-12-03_

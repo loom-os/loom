@@ -1,294 +1,315 @@
 # Loom Architecture
 
-An event-driven AI agent runtime built in Rust.
+An event-driven AI agent runtime — the operating layer for long-lifecycle, desktop/edge AI agents.
+
+## Design Philosophy
+
+**Loom is not another LangChain.** It's a runtime that enables AI agents to:
+
+- **Run continuously** as background services (not one-shot scripts)
+- **Respond to events** from the system (hotkeys, file changes, clipboard, timers)
+- **Collaborate** via event-driven pub/sub (not function calls)
+- **Persist state** across sessions (long-term memory)
+- **Integrate deeply** with the desktop/edge environment
+
+### The Brain/Hand Separation
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Python Agent (Brain 🧠)                         │
+│                                                                     │
+│   "Thinking" - needs rapid iteration                                │
+│   ┌─────────────────────────────────────────────────────────────┐  │
+│   │ • LLM Calls (direct HTTP)      - prompt engineering         │  │
+│   │ • Cognitive Loop (ReAct/CoT)   - strategy experiments       │  │
+│   │ • Context Engineering          - retrieval, ranking         │  │
+│   │ • Memory Management            - what to remember           │  │
+│   │ • Business Logic               - agent-specific behavior    │  │
+│   └─────────────────────────────────────────────────────────────┘  │
+│                              │                                      │
+│                              │ ctx.tool("xxx", {...})               │
+│                              ▼                                      │
+└──────────────────────────────┼──────────────────────────────────────┘
+                               │ gRPC
+                               ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                     Rust Core Runtime (Hands 🤚)                     │
+│                                                                      │
+│   "Execution" - stable infrastructure                                │
+│   ┌──────────────────────────────────────────────────────────────┐  │
+│   │ • Event Bus           - agent communication, QoS             │  │
+│   │ • Tool Registry       - tool execution, sandboxing           │  │
+│   │ • Agent Lifecycle     - register, heartbeat, restart         │  │
+│   │ • Persistent Store    - RocksDB for long-term memory         │  │
+│   │ • System Integration  - files, hotkeys, clipboard, notify    │  │
+│   │ • MCP Proxy           - external tool servers                │  │
+│   │ • Telemetry           - tracing, metrics, dashboard          │  │
+│   └──────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**Why this separation?**
+
+| Aspect               | Brain (Python)             | Hands (Rust Core)          |
+| -------------------- | -------------------------- | -------------------------- |
+| Change frequency     | High (daily prompt tuning) | Low (stable APIs)          |
+| Experimentation      | High (A/B test strategies) | Low (fixed behavior)       |
+| Debug needs          | High (print intermediate)  | Low (logs sufficient)      |
+| Performance critical | No (LLM is bottleneck)     | Yes (tool execution)       |
+| Security critical    | No                         | Yes (sandbox, permissions) |
 
 ## Crate Layout
 
 ```
 loom/
 ├── loom-proto      # Protobuf definitions + generated Rust code
-├── core            # Main runtime (loom-core)
-├── loom-audio      # Audio capabilities (VAD, STT, TTS)
-├── bridge          # gRPC service for external agents
-└── loom-py         # Python SDK
+├── core            # Runtime: EventBus, Tools, Agent Lifecycle, Telemetry
+├── bridge          # gRPC service for Python/JS agents
+├── loom-py         # Python SDK: Agent, CognitiveAgent, LLMProvider
+├── loom-audio      # Audio stack (VAD, STT, TTS) for desktop agents
+└── loom-dashboard  # (planned) Standalone observability UI
 ```
 
-Dependencies flow:
+Dependency flow:
 
 ```
-loom-proto ──▶ core ──▶ loom-audio (optional)
-    │           │
-    └───────────┴──▶ bridge ──▶ loom-py
+loom-proto ──▶ core ──▶ bridge
+                │
+                └──▶ loom-audio (optional, desktop only)
+
+loom-py (standalone, connects via gRPC)
 ```
 
-## Core Module Structure
+## Rust Core: What It Does
 
-```
-core/src/
-├── agent/           # Agent definitions and lifecycle
-│   ├── behavior.rs    # AgentBehavior trait
-│   ├── directory.rs   # Agent/capability discovery
-│   ├── instance.rs    # Running agent with mailbox
-│   └── runtime.rs     # Agent lifecycle manager
-│
-├── cognitive/       # LLM-powered reasoning (Perceive-Think-Act)
-│   ├── llm/           # LLM client, router, providers
-│   ├── simple_loop.rs # Main cognitive loop implementation
-│   ├── thought.rs     # Plan, ToolCall, Observation types
-│   └── config.rs      # Thinking strategies
-│
-├── context/         # Context Engineering system
-│   ├── agent_context.rs  # High-level API for agents
-│   ├── memory/           # Storage backends
-│   ├── retrieval/        # Retrieval strategies
-│   ├── ranking/          # Context ranking
-│   ├── window/           # Token budget management
-│   └── pipeline/         # Context orchestration
-│
-├── tools/           # Unified tool system
-│   ├── registry.rs    # Tool registration and invocation
-│   ├── traits.rs      # Tool trait definition
-│   ├── native/        # Built-in tools (shell, file, weather)
-│   └── mcp/           # Model Context Protocol client
-│
-├── event.rs         # EventBus with QoS levels
-├── envelope.rs      # Thread/correlation metadata
-├── collab.rs        # Multi-agent collaboration primitives
-├── dashboard/       # Real-time visualization
-└── telemetry.rs     # OpenTelemetry tracing
-```
+### Event Bus
 
-## Design Principles
-
-1. **Event-First** — All inputs modeled as events, not RPC calls
-2. **Stateful Agents** — Persistent state + ephemeral context
-3. **Composable Tools** — Native, MCP, and remote tools via unified registry
-4. **Observable** — Built-in tracing, metrics, and logging
-
-## Key Components
-
-### EventBus
-
-Async pub/sub with three QoS levels:
+Async pub/sub with QoS for agent communication:
 
 | QoS        | Use Case            | Behavior                 |
 | ---------- | ------------------- | ------------------------ |
 | Realtime   | Low latency         | Drops under pressure     |
 | Batched    | Guaranteed delivery | Queues with backpressure |
-| Background | Delay-tolerant      | Large buffer, no drops   |
-
-Topic patterns:
-
-```
-agent.{id}.intent     # Agent-specific
-thread.{id}.broadcast # Collaboration broadcast
-thread.{id}.reply     # Correlated replies
-market.price.*        # Wildcard subscription
-```
-
-### Agent System
+| Background | Delay-tolerant      | Large buffer             |
 
 ```rust
-// Simple event-driven agent
-impl AgentBehavior for MyAgent {
-    async fn on_event(&mut self, event: Event, state: &mut AgentState) -> Result<Vec<Action>> {
-        // Handle event, return actions
-    }
-}
+// Agents communicate via topics
+bus.publish("market.alert", event).await?;
+bus.subscribe("market.alert").await?;
 
-// LLM-powered cognitive agent
-let loop_impl = SimpleCognitiveLoop::new(config, llm, tools)
-    .with_context(AgentContext::with_defaults(session, agent_id));
-let behavior = CognitiveAgent::new(loop_impl);
+// Topic patterns
+"agent.{id}.replies"      // Agent-specific
+"thread.{id}.broadcast"   // Collaboration
+"market.price.*"          // Wildcard
 ```
 
-**AgentRuntime** manages lifecycle: create → start → stop → delete
+### Tool Registry
 
-**AgentDirectory** enables discovery by ID, topic, or capability
-
-### Cognitive Loop
-
-Perceive-Think-Act pattern with LLM integration:
-
-```
-Event ──▶ [PERCEIVE] ──▶ [THINK] ──▶ [ACT] ──▶ Actions
-              │            │          │
-              ▼            ▼          ▼
-         AgentContext   LLM+Router  ToolRegistry
-```
-
-**ThinkingStrategy**:
-
-- `SingleShot` — One LLM call, no tools
-- `ReAct` — Iterative reasoning with tool use
-- `ChainOfThought` — Multi-step reasoning
-
-### Context Engineering
-
-`AgentContext` provides a clean API for context management:
+Unified tool execution with sandboxing:
 
 ```rust
-let ctx = AgentContext::with_defaults("session-1", "agent-1");
+// Register tools
+registry.register(WeatherTool::new());
+registry.register(ShellTool::new().with_allowlist(["ls", "cat"]));
+registry.register_mcp("brave-search", mcp_client);
 
-// Record interactions
-ctx.record_message(MessageRole::User, "Hello").await?;
-ctx.record_tool_call("search", json!({"q": "news"})).await?;
-ctx.record_tool_result("search", true, result, call_id).await?;
-
-// Retrieve context for LLM
-let bundle = ctx.get_context(trigger).await?;
+// Execute (called from Python via gRPC)
+let result = registry.invoke("weather:get", args).await?;
 ```
 
-**Pipeline**: Retrieval → Ranking → Windowing → PromptBundle
+**Built-in tools**:
 
-**Storage**: InMemoryStore (dev), RocksDbStore (prod, TODO)
+- `fs:read`, `fs:write`, `fs:list` — File operations
+- `system:shell` — Sandboxed shell execution
+- `weather:get` — Weather information
 
-### Tool System
+**MCP Integration**: Connect external tool servers (Brave Search, databases, etc.)
 
-Unified interface for all tools:
+### Agent Lifecycle
+
+Long-running agent management:
 
 ```rust
-#[async_trait]
-pub trait Tool: Send + Sync {
-    fn name(&self) -> String;
-    fn description(&self) -> String;
-    fn schema(&self) -> Value;
-    async fn execute(&self, args: Value) -> ToolResult;
-}
+// Agents register via Bridge
+runtime.register_agent(agent_id, topics, capabilities).await?;
+
+// Lifecycle management
+- Heartbeat monitoring
+- Automatic restart on crash
+- Graceful shutdown
+- State persistence
 ```
 
-**ToolRegistry** provides:
+### Persistent Store
 
-- `register(tool)` — Register a tool
-- `invoke(name, args)` — Execute with 30s timeout
-- `list_tools()` — Get all registered tools
+RocksDB-backed storage for long-term memory:
 
-**Built-in Tools**:
+```rust
+// Store context across sessions
+store.save_context(session_id, items).await?;
+store.query_context(session_id, query).await?;
+```
 
-- `shell.exec` — Execute shell commands (sandboxed)
-- `fs.read` — Read files from workspace
-- `weather.get` — Weather information
-- `web.search` — Web search
+### System Integration (Desktop Agents)
 
-**MCP Integration**: Connect external tool servers via stdio transport
+For desktop/edge deployment:
 
-### Model Router
+- **File monitoring** — Watch directories for changes
+- **Hotkeys** — Global keyboard shortcuts
+- **Clipboard** — Monitor and modify clipboard
+- **Notifications** — System notifications
+- **System tray** — Background presence
 
-Routes LLM requests based on:
+### Telemetry
 
-- Privacy policy (local-only, sensitive, public)
-- Model capabilities (local vs cloud)
-- Cost and latency constraints
+OpenTelemetry integration:
 
-### Collaboration
+- Distributed tracing across agents
+- Metrics (events/sec, latency, tool calls)
+- Dashboard visualization
 
-Built on Envelope metadata for multi-agent workflows:
+## Python SDK (loom-py): What It Does
 
-| Pattern       | Description                         |
-| ------------- | ----------------------------------- |
-| Request/Reply | Correlated request-response         |
-| Fanout/Fanin  | Broadcast, collect with strategies  |
-| Barrier       | Wait for N agents before proceeding |
-| Contract-Net  | Call for proposals, award, execute  |
-
-### Bridge (gRPC)
-
-Cross-process communication for external agents:
-
-- `RegisterAgent` — Register with topics and capabilities
-- `EventStream` — Bidirectional event streaming
-- `ForwardAction` — Invoke tools from external agents
-- `Heartbeat` — Connection health monitoring
-
-### Python SDK
+### Agent Connection
 
 ```python
-from loom import Agent, Context
+from loom import Agent
 
-@capability("my.tool")
-def my_tool(query: str) -> dict:
-    return {"result": "..."}
-
-async def on_event(ctx: Context, topic: str, envelope: Envelope):
-    await ctx.emit("output.topic", payload=b"data")
-
-agent = Agent("my-agent", topics=["input.*"], capabilities=[my_tool])
+agent = Agent(
+    agent_id="my-agent",
+    topics=["input.query"],
+    address="127.0.0.1:50051"
+)
 await agent.start()
 ```
 
-## Deprecated Modules
+### Cognitive Loop
 
-| Module                        | Replacement                | Notes                               |
-| ----------------------------- | -------------------------- | ----------------------------------- |
-| `plugin.rs`                   | `tools/`                   | Use `Tool` trait and `ToolRegistry` |
-| `storage.rs`                  | `context/memory/`          | Use `MemoryStore` trait             |
-| `cognitive/working_memory.rs` | `context/agent_context.rs` | Use `AgentContext`                  |
+```python
+from loom import CognitiveAgent, CognitiveConfig, ThinkingStrategy
 
-## Telemetry
+cognitive = CognitiveAgent(
+    ctx=agent._ctx,
+    llm=LLMProvider.from_config(ctx, "deepseek", config),
+    config=CognitiveConfig(
+        system_prompt="You are a helpful assistant...",
+        thinking_strategy=ThinkingStrategy.REACT,
+        max_iterations=10,
+    ),
+    available_tools=["weather:get", "fs:read"],
+)
 
-OpenTelemetry integration with:
-
-- Distributed tracing across agents
-- Metrics for event bus, agent runtime, tools
-- Span collection for dashboard visualization
-
-```rust
-// Initialize before creating Loom
-let span_collector = init_telemetry()?;
-let loom = Loom::new().await?;
+result = await cognitive.run("What's the weather in Tokyo?")
 ```
 
-## Demo Applications
+### LLM Provider (Direct HTTP)
 
-### DeepResearch (Primary Demo)
+```python
+from loom import LLMProvider
 
-Multi-agent research system demonstrating core Loom capabilities:
-
-```
-loom run
-  │
-  ├── Loom Core (EventBus + AgentRuntime)
-  ├── gRPC Bridge (Python agent connectivity)
-  ├── Dashboard (http://localhost:3030)
-  │
-  └── Agents:
-      ├── Lead Agent ─────┬──► emit research.request.1
-      │                   ├──► emit research.request.2  (parallel)
-      │                   └──► emit research.request.3
-      │
-      └── Researcher Agents (each with ISOLATED context)
-          ├── Researcher 1: [query_1, results_1, analysis_1]
-          ├── Researcher 2: [query_2, results_2, analysis_2]
-          └── Researcher 3: [query_3, results_3, analysis_3]
+# Direct HTTP call to LLM API (not through Rust Core)
+llm = LLMProvider.from_config(ctx, "deepseek", project_config)
+response = await llm.generate(
+    prompt="Hello",
+    system="You are helpful",
+    temperature=0.7,
+)
 ```
 
-Key features demonstrated:
+### Tool Invocation (via Rust Core)
 
-- **Context Isolation**: Each Researcher has its own context window (no cross-contamination)
-- **True Parallel Execution**: Researchers work simultaneously via async events
-- **Dynamic Agent Dispatch**: Lead creates work items on demand
-- **Cognitive Loop**: Each agent uses perceive-think-act reasoning
-- **Report Generation**: Markdown reports with citations
+```python
+# Tools execute in Rust Core (sandboxed)
+result = await ctx.tool("weather:get", {"location": "Tokyo"})
+result = await ctx.tool("fs:read", {"path": "data.txt"})
+```
 
-See `demo/deep-research/` for implementation.
+### Context Engineering (Python-side)
 
-### Market Analyst (Advanced Demo)
+```python
+# Memory management in Python
+cognitive.memory.add("user", "What's the weather?")
+cognitive.memory.add("assistant", "Let me check...")
 
-Long-lifecycle trading system (builds on DeepResearch):
+# Context assembly before LLM call
+context = cognitive.memory.get_recent(10)
+```
 
-- Proactive monitoring agents
-- Memory tiers (working/short-term/long-term)
-- Real-time data processing
-- File-based reports for human review
+## What Rust Core Does NOT Do
 
-See `demo/market-analyst/` for implementation.
+The following are **intentionally NOT in Rust Core**:
+
+| Component        | Why Not in Rust             | Where It Lives          |
+| ---------------- | --------------------------- | ----------------------- |
+| LLM API calls    | Need rapid prompt iteration | Python `LLMProvider`    |
+| Cognitive Loop   | Strategy experimentation    | Python `CognitiveAgent` |
+| Context ranking  | Algorithm tuning            | Python (planned)        |
+| Prompt templates | Frequent changes            | Python/Agent code       |
+| Business logic   | Domain-specific             | Python/Agent code       |
+
+## Bridge Protocol
+
+gRPC service connecting Python agents to Rust Core:
+
+```protobuf
+service Bridge {
+  rpc RegisterAgent(RegisterRequest) returns (RegisterResponse);
+  rpc EventStream(stream ClientEvent) returns (stream ServerEvent);
+  rpc ForwardToolCall(ToolCall) returns (ToolResult);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+```
+
+## Use Cases
+
+### Server-side Agent (Market Analyst)
+
+```
+Python Agent                         Rust Core
+┌────────────────────┐              ┌────────────────────────┐
+│ • Cognitive Loop   │              │ • Event Bus            │
+│ • Trading Logic    │ ─ gRPC ───▶  │ • Tool Execution       │
+│ • LLM Calls        │              │ • Agent Lifecycle      │
+│ • Analysis         │ ◀──────────  │ • Persistent Memory    │
+└────────────────────┘   tool result │ • Telemetry           │
+                                     └────────────────────────┘
+```
+
+### Desktop Agent (Personal Assistant)
+
+```
+Python Agent                         Rust Core
+┌────────────────────┐              ┌────────────────────────┐
+│ • Cognitive Loop   │              │ • Event Bus            │
+│ • User Intent      │ ─ gRPC ───▶  │ • Tool Execution       │
+│ • LLM Calls        │              │ • System Integration   │
+│                    │ ◀──────────  │   - Hotkeys            │
+└────────────────────┘   events     │   - File Watch         │
+                                     │   - Clipboard          │
+                                     │   - Notifications      │
+                                     └────────────────────────┘
+```
+
+## Comparison with Alternatives
+
+|                     | LangChain        | CrewAI           | Loom                             |
+| ------------------- | ---------------- | ---------------- | -------------------------------- |
+| Nature              | Library          | Library          | **Runtime**                      |
+| Lifecycle           | Script execution | Script execution | **Long-running service**         |
+| Trigger             | Code call        | Code call        | **Events (hotkey, file, timer)** |
+| Agent comm          | In-process       | In-process       | **Event Bus (cross-process)**    |
+| Tool safety         | None             | None             | **Sandbox**                      |
+| Desktop integration | None             | None             | **Native**                       |
+| Language            | Python only      | Python only      | **Polyglot**                     |
 
 ## Future Work
 
-- [ ] Dynamic agent spawning via Python SDK
-- [ ] Persistent context storage (RocksDB backend)
-- [ ] Memory tier system (working/short-term/long-term)
-- [ ] SSE transport for MCP
+- [ ] `loom-dashboard` — Standalone observability UI (extract from core)
 - [ ] WebSocket transport for Bridge
-- [ ] WASM plugin support
-- [ ] Semantic retrieval for context
+- [ ] Semantic retrieval for context (vector similarity)
+- [ ] WASM plugin support for tools
+- [ ] Mobile/edge packaging (iOS/Android)
+
+---
+
+_Loom — Weaving Intelligence into the Fabric of Reality_
