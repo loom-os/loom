@@ -7,11 +7,26 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = "BSAr_AtvLx7KPT7UyNY_FgTtcX-Zmrk";
     let query = "Bitcoin price";
 
+    // Read API key from environment to avoid embedding secrets in the repo
+    let api_key = match std::env::var("BRAVE_API_KEY") {
+        Ok(k) => k,
+        Err(_) => {
+            eprintln!("ERROR: BRAVE_API_KEY not set. Please set BRAVE_API_KEY in your environment or .env file.");
+            std::process::exit(1);
+        }
+    };
+
+    // Mask API key when logging to avoid leaking secrets
+    let masked_key = if api_key.len() > 8 {
+        format!("{}...{}", &api_key[..4], &api_key[api_key.len() - 4..])
+    } else {
+        "****".to_string()
+    };
+
     println!("=== Brave Search API Test ===\n");
-    println!("API Key: {}...", &api_key[..15]);
+    println!("API Key: {}", masked_key);
     println!("Query: {}", query);
 
     // Build client similar to our WebSearchTool
