@@ -1,16 +1,20 @@
-"""LLM Helper for Loom Agents
+"""LLM Provider for Loom Agents
 
-Provides convenient wrappers for calling LLM providers via the Core ActionBroker.
+Provides direct HTTP calls to LLM APIs (OpenAI-compatible).
 Supports multiple providers: DeepSeek, OpenAI, local models, etc.
+
+This module makes direct HTTP requests to LLM APIs, bypassing the Rust Core's
+llm:generate tool. This gives Python agents full control over LLM configuration
+and allows for faster iteration on prompt engineering.
 """
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Optional
 
+import httpx
 from opentelemetry import trace
 
 from .context import Context
@@ -157,7 +161,7 @@ class LLMProvider:
         max_tokens: Optional[int] = None,
         timeout_ms: Optional[int] = None,
     ) -> str:
-        """Generate text completion.
+        """Generate text completion via direct HTTP call.
 
         Args:
             prompt: User prompt/input
@@ -172,82 +176,79 @@ class LLMProvider:
         Raises:
             RuntimeError: If LLM call fails
         """
+        temp = temperature if temperature is not None else self.config.temperature
+        tokens = max_tokens or self.config.max_tokens
+        timeout = (timeout_ms or self.config.timeout_ms) / 1000.0  # Convert to seconds
+
         # Start LLM generation span
         with tracer.start_as_current_span(
             "llm.generate",
             attributes={
                 "llm.provider": self.config.base_url,
                 "llm.model": self.config.model,
-                "llm.temperature": (
-                    temperature if temperature is not None else self.config.temperature
-                ),
-                "llm.max_tokens": max_tokens or self.config.max_tokens,
+                "llm.temperature": temp,
+                "llm.max_tokens": tokens,
                 "llm.prompt.length": len(prompt),
                 "llm.system.length": len(system) if system else 0,
-                "agent.id": self.ctx.agent_id,
+                "agent.id": self.ctx.agent_id if self.ctx else "unknown",
             },
         ) as span:
             try:
-                # Build prompt bundle
-                bundle = {
-                    "system": system or "",
-                    "instructions": prompt,
-                    "context_docs": [],
-                    "history": [],
-                }
+                # Build messages for chat completions API
+                messages = []
+                if system:
+                    messages.append({"role": "system", "content": system})
+                messages.append({"role": "user", "content": prompt})
 
-                # Build budget
-                budget = {
-                    "max_input_tokens": 8192,
-                    "max_output_tokens": max_tokens or self.config.max_tokens,
-                }
-
-                # Payload must have 'input' field (required by llm:generate)
+                # Build request payload
                 payload = {
-                    "input": prompt,
-                    "bundle": bundle,
-                    "budget": budget,
-                }
-
-                # Build headers with provider config
-                headers = {
-                    "base_url": self.config.base_url,
                     "model": self.config.model,
-                    "temperature": str(
-                        temperature if temperature is not None else self.config.temperature
-                    ),
+                    "messages": messages,
+                    "temperature": temp,
+                    "max_tokens": tokens,
                 }
 
+                # Build headers
+                headers = {"Content-Type": "application/json"}
                 if self.config.api_key:
-                    headers["api_key"] = self.config.api_key
+                    headers["Authorization"] = f"Bearer {self.config.api_key}"
 
-                # Call llm:generate tool
-                result = await self.ctx.tool(
-                    "llm:generate",
-                    payload=payload,
-                    timeout_ms=timeout_ms or self.config.timeout_ms,
-                    headers=headers,
-                )
+                # Make direct HTTP call
+                url = f"{self.config.base_url.rstrip('/')}/chat/completions"
 
-                # Parse response (result is already a string)
-                if isinstance(result, bytes):
-                    result = result.decode("utf-8")
-                response = json.loads(result)
-                generated_text = response.get("text", "")
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(url, json=payload, headers=headers)
+                    response.raise_for_status()
+                    result = response.json()
+
+                # Extract generated text
+                generated_text = result["choices"][0]["message"]["content"]
 
                 # Record success metrics
                 span.set_attribute("llm.response.length", len(generated_text))
                 span.set_attribute("llm.status", "success")
+                if "usage" in result:
+                    span.set_attribute(
+                        "llm.usage.prompt_tokens", result["usage"].get("prompt_tokens", 0)
+                    )
+                    span.set_attribute(
+                        "llm.usage.completion_tokens", result["usage"].get("completion_tokens", 0)
+                    )
                 span.set_status(trace.Status(trace.StatusCode.OK))
 
                 return generated_text
 
+            except httpx.HTTPStatusError as e:
+                error_msg = f"LLM HTTP error {e.response.status_code}: {e.response.text}"
+                span.set_attribute("llm.status", "error")
+                span.set_status(trace.Status(trace.StatusCode.ERROR, error_msg))
+                span.record_exception(e)
+                raise RuntimeError(error_msg) from e
             except Exception as e:
-                # Record error
                 span.set_attribute("llm.status", "error")
                 span.set_status(trace.Status(trace.StatusCode.ERROR, f"LLM generation failed: {e}"))
                 span.record_exception(e)
-                raise
+                raise RuntimeError(f"LLM generation failed: {e}") from e
 
     async def chat(
         self,
@@ -257,7 +258,7 @@ class LLMProvider:
         max_tokens: Optional[int] = None,
         timeout_ms: Optional[int] = None,
     ) -> str:
-        """Chat completion with message history.
+        """Chat completion with message history via direct HTTP call.
 
         Args:
             messages: List of message dicts with "role" and "content" keys
@@ -271,65 +272,64 @@ class LLMProvider:
         Raises:
             RuntimeError: If LLM call fails
         """
-        # Convert messages to prompt bundle format
-        system = ""
-        instructions = ""
-        history = []
+        temp = temperature if temperature is not None else self.config.temperature
+        tokens = max_tokens or self.config.max_tokens
+        timeout = (timeout_ms or self.config.timeout_ms) / 1000.0
 
-        for msg in messages:
-            role = msg.get("role")
-            content = msg.get("content", "")
+        with tracer.start_as_current_span(
+            "llm.chat",
+            attributes={
+                "llm.provider": self.config.base_url,
+                "llm.model": self.config.model,
+                "llm.temperature": temp,
+                "llm.max_tokens": tokens,
+                "llm.messages.count": len(messages),
+                "agent.id": self.ctx.agent_id if self.ctx else "unknown",
+            },
+        ) as span:
+            try:
+                # Build request payload
+                payload = {
+                    "model": self.config.model,
+                    "messages": messages,
+                    "temperature": temp,
+                    "max_tokens": tokens,
+                }
 
-            if role == "system":
-                system = content
-            elif role == "user":
-                if not instructions:
-                    instructions = content
-                else:
-                    history.append({"role": "user", "content": content})
-            elif role == "assistant":
-                history.append({"role": "assistant", "content": content})
+                # Build headers
+                headers = {"Content-Type": "application/json"}
+                if self.config.api_key:
+                    headers["Authorization"] = f"Bearer {self.config.api_key}"
 
-        bundle = {
-            "system": system,
-            "instructions": instructions,
-            "context_docs": [],
-            "history": history,
-        }
+                # Make direct HTTP call
+                url = f"{self.config.base_url.rstrip('/')}/chat/completions"
 
-        budget = {
-            "max_input_tokens": 8192,
-            "max_output_tokens": max_tokens or self.config.max_tokens,
-        }
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(url, json=payload, headers=headers)
+                    response.raise_for_status()
+                    result = response.json()
 
-        # Payload must have 'input' field (required by llm:generate)
-        payload = {
-            "input": instructions,
-            "bundle": bundle,
-            "budget": budget,
-        }
+                # Extract generated text
+                generated_text = result["choices"][0]["message"]["content"]
 
-        headers = {
-            "base_url": self.config.base_url,
-            "model": self.config.model,
-            "temperature": str(temperature if temperature is not None else self.config.temperature),
-        }
+                # Record success metrics
+                span.set_attribute("llm.response.length", len(generated_text))
+                span.set_attribute("llm.status", "success")
+                span.set_status(trace.Status(trace.StatusCode.OK))
 
-        if self.config.api_key:
-            headers["api_key"] = self.config.api_key
+                return generated_text
 
-        result = await self.ctx.tool(
-            "llm:generate",
-            payload=payload,
-            timeout_ms=timeout_ms or self.config.timeout_ms,
-            headers=headers,
-        )
-
-        # Parse response (result is already a string)
-        if isinstance(result, bytes):
-            result = result.decode("utf-8")
-        response = json.loads(result)
-        return response.get("text", "")
+            except httpx.HTTPStatusError as e:
+                error_msg = f"LLM HTTP error {e.response.status_code}: {e.response.text}"
+                span.set_attribute("llm.status", "error")
+                span.set_status(trace.Status(trace.StatusCode.ERROR, error_msg))
+                span.record_exception(e)
+                raise RuntimeError(error_msg) from e
+            except Exception as e:
+                span.set_attribute("llm.status", "error")
+                span.set_status(trace.Status(trace.StatusCode.ERROR, f"LLM chat failed: {e}"))
+                span.record_exception(e)
+                raise RuntimeError(f"LLM chat failed: {e}") from e
 
 
 __all__ = ["LLMProvider", "LLMConfig"]
