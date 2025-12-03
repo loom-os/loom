@@ -106,12 +106,25 @@ class Orchestrator:
             env_vars["LOOM_DASHBOARD"] = "true"
             env_vars["LOOM_DASHBOARD_PORT"] = str(dashboard_port)
 
+            # Prepare MCP servers config from project config
+            mcp_servers = None
+            if self.project_config.mcp_servers:
+                mcp_servers = {}
+                for name, mcp_cfg in self.project_config.mcp_servers.items():
+                    mcp_servers[name] = {
+                        "command": mcp_cfg.command,
+                        "args": mcp_cfg.args,
+                        "env": mcp_cfg.env,
+                    }
+                print(f"[loom]   MCP Servers: {list(mcp_servers.keys())}")
+
             proc = embedded.start_core(
                 bridge_addr=bridge_addr,
                 dashboard_port=dashboard_port,
                 version=self.config.runtime_version,
                 prefer_release=self.config.prefer_release,
                 force_download=self.config.force_download,
+                mcp_servers=mcp_servers,
             )
             print(f"[loom] ✓ Core started (PID {proc.pid})")
             print(f"[loom]   Dashboard: http://localhost:{dashboard_port}")

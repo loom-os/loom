@@ -278,14 +278,16 @@ impl McpError {
 /// MCP server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
-    /// Server name/identifier
+    /// Server name/identifier (defaults to empty, will be set from key in object format)
+    #[serde(default)]
     pub name: String,
     /// Command to execute (e.g., "node", "python")
     pub command: String,
     /// Arguments to pass to command
+    #[serde(default)]
     pub args: Vec<String>,
     /// Environment variables
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
     /// Working directory
     #[serde(skip_serializing_if = "Option::is_none")]

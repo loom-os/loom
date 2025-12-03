@@ -430,19 +430,36 @@ def start_core(
     version: str = "latest",
     prefer_release: bool = True,
     force_download: bool = False,
+    mcp_servers: Optional[dict] = None,
 ) -> subprocess.Popen:
     """Start loom-core (full runtime with dashboard).
 
     Note: loom-core is embedded within loom-bridge-server, so this
     actually starts loom-bridge-server with Dashboard enabled.
+
+    Args:
+        bridge_addr: Bridge gRPC address (e.g., "127.0.0.1:50051")
+        dashboard_port: Dashboard HTTP port
+        version: Binary version to use
+        prefer_release: Prefer release builds
+        force_download: Force download from GitHub
+        mcp_servers: Optional dict of MCP server configs to pass via LOOM_MCP_SERVERS
     """
+    import json
+
+    env_vars = {
+        "LOOM_BRIDGE_ADDR": bridge_addr,
+        "LOOM_DASHBOARD": "true",
+        "LOOM_DASHBOARD_PORT": str(dashboard_port),
+    }
+
+    # Add MCP servers config if provided
+    if mcp_servers:
+        env_vars["LOOM_MCP_SERVERS"] = json.dumps(mcp_servers)
+
     return start_binary(
         "loom-bridge-server",
-        env_vars={
-            "LOOM_BRIDGE_ADDR": bridge_addr,
-            "LOOM_DASHBOARD": "true",
-            "LOOM_DASHBOARD_PORT": str(dashboard_port),
-        },
+        env_vars=env_vars,
         version=version,
         prefer_release=prefer_release,
         force_download=force_download,

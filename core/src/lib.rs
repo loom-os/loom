@@ -133,6 +133,15 @@ impl Loom {
             &tool_registry,
         )));
 
+        // Auto-load MCP servers from environment variable
+        if let Err(e) = mcp_manager.load_from_env().await {
+            tracing::warn!(
+                target = "loom",
+                error = %e,
+                "Failed to load MCP servers from LOOM_MCP_SERVERS"
+            );
+        }
+
         Ok(Self {
             agent_runtime: AgentRuntime::new(
                 std::sync::Arc::clone(&event_bus),

@@ -307,6 +307,84 @@ impl McpManager {
 
         info!(target: "mcp_manager", "MCP manager shutdown complete");
     }
+
+    /// Load MCP servers from environment variable LOOM_MCP_SERVERS.
+    ///
+    /// The environment variable should contain a JSON array of server configs:
+    /// ```json
+    /// [
+    ///   {"name": "brave-search", "command": "npx", "args": ["-y", "@anthropics/mcp-brave-search"], "env": {"BRAVE_API_KEY": "..."}}
+    /// ]
+    /// ```
+    ///
+    /// Or a JSON object where keys are server names:
+    /// ```json
+    /// {
+    ///   "brave-search": {"command": "npx", "args": ["-y", "@anthropics/mcp-brave-search"], "env": {"BRAVE_API_KEY": "..."}}
+    /// }
+    /// ```
+    #[tracing::instrument(skip(self))]
+    pub async fn load_from_env(&self) -> Result<usize, McpError> {
+        let env_value = match std::env::var("LOOM_MCP_SERVERS") {
+            Ok(v) if !v.is_empty() => v,
+            _ => {
+                debug!(target: "mcp_manager", "LOOM_MCP_SERVERS not set, skipping MCP auto-load");
+                return Ok(0);
+            }
+        };
+
+        info!(target: "mcp_manager", "Loading MCP servers from LOOM_MCP_SERVERS");
+
+        // Try to parse as JSON
+        let configs = self.parse_mcp_config(&env_value)?;
+
+        let mut loaded = 0;
+        for config in configs {
+            match self.add_server(config.clone()).await {
+                Ok(_) => {
+                    info!(target: "mcp_manager", server = %config.name, "Loaded MCP server from env");
+                    loaded += 1;
+                }
+                Err(e) => {
+                    warn!(
+                        target: "mcp_manager",
+                        server = %config.name,
+                        error = %e,
+                        "Failed to load MCP server from env"
+                    );
+                }
+            }
+        }
+
+        Ok(loaded)
+    }
+
+    /// Parse MCP configuration from JSON string.
+    fn parse_mcp_config(&self, json_str: &str) -> Result<Vec<McpServerConfig>, McpError> {
+        // Try parsing as array first
+        if let Ok(configs) = serde_json::from_str::<Vec<McpServerConfig>>(json_str) {
+            return Ok(configs);
+        }
+
+        // Try parsing as object (name -> config)
+        if let Ok(map) =
+            serde_json::from_str::<std::collections::HashMap<String, serde_json::Value>>(json_str)
+        {
+            let mut configs = Vec::new();
+            for (name, value) in map {
+                let mut config: McpServerConfig = serde_json::from_value(value).map_err(|e| {
+                    McpError::Protocol(format!("Invalid MCP config for '{}': {}", name, e))
+                })?;
+                config.name = name;
+                configs.push(config);
+            }
+            return Ok(configs);
+        }
+
+        Err(McpError::Protocol(
+            "Failed to parse LOOM_MCP_SERVERS as JSON array or object".to_string(),
+        ))
+    }
 }
 
 impl Drop for McpManager {
