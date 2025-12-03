@@ -29,82 +29,105 @@ Demo 4: Production Market Analyst
 
 ## Phase 1: DeepResearch MVP (4 weeks)
 
-**Objective**: Build a conversational deep research system where a Lead Agent orchestrates dynamically spawned Research Agents, each with their own cognitive loop, to produce comprehensive research reports.
+**Objective**: Build a single, fully functional Research Agent with complete cognitive loop, tool calling, and context engineering. Then extend to multi-agent orchestration with "subagent as a tool" pattern.
 
-### Architecture
+**Philosophy**: A single useful agent first, then composition. Agent spawning is just another tool.
+
+### Architecture Evolution
 
 ```
-User ──► loom run ──► Loom Core (EventBus + Runtime)
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-         Lead Agent   Researcher 1  Researcher N
-         (orchestrate)  (isolated)   (isolated)
-              │            │            │
-              │            ▼            ▼
-              │      [own context]  [own context]
-              │         search        search
-              │         analyze       analyze
-              │            │            │
-              └────────────┴────────────┘
-                           │
-                           ▼
-                    Final Report (Markdown)
+Stage 1: Single Agent (Weeks 1-2)
+┌─────────────────────────────────────────────┐
+│              Research Agent                  │
+│  ┌─────────────────────────────────────┐    │
+│  │         Cognitive Loop              │    │
+│  │   perceive → think → act → reflect  │    │
+│  └─────────────────────────────────────┘    │
+│                    │                         │
+│        ┌──────────┼──────────┐              │
+│        ▼          ▼          ▼              │
+│   web.search   fs.write   llm.think         │
+│        │          │          │              │
+│        └──────────┴──────────┘              │
+│                    │                         │
+│           Context Window                     │
+│   [system prompt + memory + tool results]   │
+└─────────────────────────────────────────────┘
+                    │
+                    ▼
+            Research Report (Markdown)
+
+Stage 2: Multi-Agent (Weeks 3-4)
+┌─────────────────────────────────────────────┐
+│              Lead Agent                      │
+│         (same cognitive loop)               │
+│                    │                         │
+│        ┌──────────┼──────────┐              │
+│        ▼          ▼          ▼              │
+│   web.search   fs.write  subagent.spawn ◄── NEW TOOL
+│                              │              │
+│              ┌───────────────┼───────────┐  │
+│              ▼               ▼           ▼  │
+│         Researcher 1    Researcher 2   ...  │
+│         (isolated)      (isolated)          │
+└─────────────────────────────────────────────┘
 ```
 
-**Key**: Each Researcher has isolated context — no cross-contamination.
+**Key Insight**: `subagent.spawn` is just another tool. The cognitive loop doesn't change.
 
-### Week 1: Foundation (Agent Spawning + Basic Cognitive Loop)
+---
 
-**1.1 Python SDK: Agent Spawning API**
+### Week 1: Single Agent Foundation (Cognitive Loop + Tools)
 
-- [ ] `ctx.spawn_agent(agent_type, config, timeout_sec)` - Create sub-agent
-- [ ] `ctx.wait_for_agent(agent_id)` - Wait for agent completion
-- [ ] `ctx.terminate_agent(agent_id)` - Clean up agent
-- [ ] Agent lifecycle events: `agent.spawned`, `agent.completed`, `agent.failed`
+**1.1 Python SDK: Cognitive Loop**
 
-**Files to modify**:
-
-- `loom-py/src/loom/context.py` - Add spawn/wait/terminate methods
-- `bridge/src/lib.rs` - Add SpawnAgent/TerminateAgent RPC
-- `core/src/agent/runtime.rs` - Expose spawn API via Bridge
-
-**1.2 Python SDK: Cognitive Loop Integration**
-
-- [ ] `CognitiveAgent` class with built-in perceive-think-act loop
-- [ ] System prompt + tool configuration
+- [ ] `CognitiveAgent` class with perceive-think-act-reflect loop
+- [ ] System prompt configuration
 - [ ] ReAct strategy with configurable max iterations
-- [ ] Automatic context recording
+- [ ] Tool result handling and context accumulation
+- [ ] Automatic context recording to memory
 
-**Files to create**:
+**Files to create/modify**:
 
 - `loom-py/src/loom/cognitive.py` - CognitiveAgent implementation
+- `loom-py/src/loom/context.py` - Context accumulation helpers
 
-**1.3 Basic Lead Agent**
-
-- [ ] CLI interface for user queries
-- [ ] Query decomposition into sub-tasks
-- [ ] Spawn 2-3 research agents per query
-- [ ] Simple aggregation of results
-
-**Files to create**:
-
-- `demo/deep-research/agents/lead.py`
-- `demo/deep-research/agents/researcher.py`
-- `demo/deep-research/loom.toml`
-
-### Week 2: Tools + Web Search
-
-**2.1 MCP Web Search Integration**
+**1.2 Tool Calling Infrastructure**
 
 - [ ] Fix MCP tool invocation in Python SDK
-- [ ] Integrate Brave Search MCP server
-- [ ] Handle rate limits and errors gracefully
+- [ ] Native tool bridge (Rust → Python)
+- [ ] Tool result parsing and error handling
+- [ ] Tool timeout and retry logic
 
 **Files to modify**:
 
 - `loom-py/src/loom/context.py` - Fix `ctx.tool()` for MCP
+- `bridge/src/lib.rs` - Improve tool call handling
+
+**1.3 Web Search Tool**
+
+- [ ] Integrate Brave Search MCP server
+- [ ] Result extraction and summarization
+- [ ] Handle rate limits gracefully
+- [ ] Source citation formatting
+
+**Files to modify**:
+
 - `demo/deep-research/loom.toml` - MCP server config
+
+### Week 2: Context Engineering + File Output
+
+**2.1 Context Engineering**
+
+- [ ] Working memory: auto-managed context window
+- [ ] Context budget management (token counting)
+- [ ] Intelligent summarization when context exceeds budget
+- [ ] Priority-based context pruning
+
+**Files to create**:
+
+- `loom-py/src/loom/memory.py` - Memory management
+- `loom-py/src/loom/context_engineering.py` - Context budget & pruning
 
 **2.2 Native File Tool**
 
@@ -117,60 +140,96 @@ User ──► loom run ──► Loom Core (EventBus + Runtime)
 
 - `core/src/tools/native/fs.rs` - File system tool
 
-**2.3 Research Agent Loop**
+**2.3 Single Agent Demo**
 
-- [ ] Receive sub-query from Lead
-- [ ] Web search → extract relevant content
-- [ ] LLM summarization of findings
-- [ ] Return structured section report
+- [ ] CLI interface for user queries
+- [ ] Agent receives query, does web search
+- [ ] Generates comprehensive report with citations
+- [ ] Writes report to `workspace/reports/`
 
-### Week 3: Report Generation + Aggregation
+**Files to create**:
 
-**3.1 Report Template System**
+- `demo/deep-research/agents/researcher.py` - Complete research agent
+- `demo/deep-research/query.py` - CLI interface
 
-- [ ] Markdown report structure
-- [ ] Section headers from sub-queries
-- [ ] Source citations with URLs
-- [ ] Table of contents generation
+**Milestone 1 Acceptance Criteria**:
 
-**3.2 Lead Agent Aggregation**
+- ✅ Single agent receives "What are AI agents?"
+- ✅ Agent does 3+ web searches autonomously
+- ✅ Agent writes structured report with citations
+- ✅ Context stays within budget (no overflow)
+- ✅ Full trace visible in Jaeger
+
+---
+
+### Week 3: Subagent as a Tool
+
+**3.1 Subagent Tool**
+
+- [ ] `subagent.spawn(agent_type, task, timeout)` - Spawn and wait
+- [ ] `subagent.spawn_async(agent_type, task)` - Spawn without blocking
+- [ ] `subagent.wait(agent_id)` - Wait for completion
+- [ ] `subagent.cancel(agent_id)` - Cancel running agent
+- [ ] Agent lifecycle events for observability
+
+**Files to modify**:
+
+- `loom-py/src/loom/context.py` - Add subagent tool methods
+- `bridge/src/lib.rs` - Add SpawnAgent/WaitAgent RPC
+- `core/src/agent/runtime.rs` - Expose spawn API via Bridge
+
+**3.2 Context Isolation**
+
+- [ ] Each subagent gets fresh context window
+- [ ] Parent passes task description only (not full context)
+- [ ] Child returns structured result only
+- [ ] No context bleed between siblings
+
+**3.3 Lead Agent Implementation**
+
+- [ ] Query decomposition into sub-tasks
+- [ ] Spawn researchers using `subagent.spawn` tool
+- [ ] Aggregate results from children
+- [ ] Synthesize final report
+
+**Files to create**:
+
+- `demo/deep-research/agents/lead.py` - Orchestrating agent
+
+### Week 4: Polish + Multi-Agent Demo
+
+**4.1 Report Aggregation**
 
 - [ ] Collect all researcher outputs
 - [ ] LLM-based synthesis pass
-- [ ] Coherence editing
-- [ ] Final report generation
+- [ ] Deduplicate sources across agents
+- [ ] Table of contents generation
 
-**3.3 File Output**
-
-- [ ] Write report to `workspace/reports/{query_slug}_{timestamp}.md`
-- [ ] Include metadata (agents used, time taken, sources)
-
-### Week 4: Polish + Testing
-
-**4.1 Error Handling**
+**4.2 Error Handling**
 
 - [ ] Timeout handling for slow agents
 - [ ] Retry logic for failed searches
 - [ ] Graceful degradation (partial reports)
 
-**4.2 Observability**
+**4.3 Observability**
 
 - [ ] Full span instrumentation in Python SDK
 - [ ] Dashboard shows agent spawning tree
 - [ ] Report preview in Dashboard
 
-**4.3 Testing**
+**4.4 Testing**
 
 - [ ] Unit tests for cognitive loop
-- [ ] Integration test: query → report
-- [ ] Performance benchmark: 3 agents, 10 sources
+- [ ] Unit tests for context engineering
+- [ ] Integration test: single agent query → report
+- [ ] Integration test: multi-agent query → report
 
-**Acceptance Criteria (Phase 1)**:
+**Milestone 2 Acceptance Criteria**:
 
 - ✅ User asks "What are the latest developments in AI agents?"
 - ✅ Lead decomposes into 3 sub-queries
-- ✅ 3 Research Agents spawned, each with cognitive loop
-- ✅ Each agent does web search, produces section
+- ✅ 3 Research Agents spawned via `subagent.spawn` tool
+- ✅ Each agent has isolated context (no bleed)
 - ✅ Final report written to `workspace/reports/`
 - ✅ Full trace visible in Jaeger (10+ spans)
 - ✅ Dashboard shows agent topology
@@ -399,28 +458,48 @@ User ──► loom run ──► Loom Core (EventBus + Runtime)
 
 ---
 
-## Current Sprint (Week 1)
+## Current Sprint (Week 1: Single Agent Foundation)
 
-| Day     | Task                     | Deliverable               |
-| ------- | ------------------------ | ------------------------- |
-| Mon-Tue | Agent Spawning API       | `ctx.spawn_agent()` works |
-| Wed     | CognitiveAgent class     | Python cognitive loop     |
-| Thu     | Lead + Researcher shells | Basic demo structure      |
-| Fri     | Integration test         | Query → 3 agents → output |
+**Goal**: One fully functional Research Agent that can take a query and produce a report.
 
-### Quick Start
+| Day | Task                        | Deliverable                        |
+| --- | --------------------------- | ---------------------------------- |
+| Mon | CognitiveAgent class        | Python cognitive loop skeleton     |
+| Tue | Tool calling infrastructure | `ctx.tool()` works with MCP        |
+| Wed | Web search integration      | Brave Search returns results       |
+| Thu | Context engineering basics  | Working memory + budget management |
+| Fri | Single agent demo           | Query → web search → report        |
+
+### Success Criteria (End of Week 1)
 
 ```bash
-# Run the DeepResearch demo
+# Run single agent research demo
 cd demo/deep-research
-loom run                    # Starts Core + Bridge + Agents + Dashboard
+loom run
 
 # In another terminal
 python query.py "What are AI agents?"
 
-# View results
-cat workspace/reports/latest.md
-open http://localhost:3030  # Dashboard
+# Expected output:
+# - Agent does 3+ web searches
+# - Report written to workspace/reports/ai_agents_*.md
+# - Report has introduction, body sections, citations
+# - Traces visible in Jaeger
+```
+
+### Key Files to Create This Week
+
+```
+loom-py/src/loom/
+├── cognitive.py          # CognitiveAgent class
+├── memory.py             # Working memory management
+└── context_engineering.py # Context budget & pruning
+
+demo/deep-research/
+├── loom.toml             # MCP config (Brave Search)
+├── query.py              # CLI interface
+└── agents/
+    └── researcher.py     # Single research agent
 ```
 
 ---
