@@ -52,7 +52,7 @@ App 1: Chat Assistant (MVP)           ✅ Working
     ↓ validates: brain/hand separation, direct LLM calls, tool use
 
 App 2: Chat Assistant + Research      🚧 In Progress
-    ↓ enhances: workspace, file system, agent spawning
+    ↓ enhances: context engineering, multi-agent research
 
 App 3: Market Analyst                 📋 Planned
     ↓ unlocks: long lifecycle, proactive agents, memory tiers
@@ -65,280 +65,146 @@ App 4: Desktop Assistant              📋 Planned
 
 ## Phase 1: Foundation ✅ Complete
 
-**Objective**: Establish clean brain/hand separation. Python owns cognition, Rust owns execution.
-
-### ✅ Completed
-
-- [x] Python `LLMProvider` direct HTTP calls (bypass Rust `llm:generate`)
-- [x] Chat Assistant app working with new architecture
-- [x] `loom.toml` configuration for LLM providers
+- [x] Python `LLMProvider` direct HTTP calls
+- [x] Chat Assistant app working
 - [x] Cognitive Loop with ReAct pattern
-- [x] Tool calling via Rust Bridge (weather, shell, fs:read_file)
-- [x] Multi-turn conversation with memory
-- [x] Streaming support (`run_stream`, `loom chat /stream`)
-- [x] Comprehensive unit tests (cognitive, LLM provider)
-- [x] Update ARCHITECTURE.md with brain/hand model
+- [x] Tool calling via Rust Bridge
+- [x] Streaming support
 
 ---
 
-## Phase 2: Chat Assistant Enhancement (Current)
+## Phase 2: Context Engineering & Research (Current)
 
-**Objective**: Extend chat assistant with workspace, file system, and research capabilities.
+**Core Insight**: Before multi-agent, we must build **production-grade context engineering**.
+See `loom-py/docs/context/DESIGN.md` for full technical specification.
 
-### Architecture
+### Context Engineering Capability Map
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Chat Assistant (Enhanced)                     │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │  Cognitive Loop (Python)                                    ││
-│  │  • Interactive chat with tool use                           ││
-│  │  • Deep research mode (spawn sub-agents)                    ││
-│  │  • Workspace file management                                ││
-│  │  • Human-in-the-loop approval for destructive ops           ││
-│  └─────────────────────────────────────────────────────────────┘│
-│                              │                                   │
-│              ┌───────────────┼───────────────┐                  │
-│              ▼               ▼               ▼                  │
-│         fs:write        fs:read         agent:spawn             │
-│         fs:list         web:search      agent:result            │
-│         fs:delete       system:shell                            │
-│              │               │               │                  │
-│              └───────────────┴───────────────┘                  │
-│                              │                                   │
-│                    workspace/reports/                            │
-└─────────────────────────────────────────────────────────────────┘
+Context Engineering in Loom
+├── Reduction (Python)           ← P0: Token efficiency
+│     ├── Step → CompactStep
+│     ├── Minimal observation rules per tool
+│     └── Heavy output → file offload
+│
+├── Compaction (Python)          ← P0: Stable compression
+│     ├── StepCompactor class
+│     ├── Threshold-based triggers
+│     └── Store compact + full separately
+│
+├── Isolation (Python + Rust)    ← P1: Multi-agent ready
+│     ├── Independent working memories
+│     ├── agent.spawn / agent.result
+│     └── No shared prompt context
+│
+├── Offloading (Rust + Python)   ← P1: Scalability
+│     ├── Data → workspace files
+│     ├── Tools → CLI sandbox
+│     └── Logic → script APIs
+│
+├── Hierarchical Tools           ← P2: Simplify LLM
+│     ├── L1: Function tools (LLM-facing)
+│     ├── L2: Shell utilities
+│     └── L3: Script APIs
+│
+└── Memory Architecture          ← P2: Long-term
+      ├── Working memory
+      ├── Short-term memory
+      └── Long-term (RocksDB)
 ```
 
-### Tasks
+### Tasks by Priority
 
-**2.1 Workspace & File System** ✅ Complete
+**P0: Core Context Quality (Week 1-2)** 🚧
 
-- [x] `fs:write_file` - Write files to workspace (with approval)
-- [x] `fs:list_dir` - List directory contents
-- [x] `fs:delete` - Delete files (with approval)
-- [x] `fs:read_file` - Read file contents
-- [x] Workspace isolation (agents can only access their workspace)
+| Task                   | Description                             | Status |
+| ---------------------- | --------------------------------------- | ------ |
+| 2.1 Step & CompactStep | Unified step model with reduction       | 📋     |
+| 2.2 StepCompactor      | Tool-specific minimal observation rules | 📋     |
+| 2.3 File Offloading    | Heavy output → workspace files          | 📋     |
+| 2.4 Tool Descriptors   | Full JSON Schema in prompt              | 📋     |
+| 2.5 Few-Shot Examples  | Curated success patterns                | 📋     |
 
-**2.2 Human-in-the-Loop** ✅ Complete
+**P1: Multi-Agent Foundation (Week 3)** 📋
 
-- [x] Permission callback system for destructive operations
-- [x] `fs:write_file` and `fs:delete` require user approval
-- [x] Shell commands auto-approved for safe commands (ls, pwd, cat, grep, etc.)
-- [x] Denied shell commands can be approved interactively
+| Task                    | Description                 | Status |
+| ----------------------- | --------------------------- | ------ |
+| 2.6 Context Isolation   | Per-agent working memory    | 📋     |
+| 2.7 Agent Spawning      | EventBus-based spawn/result | 📋     |
+| 2.8 Goal-only Prompting | No parent context leak      | 📋     |
 
-**2.3 Shell Command Safety** ✅ Complete
+**P2: Advanced Features (Week 4+)** 📋
 
-- [x] Expanded safe command allowlist (60+ commands)
-- [x] Read-only commands: `pwd`, `ls`, `cat`, `grep`, `find`, `which`, etc.
-- [x] Development tools: `git`, `python`, `node`, `cargo`, etc.
-- [x] Network diagnostics: `ping`, `curl`, `wget`, etc.
+| Task                   | Description               | Status |
+| ---------------------- | ------------------------- | ------ |
+| 2.9 Hierarchical Tools | L1/L2/L3 action space     | 📋     |
+| 2.10 Script Offloading | python:run_script tool    | 📋     |
+| 2.11 Semantic Ranking  | Embedding-based retrieval | 📋     |
 
-**2.4 ReAct Loop Improvements** ✅ Complete
+### Previous Completions
 
-- [x] Fixed LLM hallucination (fake Observation generation)
-- [x] Parser handles multiple action formats
-- [x] Truncation of hallucinated multi-step responses
-
-**2.5 Agent Spawning (Research Mode)** 🚧 In Progress
-
-- [x] `/research` command to enter research mode
-- [ ] Agent spawning via events (`agent.spawn`)
-- [ ] Result collection via events (`agent.result`)
-- [ ] Context isolation per sub-agent
-
-**2.6 Web Search Integration** ✅ Complete
-
-- [x] Web search tool (Brave Search API - native implementation)
-- [x] Proxy support for network access
-- [x] Environment-based configuration (`BRAVE_API_KEY`)
-- [ ] Citation extraction and formatting
-
-**2.7 Report Generation** 📋 Planned
-
-- [ ] Markdown report structure
-- [ ] Save to `workspace/reports/`
-
-**Acceptance Criteria**:
-
-- ✅ User can chat normally with tool use
-- ✅ File operations require user approval (human-in-the-loop)
-- ✅ Safe shell commands execute without prompts
-- 🚧 User types `/research "AI frameworks"` → spawns researchers
-- 📋 Researchers have isolated context
-- 📋 Final report saved to workspace
+- [x] Workspace & file system (fs:read, fs:write, fs:list, fs:delete)
+- [x] Human-in-the-loop approval
+- [x] Shell command safety (60+ safe commands)
+- [x] ReAct loop hallucination fixes
+- [x] Web search (Brave API)
 
 ---
 
-## Phase 3: Market Analyst App (3-4 weeks)
+## Phase 3: Market Analyst App
 
 **Objective**: Long-lifecycle trading system with proactive monitoring.
 
-### Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Market Analyst System                         │
-│                    (runs 24/7)                                   │
-│                                                                  │
-│   ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐│
-│   │ Data Agent  │  │ Sentiment   │  │ Lead Agent              ││
-│   │             │  │ Agent       │  │                         ││
-│   │ • Price     │  │ • News      │  │ • Decision making       ││
-│   │   monitoring│  │   scraping  │  │ • Trading execution     ││
-│   │ • Alerts    │  │ • Analysis  │  │ • Risk management       ││
-│   └──────┬──────┘  └──────┬──────┘  └───────────┬─────────────┘│
-│          │                │                      │              │
-│          └────────────────┴──────────────────────┘              │
-│                           │                                      │
-│                    Event Bus (Rust Core)                         │
-│                           │                                      │
-│                    Persistent Memory                             │
-└─────────────────────────────────────────────────────────────────┘
-```
-
 ### Tasks
 
-**3.1 Long Lifecycle Support**
-
 - [ ] Agent auto-restart on crash
-- [ ] State persistence across restarts
-- [ ] Graceful shutdown handling
-
-**3.2 Memory Tiers**
-
-- [ ] Working memory (current task)
-- [ ] Short-term memory (session, 1 hour)
-- [ ] Long-term memory (persistent, RocksDB)
-
-**3.3 Proactive Agents**
-
-- [ ] Scheduled triggers (every N minutes)
-- [ ] Threshold-based alerts
-- [ ] Background monitoring
-
-**3.4 Trading Integration**
-
+- [ ] Memory tiers (working/short-term/long-term)
+- [ ] Scheduled triggers
 - [ ] OKX API integration
-- [ ] Order execution tool
-- [ ] Position tracking
-
-**Acceptance Criteria**:
-
-- ✅ System runs 1+ hour continuously
-- ✅ Memory persists across agent restarts
-- ✅ Periodic reports generated automatically
-- ✅ Trading decisions logged and traceable
 
 ---
 
-## Phase 4: Desktop Assistant App (4 weeks)
+## Phase 4: Desktop Assistant App
 
 **Objective**: Personal assistant with system integration.
 
-### Unique Capabilities
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Desktop Assistant                             │
-│                                                                  │
-│   Triggers:                        Actions:                      │
-│   ┌─────────────┐                 ┌─────────────┐               │
-│   │ 🔥 Hotkey   │ ──────────────▶ │ 💬 Chat     │               │
-│   │ (Cmd+L)     │                 │             │               │
-│   └─────────────┘                 └─────────────┘               │
-│   ┌─────────────┐                 ┌─────────────┐               │
-│   │ 📋 Clipboard│ ──────────────▶ │ 📝 Summarize│               │
-│   │ (copy text) │                 │             │               │
-│   └─────────────┘                 └─────────────┘               │
-│   ┌─────────────┐                 ┌─────────────┐               │
-│   │ 📁 File     │ ──────────────▶ │ 🗂️ Organize │               │
-│   │ (download)  │                 │             │               │
-│   └─────────────┘                 └─────────────┘               │
-│   ┌─────────────┐                 ┌─────────────┐               │
-│   │ ⏰ Schedule │ ──────────────▶ │ 🔔 Notify   │               │
-│   │ (timer)     │                 │             │               │
-│   └─────────────┘                 └─────────────┘               │
-└─────────────────────────────────────────────────────────────────┘
-```
-
 ### Tasks
-
-**4.1 System Integration (Rust Core)**
 
 - [ ] Global hotkey registration
 - [ ] Clipboard monitoring
-- [ ] File system watching
 - [ ] System notifications
-- [ ] System tray icon
-
-**4.2 Voice Integration (loom-audio)**
-
-- [ ] Wake word detection
-- [ ] Speech-to-text
-- [ ] Text-to-speech response
-
-**Acceptance Criteria**:
-
-- ✅ Press Cmd+Shift+L → Agent responds to query
-- ✅ Copy text → Agent offers to summarize
-- ✅ File downloaded → Agent suggests organization
-- ✅ Voice activation works
+- [ ] Voice integration (loom-audio)
 
 ---
 
 ## Phase 5: Architecture Cleanup (Ongoing)
 
-### loom-dashboard Extraction
-
-- [ ] Extract dashboard from `core/src/dashboard/` to `loom-dashboard/`
-- [ ] Standalone deployment option
-- [ ] WebSocket-based real-time updates
-
-### Rust Core Cleanup
-
-- [ ] Remove/deprecate `cognitive/llm/` (or mark as Rust-agent-only)
-- [ ] Clean up `context/` module (keep storage, remove Python-competing parts)
-- [ ] Improve MCP client robustness
-
-### Python SDK Improvements
-
-- [ ] Full Context Engineering module
-- [ ] Streaming LLM responses
-- [ ] Better error messages
-- [ ] Type hints throughout
+- [ ] Extract loom-dashboard
+- [ ] Clean up Rust Core cognitive module
 - [ ] `pip install loom` ready
 
 ---
 
 ## Timeline Summary
 
-| Phase   | Duration  | Deliverable                |
-| ------- | --------- | -------------------------- |
-| Phase 1 | 1 week    | Foundation ✅              |
-| Phase 2 | 2 weeks   | Chat Assistant Enhancement |
-| Phase 3 | 3-4 weeks | Market Analyst app         |
-| Phase 4 | 4 weeks   | Desktop Assistant app      |
-| Phase 5 | Ongoing   | Architecture cleanup       |
-
-**Total**: ~11 weeks to Desktop Assistant
-
----
-
-## Success Metrics
-
-### Loom vs LangChain Differentiation
-
-| Metric              | LangChain        | Loom Target                       |
-| ------------------- | ---------------- | --------------------------------- |
-| Agent lifecycle     | Script (seconds) | **Service (hours/days)**          |
-| Trigger types       | Code only        | **Events (hotkey, file, timer)**  |
-| Agent communication | In-process       | **Event Bus (cross-process)**     |
-| Desktop integration | None             | **Native (tray, notify, hotkey)** |
-| Tool safety         | None             | **Sandbox**                       |
-| Cold start          | N/A              | **< 100ms**                       |
-| Memory footprint    | N/A              | **< 50MB (Rust runtime)**         |
+| Phase      | Duration  | Focus                    |
+| ---------- | --------- | ------------------------ |
+| Phase 1    | ✅        | Foundation               |
+| Phase 2 P0 | 2 weeks   | Context Engineering Core |
+| Phase 2 P1 | 1 week    | Multi-Agent              |
+| Phase 2 P2 | 1 week    | Advanced                 |
+| Phase 3    | 3-4 weeks | Market Analyst           |
+| Phase 4    | 4 weeks   | Desktop                  |
 
 ---
 
-_Last updated: 2025-12-03_
+## Design Documents
+
+- `loom-py/docs/context/DESIGN.md` — Full Context Engineering specification
+- `loom-py/docs/context/REDUCTION.md` — Step reduction & compaction
+- `loom-py/docs/context/ISOLATION.md` — Multi-agent context isolation
+- `loom-py/docs/context/OFFLOADING.md` — Data & logic offloading
+
+---
+
+_Last updated: 2025-12-05_
