@@ -9,7 +9,7 @@ system_prompt = "You are Loom's helpful and concise voice assistant."
 
 [tts]
 piper_bin = "/opt/piper/piper"
-voice = "./demo/voice_agent/models/piper/en_US-amy-medium/en_US-amy-medium.onnx"
+voice = "./models/piper/en_US-amy-medium/en_US-amy-medium.onnx"
 rate = 1.0
 volume = 1.0
 sample_rate = 16000
@@ -28,8 +28,9 @@ min_start_ms = 60
 hangover_ms = 200
 
 [stt]
-whisper_bin = "./loom-audio/whisper.cpp/build/bin/whisper-cli"
-whisper_model = "./loom-audio/whisper.cpp/models/ggml-base.en.bin"
+# Paths relative to repository root (run from repo root with: cargo run -p voice_agent)
+whisper_bin = "loom-audio/whisper.cpp/build/bin/whisper-cli"
+whisper_model = "loom-audio/whisper.cpp/models/ggml-base.en.bin"
 language = "en"
 extra_args = ["--threads", "4"]
 
