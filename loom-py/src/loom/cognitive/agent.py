@@ -37,7 +37,15 @@ from typing import TYPE_CHECKING, AsyncIterator, Optional, Union
 
 from opentelemetry import trace
 
-from ..context import DataOffloader, OffloadConfig, Step, StepCompactor, StepReducer
+from ..context import (
+    DataOffloader,
+    OffloadConfig,
+    Step,
+    StepCompactor,
+    StepReducer,
+    ToolRegistry,
+    create_default_registry,
+)
 from .config import CognitiveConfig, ThinkingStrategy
 from .loop import (
     build_cot_prompt,
@@ -80,6 +88,7 @@ class CognitiveAgent:
         available_tools: Optional[list[str]] = None,
         permission_callback: Optional[callable] = None,
         workspace_path: Optional[Union[str, Path]] = None,
+        tool_registry: Optional[ToolRegistry] = None,
     ):
         """Initialize cognitive agent.
 
@@ -92,6 +101,7 @@ class CognitiveAgent:
                                  Called with (tool_name, args, error_message) -> bool
                                  If returns True, the tool will be retried with approval.
             workspace_path: Path to workspace for data offloading (default: current directory)
+            tool_registry: Optional ToolRegistry for enhanced tool descriptions (default: creates one)
         """
         self.ctx = ctx
         self.llm = llm
@@ -112,9 +122,72 @@ class CognitiveAgent:
             OffloadConfig(enabled=True, size_threshold=2048, line_threshold=50),
         )
 
+        # Tool descriptor registry for enhanced system prompts
+        self.tool_registry = tool_registry or create_default_registry()
+
+        # Auto-discover tools from registry
+        self._auto_discover_tools()
+
+    def _auto_discover_tools(self) -> None:
+        """Auto-discover and register tools from available_tools list."""
+        if not self.available_tools:
+            return
+
+        # Register any tools not already in registry
+        for tool_name in self.available_tools:
+            if not self.tool_registry.get(tool_name):
+                # Auto-register with simple descriptor
+                self.tool_registry.register_simple(
+                    tool_name,
+                    f"Execute {tool_name}",
+                )
+
     def set_available_tools(self, tools: list[str]) -> None:
-        """Update the list of available tools."""
+        """Update the list of available tools and auto-discover new ones."""
         self.available_tools = tools
+        self._auto_discover_tools()
+
+    def register_tool(
+        self,
+        name: str,
+        description: str,
+        parameters: Optional[list] = None,
+        examples: Optional[list[str]] = None,
+        category: Optional[str] = None,
+    ) -> None:
+        """Register a tool with detailed descriptor.
+
+        Args:
+            name: Tool name (e.g., "fs:read_file")
+            description: What the tool does
+            parameters: List of ToolParameter objects
+            examples: Usage examples in JSON format
+            category: Tool category (filesystem, shell, web, etc.)
+        """
+        from ..context import ToolDescriptor, ToolParameter
+
+        # Convert dict params to ToolParameter if needed
+        if parameters:
+            param_objs = []
+            for p in parameters:
+                if isinstance(p, dict):
+                    param_objs.append(ToolParameter(**p))
+                else:
+                    param_objs.append(p)
+            parameters = param_objs
+
+        descriptor = ToolDescriptor(
+            name=name,
+            description=description,
+            parameters=parameters or [],
+            examples=examples or [],
+            category=category,
+        )
+        self.tool_registry.register(descriptor)
+
+        # Add to available tools if not already present
+        if name not in self.available_tools:
+            self.available_tools.append(name)
 
     async def run(self, goal: str, context: Optional[list[str]] = None) -> CognitiveResult:
         """Execute the cognitive loop to achieve a goal.
@@ -191,7 +264,11 @@ class CognitiveAgent:
         """ReAct pattern: iterative Thought -> Action -> Observation."""
         result = CognitiveResult(answer="", iterations=0)
 
-        system = build_react_system_prompt(self.config.system_prompt, self.available_tools)
+        system = build_react_system_prompt(
+            self.config.system_prompt,
+            self.available_tools,
+            tool_registry=self.tool_registry,
+        )
 
         for iteration in range(self.config.max_iterations):
             result.iterations = iteration + 1
@@ -344,7 +421,11 @@ class CognitiveAgent:
         """ReAct pattern with streaming: yield chunks and steps as they happen."""
         result = CognitiveResult(answer="", iterations=0)
 
-        system = build_react_system_prompt(self.config.system_prompt, self.available_tools)
+        system = build_react_system_prompt(
+            self.config.system_prompt,
+            self.available_tools,
+            tool_registry=self.tool_registry,
+        )
 
         for iteration in range(self.config.max_iterations):
             result.iterations = iteration + 1

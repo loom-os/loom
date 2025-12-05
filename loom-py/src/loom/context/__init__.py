@@ -19,6 +19,7 @@ Per the Brain/Hand separation:
 
 from .builder import ContextBuilder, ContextWindow
 from .compactor import CompactedHistory, CompactionConfig, StepCompactor
+from .few_shot import FewShotExample, FewShotLibrary, get_default_library
 from .memory import InMemoryStore, MemoryItem, MemoryTier, WorkingMemory, _memory
 from .offloader import DataOffloader, OffloadConfig, OffloadResult
 from .ranking import ContextRanker, ScoredItem
@@ -34,6 +35,12 @@ from .reducer import (
     WebFetchReducer,
 )
 from .step import CompactStep, Step, compute_content_hash, generate_step_id
+from .tool_descriptor import (
+    ToolDescriptor,
+    ToolParameter,
+    ToolRegistry,
+    create_default_registry,
+)
 from .window import TokenBudget, TokenWindowManager
 
 __all__ = [
@@ -72,6 +79,15 @@ __all__ = [
     "DataOffloader",
     "OffloadConfig",
     "OffloadResult",
+    # Tool Descriptor
+    "ToolDescriptor",
+    "ToolParameter",
+    "ToolRegistry",
+    "create_default_registry",
+    # Few-shot Examples
+    "FewShotExample",
+    "FewShotLibrary",
+    "get_default_library",
     # Window
     "TokenWindowManager",
     "TokenBudget",

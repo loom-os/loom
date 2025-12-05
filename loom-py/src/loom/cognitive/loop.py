@@ -13,16 +13,21 @@ import re
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from ..context import StepCompactor
+    from ..context import StepCompactor, ToolRegistry
     from .types import ThoughtStep
 
 
-def build_react_system_prompt(base_prompt: Optional[str], available_tools: list[str]) -> str:
+def build_react_system_prompt(
+    base_prompt: Optional[str],
+    available_tools: list[str],
+    tool_registry: Optional[ToolRegistry] = None,
+) -> str:
     """Build system prompt for ReAct pattern.
 
     Args:
         base_prompt: Custom base system prompt (or None for default)
         available_tools: List of available tool names
+        tool_registry: Optional ToolRegistry for detailed tool descriptions
 
     Returns:
         Complete system prompt for ReAct
@@ -31,8 +36,17 @@ def build_react_system_prompt(base_prompt: Optional[str], available_tools: list[
 
     tools_desc = ""
     if available_tools:
-        tools_list = ", ".join(available_tools)
-        tools_desc = f"\n\nAvailable tools: {tools_list}"
+        if tool_registry:
+            # Use detailed tool descriptions from registry
+            tools_desc = "\n\nAvailable tools:\n" + tool_registry.format_for_prompt(
+                tool_names=available_tools,
+                detailed=False,  # Compact format to save tokens
+                group_by_category=True,
+            )
+        else:
+            # Fallback to simple list
+            tools_list = ", ".join(available_tools)
+            tools_desc = f"\n\nAvailable tools: {tools_list}"
 
     return f"""{base}
 
