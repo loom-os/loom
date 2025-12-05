@@ -18,3 +18,6 @@ dist/
 coverage.xml
 htmlcov/
 .tox/
+
+# uv lock file
+uv.lock
