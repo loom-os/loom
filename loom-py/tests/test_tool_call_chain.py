@@ -167,12 +167,19 @@ class TestToolCallChain:
             await agent.stop()
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_native_tool_web_search(self, bridge_address):
-        """Test the native web search tool (DuckDuckGo).
+        """Test the native web search tool (Brave Search).
 
         Tool name: web:search
         This is a native tool, not MCP.
+        Requires BRAVE_API_KEY environment variable.
         """
+        import os
+
+        if not os.environ.get("BRAVE_API_KEY"):
+            pytest.skip("BRAVE_API_KEY not set")
+
         agent = Agent(
             agent_id="test-tool-chain-websearch",
             topics=["test.tool.replies"],
@@ -192,7 +199,7 @@ class TestToolCallChain:
             print(f"\n[test] Web search result: {result[:500]}...")
 
             data = json.loads(result)
-            # DuckDuckGo returns results in a specific format
+            # Brave Search returns results in a specific format
             assert "results" in data or "abstract" in data or isinstance(data, list)
 
         finally:
