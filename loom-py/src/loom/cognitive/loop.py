@@ -13,6 +13,7 @@ import re
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
+    from ..context import StepCompactor
     from .types import ThoughtStep
 
 
@@ -51,33 +52,100 @@ IMPORTANT RULES:
 {tools_desc}"""
 
 
-def build_react_prompt(goal: str, steps: list[ThoughtStep]) -> str:
+def build_react_prompt(
+    goal: str,
+    steps: list[ThoughtStep],
+    compactor: Optional[StepCompactor] = None,
+    use_compaction: bool = True,
+) -> str:
     """Build prompt for current ReAct iteration.
 
     Args:
         goal: The original goal/task
         steps: Previous reasoning steps
+        compactor: Optional StepCompactor for history compression
+        use_compaction: Whether to use compaction (default: True)
 
     Returns:
         Prompt string for the LLM
     """
     parts = [f"Goal: {goal}"]
 
-    if steps:
-        parts.append("\nPrevious steps:")
+    if not steps:
+        parts.append("\nWhat is your first thought or action?")
+        return "\n".join(parts)
+
+    # Use compaction if enabled and compactor provided
+    if use_compaction and compactor and len(steps) > 5:
+        # Extract reduced steps from ThoughtSteps
+        reduced_steps = []
         for step in steps:
-            parts.append(f"\nThought {step.step}: {step.reasoning}")
-            if step.tool_call:
-                parts.append(f"Action: {step.tool_call.name}({step.tool_call.arguments})")
-            if step.observation:
-                if step.observation.success:
-                    parts.append(f"Observation: {step.observation.output}")
-                else:
-                    parts.append(f"Observation: Error - {step.observation.error}")
+            if step.reduced_step:
+                reduced_steps.append(step.reduced_step)
+
+        if reduced_steps:
+            # Compact the history
+            from ..context import CompactionConfig
+
+            # Use aggressive compaction for prompts
+            config = CompactionConfig(
+                recent_window=3,  # Keep last 3 full
+                max_compact_steps=10,  # Up to 10 compact
+                group_similar=True,
+            )
+            compactor.config = config
+            history = compactor.compact(reduced_steps)
+
+            # Build prompt with compacted history
+            if history.compact_steps:
+                parts.append("\nPrevious actions (summarized):")
+                for compact_step in history.compact_steps:
+                    parts.append(f"  {compact_step}")
+                if history.dropped_count > 0:
+                    parts.append(f"  ... ({history.dropped_count} earlier steps omitted)")
+
+            # Add recent full steps
+            if history.recent_steps:
+                parts.append("\nRecent steps (detailed):")
+                recent_indices = list(range(len(steps) - len(history.recent_steps), len(steps)))
+                for idx in recent_indices:
+                    step = steps[idx]
+                    parts.append(f"\nThought {step.step}: {step.reasoning}")
+                    if step.tool_call:
+                        parts.append(f"Action: {step.tool_call.name}({step.tool_call.arguments})")
+                    if step.observation:
+                        if step.observation.success:
+                            parts.append(f"Observation: {step.observation.output}")
+                        else:
+                            parts.append(f"Observation: Error - {step.observation.error}")
+        else:
+            # Fallback to traditional format if no reduced steps
+            _add_traditional_steps(parts, steps)
+    else:
+        # No compaction - use traditional format
+        _add_traditional_steps(parts, steps)
 
     parts.append("\nWhat is your next thought or final answer?")
-
     return "\n".join(parts)
+
+
+def _add_traditional_steps(parts: list[str], steps: list[ThoughtStep]) -> None:
+    """Add steps in traditional format (no compaction).
+
+    Args:
+        parts: List to append prompt parts to
+        steps: Steps to format
+    """
+    parts.append("\nPrevious steps:")
+    for step in steps:
+        parts.append(f"\nThought {step.step}: {step.reasoning}")
+        if step.tool_call:
+            parts.append(f"Action: {step.tool_call.name}({step.tool_call.arguments})")
+        if step.observation:
+            if step.observation.success:
+                parts.append(f"Observation: {step.observation.output}")
+            else:
+                parts.append(f"Observation: Error - {step.observation.error}")
 
 
 def build_cot_prompt(goal: str) -> str:
