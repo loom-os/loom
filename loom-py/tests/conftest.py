@@ -1,4 +1,33 @@
-"""Test fixtures and configuration for loom-py tests."""
+"""Test fixtures and configuration for loom-py tests.
+
+Test Structure:
+    tests/
+    ├── conftest.py          # Shared fixtures
+    ├── unit/                # Unit tests (no external deps, use mocks)
+    │   ├── test_cognitive.py
+    │   ├── test_config.py
+    │   ├── test_context.py
+    │   ├── test_envelope.py
+    │   ├── test_llm_provider.py
+    │   ├── test_memory.py
+    │   ├── test_orchestrator.py
+    │   └── test_tool.py
+    ├── integration/         # Integration tests (require Bridge server)
+    │   ├── bridge_server.py # Server process helper
+    │   ├── test_integration.py
+    │   ├── test_mcp_env_parsing.py
+    │   ├── test_mcp_loading.py
+    │   └── test_tool_call_chain.py
+    └── e2e/                 # End-to-end tests
+        ├── test_embedded.py
+        └── test_native_tools.py
+
+Running tests:
+    pytest tests/unit -v                    # Unit tests only
+    pytest tests/integration -v -m integration  # Integration tests
+    pytest tests/e2e -v                     # E2E tests
+    pytest -v -m "not integration"          # All except integration
+"""
 
 import asyncio
 import sys

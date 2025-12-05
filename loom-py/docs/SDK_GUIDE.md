@@ -73,7 +73,7 @@ Or set `LOOM_BRIDGE_ADDR` to connect to a remote bridge:
 export LOOM_BRIDGE_ADDR="bridge.example.com:50051"
 ```
 
-See [RUNTIME.md](RUNTIME.md) for detailed runtime management documentation.
+For runtime setup details, see the top-level docs: `../../docs/QUICKSTART.md` and `../../docs/BUILD_LOCAL.md`.
 
 ### 2. Create Your First Agent
 
@@ -583,7 +583,7 @@ agent_config = config.agents.get("my-agent", {})
 topics = agent_config.get("topics", [])
 ```
 
-See [RUNTIME.md](RUNTIME.md) for complete configuration reference.
+See `../../docs/QUICKSTART.md` for common options and `loom.toml` examples.
 
 ### Custom Event Loop
 

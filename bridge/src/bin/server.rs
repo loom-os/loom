@@ -7,6 +7,25 @@ use loom_core::Loom;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load .env file if present (from current directory or parent directories)
+    match dotenvy::dotenv() {
+        Ok(path) => {
+            eprintln!("[loom-bridge] Loaded .env from: {:?}", path);
+        }
+        Err(e) => {
+            eprintln!("[loom-bridge] Note: .env not loaded: {}", e);
+        }
+    }
+
+    // Debug: print BRAVE_API_KEY status
+    match std::env::var("BRAVE_API_KEY") {
+        Ok(key) => eprintln!(
+            "[loom-bridge] BRAVE_API_KEY loaded: {}...",
+            &key[..key.len().min(10)]
+        ),
+        Err(_) => eprintln!("[loom-bridge] WARNING: BRAVE_API_KEY not set!"),
+    }
+
     // Initialize OpenTelemetry for distributed tracing with SpanCollector
     let span_collector = match loom_core::telemetry::init_telemetry() {
         Ok(collector) => {

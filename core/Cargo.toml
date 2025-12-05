@@ -18,7 +18,7 @@ async-trait = "0.1"
 dashmap = "5.5"
 crossbeam = "0.8"
 chrono = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
 
 # Dashboard dependencies
 axum = "0.7"
@@ -33,6 +33,8 @@ opentelemetry_sdk = { version = "0.22", features = ["rt-tokio", "trace", "metric
 opentelemetry-otlp = { version = "0.15", features = ["grpc-tonic", "trace", "metrics"] }
 tracing-opentelemetry = "0.23"
 opentelemetry-semantic-conventions = "0.14"
+urlencoding = "2.1.3"
+url = "2.5"
 
 [features]
 default = []

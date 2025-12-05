@@ -38,11 +38,16 @@ def build_react_system_prompt(base_prompt: Optional[str], available_tools: list[
 You follow the ReAct (Reasoning + Acting) pattern:
 1. Thought: Analyze the situation and decide what to do
 2. Action: If needed, call a tool using JSON format: {{"tool": "tool_name", "args": {{"key": "value"}}}}
-3. Observation: You'll receive the tool result
+3. STOP and wait for the real Observation from the system
 4. Repeat until you have enough information
 
-When you have the final answer, respond with:
-FINAL ANSWER: <your complete answer here>
+IMPORTANT RULES:
+- After outputting an Action JSON, you MUST STOP immediately
+- Do NOT write "Observation:" yourself - the system will provide real results
+- Do NOT imagine or make up tool results
+- Only output ONE thought and ONE action per response
+- When you have gathered enough information, respond with:
+  FINAL ANSWER: <your complete answer here>
 {tools_desc}"""
 
 
@@ -108,18 +113,37 @@ def parse_react_response(response: str) -> dict[str, Any]:
     """
     response = response.strip()
 
-    # Check for final answer
+    # Truncate at various hallucination markers
+    # LLM often continues generating fake observations, thoughts, etc.
+    truncation_patterns = [
+        r"\nObservation:",  # Fake observation
+        r"\nThought\s*\d+:",  # Next thought (should wait for real observation)
+        r"\nAction:\s*\n*Action:",  # Repeated action markers
+        r"\nAction:\s*[a-z_]+:",  # Format like "Action: fs:write_file(...)"
+    ]
+
+    for pattern in truncation_patterns:
+        match = re.search(pattern, response, re.IGNORECASE)
+        if match:
+            # Only truncate if we have a tool call before the marker
+            before = response[: match.start()]
+            if _has_tool_call(before):
+                response = before.strip()
+                break
+
+    # Check for final answer first
     final_match = re.search(r"FINAL ANSWER:\s*(.+)", response, re.IGNORECASE | re.DOTALL)
     if final_match:
         return {"type": "final_answer", "content": final_match.group(1).strip()}
 
-    # Try to extract tool call JSON
+    # Try to extract tool call - supports multiple formats
     tool_call = extract_tool_call(response)
     if tool_call:
         # Extract thought before tool call
         thought = response.split("{")[0].strip()
-        # Remove "Thought:" prefix if present
-        thought = re.sub(r"^Thought\s*\d*:\s*", "", thought, flags=re.IGNORECASE)
+        # Remove various prefixes
+        thought = re.sub(r"^(Thought\s*\d*:|Action:)\s*", "", thought, flags=re.IGNORECASE)
+        thought = thought.strip()
         return {
             "type": "tool_call",
             "thought": thought,
@@ -132,13 +156,19 @@ def parse_react_response(response: str) -> dict[str, Any]:
     return {"type": "reasoning", "content": content}
 
 
+def _has_tool_call(text: str) -> bool:
+    """Check if text contains a valid tool call JSON."""
+    return bool(extract_tool_call(text))
+
+
 def extract_tool_call(text: str) -> Optional[dict]:
     """Extract tool call JSON from text.
 
-    Supports multiple JSON formats:
+    Supports multiple formats:
     - {"tool": "name", "args": {...}}
     - {"action": "name", "arguments": {...}}
     - {"name": "...", "input": {...}}
+    - Action: tool_name({'arg': 'value'})  (Python-style)
 
     Args:
         text: Text that may contain a JSON tool call
@@ -146,6 +176,36 @@ def extract_tool_call(text: str) -> Optional[dict]:
     Returns:
         Dict with 'tool' and 'args' keys, or None if not found
     """
+    # First, try to find standard JSON format
+    json_result = _extract_json_tool_call(text)
+    if json_result:
+        return json_result
+
+    # Try Python-style format: Action: tool_name({'arg': 'value'})
+    # or Action: tool_name({"arg": "value"})
+    python_match = re.search(
+        r"Action:\s*([a-z_:]+)\s*\(\s*(\{.+?\})\s*\)",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if python_match:
+        tool_name = python_match.group(1)
+        args_str = python_match.group(2)
+        # Safely parse Python dict syntax using ast.literal_eval
+        import ast
+
+        try:
+            args = ast.literal_eval(args_str)
+            if isinstance(args, dict):
+                return {"tool": tool_name, "args": args}
+        except (ValueError, SyntaxError):
+            pass
+
+    return None
+
+
+def _extract_json_tool_call(text: str) -> Optional[dict]:
+    """Extract tool call from JSON format."""
     # Find JSON object - handle nested braces
     start_idx = text.find("{")
     if start_idx == -1:

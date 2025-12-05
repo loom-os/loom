@@ -154,20 +154,30 @@ impl InMemoryMemory {
         let time_window_ms = (req.time_window_sec.max(60) as i64) * 1000;
 
         // Get timestamp from the plan being checked, or use current time
-        let check_ts = req.plan.as_ref().map(|p| p.timestamp_ms).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let check_ts = req
+            .plan
+            .as_ref()
+            .map(|p| p.timestamp_ms)
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
         // Find a duplicate plan if it exists
         let duplicate = req.plan.as_ref().and_then(|plan| {
             self.plans.get(&req.session_id).and_then(|entry| {
-                entry.iter().find(|p| {
-                    p.symbol == plan.symbol
-                        && p.action == plan.action
-                        && (check_ts - p.timestamp_ms).abs() < time_window_ms
-                }).cloned()
+                entry
+                    .iter()
+                    .find(|p| {
+                        p.symbol == plan.symbol
+                            && p.action == plan.action
+                            && (check_ts - p.timestamp_ms).abs() < time_window_ms
+                    })
+                    .cloned()
             })
         });
 
-        let time_since = duplicate.as_ref().map(|d| (check_ts - d.timestamp_ms).abs()).unwrap_or(0);
+        let time_since = duplicate
+            .as_ref()
+            .map(|d| (check_ts - d.timestamp_ms).abs())
+            .unwrap_or(0);
 
         Ok(CheckDuplicateResponse {
             is_duplicate: duplicate.is_some(),
@@ -231,12 +241,10 @@ impl InMemoryMemory {
             "Checking if plan was executed"
         );
 
-        let execution = self.executed_plans.get(&req.session_id).and_then(|entry| {
-            entry
-                .iter()
-                .find(|r| r.plan_hash == req.plan_hash)
-                .cloned()
-        });
+        let execution = self
+            .executed_plans
+            .get(&req.session_id)
+            .and_then(|entry| entry.iter().find(|r| r.plan_hash == req.plan_hash).cloned());
 
         Ok(CheckExecutedResponse {
             is_executed: execution.is_some(),
@@ -268,7 +276,8 @@ impl InMemoryMemory {
             .unwrap_or_default();
 
         let total_executions = executions.len() as i32;
-        let successful_executions = executions.iter().filter(|r| r.status == "success").count() as i32;
+        let successful_executions =
+            executions.iter().filter(|r| r.status == "success").count() as i32;
         let failed_executions = executions.iter().filter(|r| r.status == "error").count() as i32;
         let win_rate = if total_executions > 0 {
             successful_executions as f32 / total_executions as f32
@@ -280,12 +289,8 @@ impl InMemoryMemory {
         let duplicate_prevented = 0; // This would need additional tracking
 
         // Get recent executions (last 10)
-        let recent_executions: Vec<ExecutionRecord> = executions
-            .iter()
-            .rev()
-            .take(10)
-            .cloned()
-            .collect();
+        let recent_executions: Vec<ExecutionRecord> =
+            executions.iter().rev().take(10).cloned().collect();
 
         Ok(GetExecutionStatsResponse {
             total_executions,
@@ -302,7 +307,10 @@ impl InMemoryMemory {
 impl MemoryWriter for InMemoryMemory {
     async fn append_event(&self, session: &str, event: Event) -> loom_core::Result<()> {
         let summary = Self::summarize_event(&event);
-        self.store.entry(session.to_string()).or_default().push(summary);
+        self.store
+            .entry(session.to_string())
+            .or_default()
+            .push(summary);
 
         // Keep only last 500 events per session
         if let Some(mut events) = self.store.get_mut(session) {
@@ -366,11 +374,7 @@ mod tests {
             action: action.to_string(),
             confidence: 0.8,
             reasoning: "Test plan".to_string(),
-            plan_hash: format!("{}_{}_{}",
-                symbol,
-                action,
-                chrono::Utc::now().timestamp()
-            ),
+            plan_hash: format!("{}_{}_{}", symbol, action, chrono::Utc::now().timestamp()),
             method: "llm".to_string(),
             metadata: Default::default(),
         }
@@ -411,10 +415,12 @@ mod tests {
         let plan = create_test_plan("ETHUSDT", "SELL");
 
         // Save the plan first
-        memory.save_plan(SavePlanRequest {
-            session_id: session_id.to_string(),
-            plan: Some(plan.clone()),
-        }).unwrap();
+        memory
+            .save_plan(SavePlanRequest {
+                session_id: session_id.to_string(),
+                plan: Some(plan.clone()),
+            })
+            .unwrap();
 
         // Check for duplicate - should be true
         let check_req = CheckDuplicateRequest {
@@ -449,10 +455,12 @@ mod tests {
         let plan_hash = plan.plan_hash.clone();
 
         // Save the plan
-        memory.save_plan(SavePlanRequest {
-            session_id: session_id.to_string(),
-            plan: Some(plan),
-        }).unwrap();
+        memory
+            .save_plan(SavePlanRequest {
+                session_id: session_id.to_string(),
+                plan: Some(plan),
+            })
+            .unwrap();
 
         // Check not executed yet
         let check_req = CheckExecutedRequest {

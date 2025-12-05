@@ -1,4 +1,0 @@
-[bridge]
-address = "127.0.0.1:39403"
-mode = "full"
-version = "latest"

@@ -91,30 +91,46 @@ impl Default for VoiceAgentConfig {
 }
 
 impl VoiceAgentConfig {
-    /// Load configuration from a TOML file (path via VOICE_AGENT_CONFIG or ./voice_agent.toml),
-    /// overlaying values onto sane defaults and env-driven defaults.
+    /// Load configuration from a TOML file.
+    /// Searches in order:
+    /// 1. VOICE_AGENT_CONFIG environment variable
+    /// 2. ./voice_agent.toml (current directory)
+    /// 3. apps/voice_agent/voice_agent.toml (from repo root)
     pub fn load() -> Self {
         let default = Self::default();
-        let path =
-            std::env::var("VOICE_AGENT_CONFIG").unwrap_or_else(|_| "voice_agent.toml".into());
-        let p = Path::new(&path);
-        if !p.exists() {
-            tracing::info!(target = "voice_agent", path = %path, "No TOML config found; using defaults/env");
-            return default;
-        }
-        match fs::read_to_string(p) {
-            Ok(s) => match toml::from_str::<VoiceAgentToml>(&s) {
-                Ok(t) => t.overlay(default),
-                Err(e) => {
-                    tracing::warn!(target = "voice_agent", error = %e, "Failed to parse TOML; using defaults");
-                    default
-                }
-            },
-            Err(e) => {
-                tracing::warn!(target = "voice_agent", error = %e, "Failed to read TOML; using defaults");
-                default
+
+        // Try paths in order of preference
+        let search_paths = [
+            std::env::var("VOICE_AGENT_CONFIG").ok(),
+            Some("voice_agent.toml".to_string()),
+            Some("apps/voice_agent/voice_agent.toml".to_string()),
+        ];
+
+        for maybe_path in search_paths.into_iter().flatten() {
+            let p = Path::new(&maybe_path);
+            if p.exists() {
+                tracing::info!(target = "voice_agent", path = %maybe_path, "Loading config");
+                return match fs::read_to_string(p) {
+                    Ok(s) => match toml::from_str::<VoiceAgentToml>(&s) {
+                        Ok(t) => t.overlay(default),
+                        Err(e) => {
+                            tracing::warn!(target = "voice_agent", error = %e, "Failed to parse TOML; using defaults");
+                            default
+                        }
+                    },
+                    Err(e) => {
+                        tracing::warn!(target = "voice_agent", error = %e, "Failed to read TOML; using defaults");
+                        default
+                    }
+                };
             }
         }
+
+        tracing::info!(
+            target = "voice_agent",
+            "No TOML config found; using defaults/env"
+        );
+        default
     }
     /// Build LLM headers for the `llm.generate` ActionCall based on config
     pub fn llm_headers(&self) -> HashMap<String, String> {

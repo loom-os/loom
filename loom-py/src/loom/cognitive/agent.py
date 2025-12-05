@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, AsyncIterator, Optional, Union
 
 from opentelemetry import trace
@@ -56,6 +57,12 @@ from ..context.memory import WorkingMemory
 # Get tracer for cognitive spans
 tracer = trace.get_tracer(__name__)
 
+# Tools that require human approval before execution (destructive operations)
+TOOLS_REQUIRING_APPROVAL = {
+    "fs:write_file",  # Can overwrite files
+    "fs:delete",  # Can delete files
+}
+
 
 class CognitiveAgent:
     """Autonomous agent with perceive-think-act cognitive loop.
@@ -70,6 +77,7 @@ class CognitiveAgent:
         llm: LLMProvider,
         config: Optional[CognitiveConfig] = None,
         available_tools: Optional[list[str]] = None,
+        permission_callback: Optional[callable] = None,
     ):
         """Initialize cognitive agent.
 
@@ -78,12 +86,19 @@ class CognitiveAgent:
             llm: LLM provider for reasoning
             config: Cognitive configuration
             available_tools: List of available tool names (e.g., ["weather:get", "web:search"])
+            permission_callback: Optional async callback for permission requests.
+                                 Called with (tool_name, args, error_message) -> bool
+                                 If returns True, the tool will be retried with approval.
         """
         self.ctx = ctx
         self.llm = llm
         self.config = config or CognitiveConfig()
         self.available_tools = available_tools or []
         self.memory = WorkingMemory()
+        self.permission_callback = permission_callback
+        # Track commands/tools that have been approved by the user for this session
+        self._approved_commands: set[str] = set()
+        self._approved_tools: set[str] = set()  # For fs:write_file, fs:delete etc.
 
     def set_available_tools(self, tools: list[str]) -> None:
         """Update the list of available tools."""
@@ -403,7 +418,7 @@ class CognitiveAgent:
         yield result
 
     async def _execute_tool(self, tool_call: ToolCall) -> Observation:
-        """Execute a tool call via context."""
+        """Execute a tool call via context, with optional human-in-the-loop approval."""
         with tracer.start_as_current_span(
             "cognitive.tool_call",
             attributes={
@@ -413,6 +428,28 @@ class CognitiveAgent:
         ) as span:
             start = time.time()
 
+            # Check if this tool requires human approval BEFORE execution
+            if self._requires_approval(tool_call):
+                # Generate a descriptive reason for the permission request
+                reason = self._get_approval_reason(tool_call)
+                approved = await self._request_permission(tool_call, reason)
+
+                if not approved:
+                    latency_ms = int((time.time() - start) * 1000)
+                    span.set_attribute("tool.success", False)
+                    span.set_attribute("tool.denied_by_user", True)
+                    return Observation(
+                        tool_name=tool_call.name,
+                        success=False,
+                        output="",
+                        error="Action denied by user",
+                        latency_ms=latency_ms,
+                    )
+
+                # User approved - execute directly in Python (bypass Rust sandbox)
+                return await self._execute_tool_with_approval(tool_call, span, start)
+
+            # Normal execution through Rust bridge
             try:
                 result = await self.ctx.tool(
                     tool_call.name,
@@ -443,19 +480,239 @@ class CognitiveAgent:
                 )
 
             except Exception as e:
+                error_str = str(e)
                 latency_ms = int((time.time() - start) * 1000)
+
+                # Check if this is a permission denied error and we have a callback
+                if "Permission denied" in error_str and self.permission_callback:
+                    # Extract the denied command/action from the error
+                    approved = await self._request_permission(tool_call, error_str)
+
+                    if approved:
+                        # User approved - retry with the approved flag
+                        return await self._execute_tool_with_approval(tool_call, span, start)
+
                 span.set_attribute("tool.success", False)
                 span.set_attribute("tool.latency_ms", latency_ms)
-                span.set_attribute("tool.error", str(e))
+                span.set_attribute("tool.error", error_str)
                 span.record_exception(e)
 
                 return Observation(
                     tool_name=tool_call.name,
                     success=False,
                     output="",
-                    error=str(e),
+                    error=error_str,
                     latency_ms=latency_ms,
                 )
+
+    def _requires_approval(self, tool_call: ToolCall) -> bool:
+        """Check if a tool requires human approval before execution."""
+        # Already approved in this session
+        if tool_call.name in self._approved_tools:
+            return False
+        # Check if tool is in the list requiring approval
+        return tool_call.name in TOOLS_REQUIRING_APPROVAL
+
+    def _get_approval_reason(self, tool_call: ToolCall) -> str:
+        """Generate a human-readable reason for the approval request."""
+        if tool_call.name == "fs:write_file":
+            path = tool_call.arguments.get("path", "unknown")
+            content = tool_call.arguments.get("content", "")
+            preview = content[:100] + "..." if len(content) > 100 else content
+            return f"Write to file '{path}' (content: {preview})"
+        elif tool_call.name == "fs:delete":
+            path = tool_call.arguments.get("path", "unknown")
+            return f"Delete file or directory '{path}'"
+        else:
+            return f"Destructive operation: {tool_call.name}"
+
+    async def _request_permission(self, tool_call: ToolCall, error_msg: str) -> bool:
+        """Request permission from user for a denied action."""
+        if not self.permission_callback:
+            return False
+
+        try:
+            # Call the permission callback (should be async)
+            result = self.permission_callback(tool_call.name, tool_call.arguments, error_msg)
+            if hasattr(result, "__await__"):
+                return await result
+            return bool(result)
+        except Exception:
+            return False
+
+    async def _execute_tool_with_approval(
+        self, tool_call: ToolCall, span, start_time
+    ) -> Observation:
+        """Execute a tool that requires approval, directly in Python.
+
+        For shell commands and file system operations, we execute directly
+        in Python since the Rust sandbox won't allow dynamic approval.
+        """
+        import os
+        import subprocess
+
+        # Mark this tool as approved for this session
+        self._approved_tools.add(tool_call.name)
+
+        try:
+            if tool_call.name == "system:shell":
+                # Execute shell command directly (user approved)
+                # Always use list form with shell=False to prevent injection attacks
+                command = tool_call.arguments.get("command", "")
+                args = tool_call.arguments.get("args", [])
+                self._approved_commands.add(command)
+
+                # Build command list - never use shell=True to prevent injection
+                cmd_list = [command] + args if args else [command]
+                proc_result = subprocess.run(
+                    cmd_list,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    shell=False,  # Security: prevent shell injection
+                )
+
+                latency_ms = int((time.time() - start_time) * 1000)
+                output = json.dumps(
+                    {
+                        "stdout": proc_result.stdout,
+                        "stderr": proc_result.stderr,
+                        "exit_code": proc_result.returncode,
+                        "approved_by_user": True,
+                    },
+                    indent=2,
+                )
+
+            elif tool_call.name == "fs:write_file":
+                # Write file directly in Python
+                file_path = tool_call.arguments.get("path", "")
+                content = tool_call.arguments.get("content", "")
+
+                # Security: Resolve and validate path stays within workspace
+                workspace_root = os.path.abspath(os.getcwd())
+                if not os.path.isabs(file_path):
+                    file_path = os.path.join(workspace_root, file_path)
+                file_path = os.path.abspath(file_path)
+
+                # Check for path traversal attack
+                if (
+                    not file_path.startswith(workspace_root + os.sep)
+                    and file_path != workspace_root
+                ):
+                    return Observation(
+                        tool_name=tool_call.name,
+                        success=False,
+                        output="",
+                        error="Path traversal detected: path escapes workspace",
+                        latency_ms=int((time.time() - start_time) * 1000),
+                    )
+
+                # Create parent directories if needed
+                parent = Path(file_path).parent
+                parent.mkdir(parents=True, exist_ok=True)
+
+                # Write content
+                with open(file_path, "w", encoding="utf-8") as f:
+                    bytes_written = f.write(content)
+
+                latency_ms = int((time.time() - start_time) * 1000)
+                output = json.dumps(
+                    {
+                        "path": file_path,
+                        "bytes_written": bytes_written,
+                        "approved_by_user": True,
+                    },
+                    indent=2,
+                )
+
+            elif tool_call.name == "fs:delete":
+                # Delete file or directory directly in Python
+                file_path = tool_call.arguments.get("path", "")
+
+                # Security: Resolve and validate path stays within workspace
+                workspace_root = os.path.abspath(os.getcwd())
+                if not os.path.isabs(file_path):
+                    file_path = os.path.join(workspace_root, file_path)
+                file_path = os.path.abspath(file_path)
+
+                # Check for path traversal attack
+                if (
+                    not file_path.startswith(workspace_root + os.sep)
+                    and file_path != workspace_root
+                ):
+                    return Observation(
+                        tool_name=tool_call.name,
+                        success=False,
+                        output="",
+                        error="Path traversal detected: path escapes workspace",
+                        latency_ms=int((time.time() - start_time) * 1000),
+                    )
+
+                path_obj = Path(file_path)
+                if path_obj.is_dir():
+                    # Use os.rmdir() instead of shutil.rmtree() to match Rust behavior
+                    # (only deletes empty directories, safer)
+                    os.rmdir(file_path)
+                    deleted_type = "directory (empty)"
+                elif path_obj.exists():
+                    os.remove(file_path)
+                    deleted_type = "file"
+                else:
+                    return Observation(
+                        tool_name=tool_call.name,
+                        success=False,
+                        output="",
+                        error=f"Path does not exist: {file_path}",
+                        latency_ms=int((time.time() - start_time) * 1000),
+                    )
+
+                latency_ms = int((time.time() - start_time) * 1000)
+                output = json.dumps(
+                    {
+                        "path": file_path,
+                        "deleted": deleted_type,
+                        "approved_by_user": True,
+                    },
+                    indent=2,
+                )
+
+            else:
+                # For other tools, we can't bypass the Rust sandbox
+                return Observation(
+                    tool_name=tool_call.name,
+                    success=False,
+                    output="",
+                    error="Cannot approve this tool type dynamically",
+                    latency_ms=int((time.time() - start_time) * 1000),
+                )
+
+            span.set_attribute("tool.success", True)
+            span.set_attribute("tool.approved_by_user", True)
+            span.set_attribute("tool.latency_ms", latency_ms)
+
+            return Observation(
+                tool_name=tool_call.name,
+                success=True,
+                output=output[:2000],
+                latency_ms=latency_ms,
+            )
+
+        except subprocess.TimeoutExpired:
+            return Observation(
+                tool_name=tool_call.name,
+                success=False,
+                output="",
+                error="Command timed out after 30 seconds",
+                latency_ms=int((time.time() - start_time) * 1000),
+            )
+        except Exception as e:
+            return Observation(
+                tool_name=tool_call.name,
+                success=False,
+                output="",
+                error=str(e),
+                latency_ms=int((time.time() - start_time) * 1000),
+            )
 
 
 __all__ = [

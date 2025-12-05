@@ -38,7 +38,9 @@ pub use messaging::{
 
 // Export tool types
 pub use tools::mcp::{McpClient, McpManager, McpToolAdapter};
-pub use tools::native::{ReadFileTool, ShellTool, WeatherTool, WebSearchTool};
+pub use tools::native::{
+    DeleteFileTool, ListDirTool, ReadFileTool, ShellTool, WeatherTool, WebSearchTool, WriteFileTool,
+};
 pub use tools::{Tool, ToolError, ToolRegistry};
 
 // Export telemetry
@@ -95,7 +97,10 @@ impl Loom {
         // Register built-in tools
         {
             use crate::cognitive::llm::LlmGenerateProvider;
-            use crate::tools::native::{ReadFileTool, ShellTool, WeatherTool, WebSearchTool};
+            use crate::tools::native::{
+                DeleteFileTool, ListDirTool, ReadFileTool, ShellTool, WeatherTool, WebSearchTool,
+                WriteFileTool,
+            };
             use std::sync::Arc as SyncArc;
 
             if let Ok(provider) = LlmGenerateProvider::new(None) {
@@ -108,16 +113,87 @@ impl Loom {
             }
 
             let workspace_root = std::env::current_dir().unwrap_or_default();
+
+            // File system tools (workspace-scoped)
             tool_registry
-                .register(SyncArc::new(ReadFileTool::new(workspace_root)))
+                .register(SyncArc::new(ReadFileTool::new(workspace_root.clone())))
+                .await;
+            tool_registry
+                .register(SyncArc::new(WriteFileTool::new(workspace_root.clone())))
+                .await;
+            tool_registry
+                .register(SyncArc::new(ListDirTool::new(workspace_root.clone())))
+                .await;
+            tool_registry
+                .register(SyncArc::new(DeleteFileTool::new(workspace_root)))
                 .await;
 
             tool_registry
                 .register(SyncArc::new(ShellTool::new(vec![
+                    // File listing & navigation
                     "ls".to_string(),
-                    "echo".to_string(),
+                    "pwd".to_string(),
+                    "find".to_string(),
+                    "which".to_string(),
+                    "whereis".to_string(),
+                    "file".to_string(),
+                    "stat".to_string(),
+                    "realpath".to_string(),
+                    "readlink".to_string(),
+                    "basename".to_string(),
+                    "dirname".to_string(),
+                    // File content reading
                     "cat".to_string(),
+                    "head".to_string(),
+                    "tail".to_string(),
+                    "less".to_string(),
+                    "more".to_string(),
+                    "wc".to_string(),
+                    // Text search & processing
                     "grep".to_string(),
+                    "awk".to_string(),
+                    "sed".to_string(),
+                    "sort".to_string(),
+                    "uniq".to_string(),
+                    "cut".to_string(),
+                    "tr".to_string(),
+                    "diff".to_string(),
+                    // System info (read-only)
+                    "echo".to_string(),
+                    "date".to_string(),
+                    "whoami".to_string(),
+                    "hostname".to_string(),
+                    "uname".to_string(),
+                    "env".to_string(),
+                    "printenv".to_string(),
+                    "df".to_string(),
+                    "du".to_string(),
+                    "free".to_string(),
+                    "uptime".to_string(),
+                    "ps".to_string(),
+                    "top".to_string(),
+                    "htop".to_string(),
+                    // Network info (read-only)
+                    "ping".to_string(),
+                    "curl".to_string(),
+                    "wget".to_string(),
+                    "nslookup".to_string(),
+                    "dig".to_string(),
+                    "host".to_string(),
+                    "ifconfig".to_string(),
+                    "ip".to_string(),
+                    "netstat".to_string(),
+                    "ss".to_string(),
+                    // Development tools
+                    "git".to_string(),
+                    "python".to_string(),
+                    "python3".to_string(),
+                    "node".to_string(),
+                    "npm".to_string(),
+                    "cargo".to_string(),
+                    "rustc".to_string(),
+                    "make".to_string(),
+                    "cmake".to_string(),
                 ])))
                 .await;
 

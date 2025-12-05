@@ -1,0 +1,3 @@
+create a file called a.txt in workspace/, write 2 fruit name in it
+delete the a.txt in workspace/
+how is the weather like in beijing？

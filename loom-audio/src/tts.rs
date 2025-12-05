@@ -23,9 +23,9 @@
 
 use crate::utils::{gen_id, now_ms};
 use async_trait::async_trait;
-use loom_core::tools::{Tool, ToolResult};
 use loom_core::messaging::EventBus;
 use loom_core::proto::Event;
+use loom_core::tools::{Tool, ToolResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
@@ -253,7 +253,9 @@ impl Tool for TtsSpeakProvider {
             let synth_start = now_ms();
             let synth_ok = match engine.as_str() {
                 "piper" => synth_with_piper(&cfg, &voice, rate, sample_rate, &text, &wav_path),
-                "espeak-ng" => synth_with_espeak(&cfg, &voice, rate, volume, sample_rate, &text, &wav_path),
+                "espeak-ng" => {
+                    synth_with_espeak(&cfg, &voice, rate, volume, sample_rate, &text, &wav_path)
+                }
                 _ => Ok(()),
             };
             synthesis_ms = now_ms() - synth_start;
@@ -334,9 +336,7 @@ impl Tool for TtsSpeakProvider {
 
         // Apply internal timeout
         match timeout(Duration::from_millis(self.cfg.timeout_ms), join).await {
-            Ok(join_res) => {
-                join_res.map_err(|e| loom_core::ToolError::Internal(e.to_string()))?
-            }
+            Ok(join_res) => join_res.map_err(|e| loom_core::ToolError::Internal(e.to_string()))?,
             Err(_) => {
                 let ev = Event {
                     id: gen_id(),

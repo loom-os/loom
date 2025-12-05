@@ -10,10 +10,9 @@ use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 
 pub use loom_proto::{
-    bridge_client::BridgeClient, client_event, server_event, Ack,
-    ToolCall, ToolResult, ToolStatus,
-    AgentRegisterRequest, ClientEvent, Delivery, Event, HeartbeatRequest,
-    HeartbeatResponse, Publish,
+    bridge_client::BridgeClient, client_event, server_event, Ack, AgentRegisterRequest,
+    ClientEvent, Delivery, Event, HeartbeatRequest, HeartbeatResponse, Publish, ToolCall,
+    ToolResult, ToolStatus,
 };
 
 /// Start a Bridge gRPC server on an ephemeral localhost port and return the bound address
