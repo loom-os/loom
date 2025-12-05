@@ -31,6 +31,21 @@ struct BraveWebResult {
     description: Option<String>,
 }
 
+/// Sanitize a proxy URL for safe logging (redact credentials)
+fn sanitize_proxy_url(proxy_url: &str) -> String {
+    // Try to parse and redact credentials
+    if let Ok(mut parsed) = url::Url::parse(proxy_url) {
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            let _ = parsed.set_username("***");
+            let _ = parsed.set_password(Some("***"));
+        }
+        parsed.to_string()
+    } else {
+        // If parsing fails, just show host:port pattern or redact entirely
+        "[proxy configured]".to_string()
+    }
+}
+
 /// Web search tool using Brave Search API
 pub struct WebSearchTool {
     api_key: Option<String>,
@@ -67,7 +82,9 @@ impl WebSearchTool {
             .or_else(|_| std::env::var("http_proxy"))
             .or_else(|_| std::env::var("all_proxy"))
         {
-            tracing::info!(target: "web_search", proxy = %proxy_url, "Using proxy for web search");
+            // Sanitize proxy URL to avoid logging credentials
+            let sanitized_url = sanitize_proxy_url(&proxy_url);
+            tracing::info!(target: "web_search", proxy = %sanitized_url, "Using proxy for web search");
             if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
                 client_builder = client_builder.proxy(proxy);
             }

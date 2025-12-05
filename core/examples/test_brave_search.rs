@@ -30,13 +30,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Query: {}", query);
 
     // Build client similar to our WebSearchTool
-    // Use system proxy (127.0.0.1:7897)
-    let proxy = reqwest::Proxy::all("http://127.0.0.1:7897")?;
-    let client = reqwest::Client::builder()
+    // Proxy is optional - configure via HTTPS_PROXY environment variable
+    let mut client_builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
-        .proxy(proxy)
-        .build()?;
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36");
+
+    if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
+        .or_else(|_| std::env::var("HTTP_PROXY"))
+        .or_else(|_| std::env::var("ALL_PROXY"))
+    {
+        println!("Using proxy: {}", proxy_url);
+        client_builder = client_builder.proxy(reqwest::Proxy::all(&proxy_url)?);
+    } else {
+        println!("No proxy configured (set HTTPS_PROXY if needed)");
+    }
+
+    let client = client_builder.build()?;
 
     let url = format!(
         "https://api.search.brave.com/res/v1/web/search?q={}&count=3",
