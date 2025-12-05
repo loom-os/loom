@@ -191,12 +191,14 @@ def extract_tool_call(text: str) -> Optional[dict]:
     if python_match:
         tool_name = python_match.group(1)
         args_str = python_match.group(2)
-        # Convert Python dict syntax to JSON
-        args_str = args_str.replace("'", '"')
+        # Safely parse Python dict syntax using ast.literal_eval
+        import ast
+
         try:
-            args = json.loads(args_str)
-            return {"tool": tool_name, "args": args}
-        except json.JSONDecodeError:
+            args = ast.literal_eval(args_str)
+            if isinstance(args, dict):
+                return {"tool": tool_name, "args": args}
+        except (ValueError, SyntaxError):
             pass
 
     return None

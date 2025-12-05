@@ -549,7 +549,6 @@ class CognitiveAgent:
         in Python since the Rust sandbox won't allow dynamic approval.
         """
         import os
-        import shutil
         import subprocess
 
         # Mark this tool as approved for this session
@@ -558,25 +557,20 @@ class CognitiveAgent:
         try:
             if tool_call.name == "system:shell":
                 # Execute shell command directly (user approved)
+                # Always use list form with shell=False to prevent injection attacks
                 command = tool_call.arguments.get("command", "")
                 args = tool_call.arguments.get("args", [])
                 self._approved_commands.add(command)
 
-                if args:
-                    proc_result = subprocess.run(
-                        [command] + args,
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-                else:
-                    proc_result = subprocess.run(
-                        command,
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
+                # Build command list - never use shell=True to prevent injection
+                cmd_list = [command] + args if args else [command]
+                proc_result = subprocess.run(
+                    cmd_list,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    shell=False,  # Security: prevent shell injection
+                )
 
                 latency_ms = int((time.time() - start_time) * 1000)
                 output = json.dumps(
@@ -594,9 +588,24 @@ class CognitiveAgent:
                 file_path = tool_call.arguments.get("path", "")
                 content = tool_call.arguments.get("content", "")
 
-                # Resolve path relative to current working directory
+                # Security: Resolve and validate path stays within workspace
+                workspace_root = os.path.abspath(os.getcwd())
                 if not os.path.isabs(file_path):
-                    file_path = os.path.join(os.getcwd(), file_path)
+                    file_path = os.path.join(workspace_root, file_path)
+                file_path = os.path.abspath(file_path)
+
+                # Check for path traversal attack
+                if (
+                    not file_path.startswith(workspace_root + os.sep)
+                    and file_path != workspace_root
+                ):
+                    return Observation(
+                        tool_name=tool_call.name,
+                        success=False,
+                        output="",
+                        error="Path traversal detected: path escapes workspace",
+                        latency_ms=int((time.time() - start_time) * 1000),
+                    )
 
                 # Create parent directories if needed
                 parent = Path(file_path).parent
@@ -620,14 +629,31 @@ class CognitiveAgent:
                 # Delete file or directory directly in Python
                 file_path = tool_call.arguments.get("path", "")
 
-                # Resolve path relative to current working directory
+                # Security: Resolve and validate path stays within workspace
+                workspace_root = os.path.abspath(os.getcwd())
                 if not os.path.isabs(file_path):
-                    file_path = os.path.join(os.getcwd(), file_path)
+                    file_path = os.path.join(workspace_root, file_path)
+                file_path = os.path.abspath(file_path)
+
+                # Check for path traversal attack
+                if (
+                    not file_path.startswith(workspace_root + os.sep)
+                    and file_path != workspace_root
+                ):
+                    return Observation(
+                        tool_name=tool_call.name,
+                        success=False,
+                        output="",
+                        error="Path traversal detected: path escapes workspace",
+                        latency_ms=int((time.time() - start_time) * 1000),
+                    )
 
                 path_obj = Path(file_path)
                 if path_obj.is_dir():
-                    shutil.rmtree(file_path)
-                    deleted_type = "directory"
+                    # Use os.rmdir() instead of shutil.rmtree() to match Rust behavior
+                    # (only deletes empty directories, safer)
+                    os.rmdir(file_path)
+                    deleted_type = "directory (empty)"
                 elif path_obj.exists():
                     os.remove(file_path)
                     deleted_type = "file"

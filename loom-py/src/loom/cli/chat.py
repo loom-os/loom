@@ -601,19 +601,23 @@ Create a well-structured markdown report with:
 """
 
         # Save using fs:write_file tool
+        saved_path = None
         try:
             await self.cognitive.ctx.tool(
                 "fs:write_file",
                 payload={"path": report_filename, "content": full_report},
             )
             log(f"   ✅ Report saved to: {report_filename}")
+            saved_path = report_filename
         except Exception as e:
+            import traceback
+
             log(f"   ⚠️ Could not save report: {e}")
-            report_filename = None
+            log(f"   Traceback: {traceback.format_exc()}")
 
         return {
             "topic": topic,
-            "report_path": report_filename,
+            "report_path": saved_path,
             "summary": (
                 report_content[:500] + "..." if len(report_content) > 500 else report_content
             ),
