@@ -10,7 +10,10 @@ This module contains the core data types used in cognitive processing:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from ..context import Step
 
 
 @dataclass
@@ -33,6 +36,7 @@ class Observation:
     output: str
     error: Optional[str] = None
     latency_ms: int = 0
+    reduced_step: Optional[Step] = None  # Context-reduced version
 
 
 @dataclass
@@ -43,6 +47,7 @@ class ThoughtStep:
     reasoning: str
     tool_call: Optional[ToolCall] = None
     observation: Optional[Observation] = None
+    reduced_step: Optional[Step] = None  # Context-reduced version for prompts
 
 
 @dataclass

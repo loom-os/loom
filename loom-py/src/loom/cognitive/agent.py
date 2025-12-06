@@ -37,6 +37,15 @@ from typing import TYPE_CHECKING, AsyncIterator, Optional, Union
 
 from opentelemetry import trace
 
+from ..context import (
+    DataOffloader,
+    OffloadConfig,
+    Step,
+    StepCompactor,
+    StepReducer,
+    ToolRegistry,
+    create_default_registry,
+)
 from .config import CognitiveConfig, ThinkingStrategy
 from .loop import (
     build_cot_prompt,
@@ -78,6 +87,8 @@ class CognitiveAgent:
         config: Optional[CognitiveConfig] = None,
         available_tools: Optional[list[str]] = None,
         permission_callback: Optional[callable] = None,
+        workspace_path: Optional[Union[str, Path]] = None,
+        tool_registry: Optional[ToolRegistry] = None,
     ):
         """Initialize cognitive agent.
 
@@ -89,6 +100,8 @@ class CognitiveAgent:
             permission_callback: Optional async callback for permission requests.
                                  Called with (tool_name, args, error_message) -> bool
                                  If returns True, the tool will be retried with approval.
+            workspace_path: Path to workspace for data offloading (default: current directory)
+            tool_registry: Optional ToolRegistry for enhanced tool descriptions (default: creates one)
         """
         self.ctx = ctx
         self.llm = llm
@@ -100,9 +113,81 @@ class CognitiveAgent:
         self._approved_commands: set[str] = set()
         self._approved_tools: set[str] = set()  # For fs:write_file, fs:delete etc.
 
+        # Context Engineering components
+        self.step_reducer = StepReducer()
+        self.step_compactor = StepCompactor()
+        workspace = Path(workspace_path) if workspace_path else Path.cwd()
+        self.data_offloader = DataOffloader(
+            workspace,
+            OffloadConfig(enabled=True, size_threshold=2048, line_threshold=50),
+        )
+
+        # Tool descriptor registry for enhanced system prompts
+        self.tool_registry = tool_registry or create_default_registry()
+
+        # Auto-discover tools from registry
+        self._auto_discover_tools()
+
+    def _auto_discover_tools(self) -> None:
+        """Auto-discover and register tools from available_tools list."""
+        if not self.available_tools:
+            return
+
+        # Register any tools not already in registry
+        for tool_name in self.available_tools:
+            if not self.tool_registry.get(tool_name):
+                # Auto-register with simple descriptor
+                self.tool_registry.register_simple(
+                    tool_name,
+                    f"Execute {tool_name}",
+                )
+
     def set_available_tools(self, tools: list[str]) -> None:
-        """Update the list of available tools."""
+        """Update the list of available tools and auto-discover new ones."""
         self.available_tools = tools
+        self._auto_discover_tools()
+
+    def register_tool(
+        self,
+        name: str,
+        description: str,
+        parameters: Optional[list] = None,
+        examples: Optional[list[str]] = None,
+        category: Optional[str] = None,
+    ) -> None:
+        """Register a tool with detailed descriptor.
+
+        Args:
+            name: Tool name (e.g., "fs:read_file")
+            description: What the tool does
+            parameters: List of ToolParameter objects
+            examples: Usage examples in JSON format
+            category: Tool category (filesystem, shell, web, etc.)
+        """
+        from ..context import ToolDescriptor, ToolParameter
+
+        # Convert dict params to ToolParameter if needed
+        if parameters:
+            param_objs = []
+            for p in parameters:
+                if isinstance(p, dict):
+                    param_objs.append(ToolParameter(**p))
+                else:
+                    param_objs.append(p)
+            parameters = param_objs
+
+        descriptor = ToolDescriptor(
+            name=name,
+            description=description,
+            parameters=parameters or [],
+            examples=examples or [],
+            category=category,
+        )
+        self.tool_registry.register(descriptor)
+
+        # Add to available tools if not already present
+        if name not in self.available_tools:
+            self.available_tools.append(name)
 
     async def run(self, goal: str, context: Optional[list[str]] = None) -> CognitiveResult:
         """Execute the cognitive loop to achieve a goal.
@@ -179,7 +264,11 @@ class CognitiveAgent:
         """ReAct pattern: iterative Thought -> Action -> Observation."""
         result = CognitiveResult(answer="", iterations=0)
 
-        system = build_react_system_prompt(self.config.system_prompt, self.available_tools)
+        system = build_react_system_prompt(
+            self.config.system_prompt,
+            self.available_tools,
+            tool_registry=self.tool_registry,
+        )
 
         for iteration in range(self.config.max_iterations):
             result.iterations = iteration + 1
@@ -191,8 +280,13 @@ class CognitiveAgent:
                     "goal": goal[:100],
                 },
             ) as iter_span:
-                # Build prompt with history
-                prompt = build_react_prompt(goal, result.steps)
+                # Build prompt with history (pass compactor for context engineering)
+                prompt = build_react_prompt(
+                    goal,
+                    result.steps,
+                    compactor=self.step_compactor,
+                    use_compaction=True,
+                )
 
                 # Think - LLM call
                 with tracer.start_as_current_span(
@@ -230,15 +324,23 @@ class CognitiveAgent:
                     observation = await self._execute_tool(step.tool_call)
                     step.observation = observation
 
+                    # Attach reduced step if available (for context engineering)
+                    if observation.reduced_step:
+                        step.reduced_step = observation.reduced_step
+
                     result.steps.append(step)
                     self.memory.add(
                         "assistant",
                         f"Thought: {step.reasoning}\nAction: {step.tool_call.name}",
                     )
-                    self.memory.add(
-                        "system",
-                        f"Observation: {observation.output if observation.success else observation.error}",
-                    )
+                    # Add observation with offload reference if available
+                    if observation.reduced_step and observation.reduced_step.outcome_ref:
+                        obs_text = (
+                            f"Observation: (Data saved to {observation.reduced_step.outcome_ref})"
+                        )
+                    else:
+                        obs_text = f"Observation: {observation.output if observation.success else observation.error}"
+                    self.memory.add("system", obs_text)
 
                 else:
                     # Just reasoning, continue
@@ -328,7 +430,11 @@ class CognitiveAgent:
         """ReAct pattern with streaming: yield chunks and steps as they happen."""
         result = CognitiveResult(answer="", iterations=0)
 
-        system = build_react_system_prompt(self.config.system_prompt, self.available_tools)
+        system = build_react_system_prompt(
+            self.config.system_prompt,
+            self.available_tools,
+            tool_registry=self.tool_registry,
+        )
 
         for iteration in range(self.config.max_iterations):
             result.iterations = iteration + 1
@@ -341,8 +447,13 @@ class CognitiveAgent:
                     "steps_so_far": len(result.steps),
                 },
             ) as iter_span:
-                # Build prompt with history
-                prompt = build_react_prompt(goal, result.steps)
+                # Build prompt with history (pass compactor for context engineering)
+                prompt = build_react_prompt(
+                    goal,
+                    result.steps,
+                    compactor=self.step_compactor,
+                    use_compaction=True,
+                )
 
                 # Stream the LLM response with thinking span
                 full_response = ""
@@ -385,6 +496,10 @@ class CognitiveAgent:
                     # Execute tool
                     observation = await self._execute_tool(step.tool_call)
                     step.observation = observation
+
+                    # Attach reduced step if available
+                    if observation.reduced_step:
+                        step.reduced_step = observation.reduced_step
 
                     result.steps.append(step)
                     self.memory.add(
@@ -464,19 +579,30 @@ class CognitiveAgent:
                     if isinstance(result, bytes):
                         result = result.decode("utf-8")
                     parsed = json.loads(result)
-                    output = json.dumps(parsed, indent=2)
+                    raw_output = json.dumps(parsed, indent=2)
                 except (json.JSONDecodeError, AttributeError):
-                    output = str(result)
+                    raw_output = str(result)
+
+                # Process through offloader and reducer
+                processed_output, reduced_step = self._process_tool_result(
+                    tool_call=tool_call,
+                    raw_output=raw_output,
+                    success=True,
+                )
 
                 span.set_attribute("tool.success", True)
                 span.set_attribute("tool.latency_ms", latency_ms)
-                span.set_attribute("tool.output.size", len(output))
+                span.set_attribute("tool.output.size", len(raw_output))
+                if reduced_step and reduced_step.outcome_ref:
+                    span.set_attribute("tool.offloaded", True)
+                    span.set_attribute("tool.offload_path", reduced_step.outcome_ref)
 
                 return Observation(
                     tool_name=tool_call.name,
                     success=True,
-                    output=output[:2000],  # Truncate long outputs
+                    output=processed_output[:2000],  # Still truncate for safety
                     latency_ms=latency_ms,
+                    reduced_step=reduced_step,
                 )
 
             except Exception as e:
@@ -492,6 +618,14 @@ class CognitiveAgent:
                         # User approved - retry with the approved flag
                         return await self._execute_tool_with_approval(tool_call, span, start)
 
+                # Process error through reducer
+                _, reduced_step = self._process_tool_result(
+                    tool_call=tool_call,
+                    raw_output="",
+                    success=False,
+                    error=error_str,
+                )
+
                 span.set_attribute("tool.success", False)
                 span.set_attribute("tool.latency_ms", latency_ms)
                 span.set_attribute("tool.error", error_str)
@@ -503,6 +637,7 @@ class CognitiveAgent:
                     output="",
                     error=error_str,
                     latency_ms=latency_ms,
+                    reduced_step=reduced_step,
                 )
 
     def _requires_approval(self, tool_call: ToolCall) -> bool:
@@ -713,6 +848,86 @@ class CognitiveAgent:
                 error=str(e),
                 latency_ms=int((time.time() - start_time) * 1000),
             )
+
+    def _process_tool_result(
+        self,
+        tool_call: ToolCall,
+        raw_output: str,
+        success: bool,
+        error: Optional[str] = None,
+    ) -> tuple[str, Optional[Step]]:
+        """Process tool output through offloader and reducer.
+
+        Args:
+            tool_call: The tool call that was executed
+            raw_output: Raw tool output string
+            success: Whether execution succeeded
+            error: Error message if failed
+
+        Returns:
+            Tuple of (processed_output, reduced_step)
+            - processed_output: Output to show in Observation (may be preview)
+            - reduced_step: Context-reduced Step for history
+        """
+        # For failed calls, no need to offload
+        if not success:
+            step = self.step_reducer.reduce(
+                tool_name=tool_call.name,
+                args=tool_call.arguments,
+                result=None,
+                success=False,
+                error=error,
+            )
+            return raw_output, step
+
+        # Check if output should be offloaded
+        offload_result = self.data_offloader.offload(
+            content=raw_output,
+            category=self._get_offload_category(tool_call.name),
+            identifier=self._get_offload_identifier(tool_call),
+        )
+
+        # Use offloaded preview if it was offloaded
+        output_for_observation = offload_result.content if offload_result.offloaded else raw_output
+
+        # Reduce to Step
+        step = self.step_reducer.reduce(
+            tool_name=tool_call.name,
+            args=tool_call.arguments,
+            result=output_for_observation,  # Use preview for reduction
+            success=True,
+        )
+
+        # Attach offload reference if offloaded
+        if offload_result.offloaded:
+            step.outcome_ref = offload_result.file_path
+
+        return output_for_observation, step
+
+    def _get_offload_category(self, tool_name: str) -> str:
+        """Determine offload category from tool name."""
+        name_lower = tool_name.lower()
+        if "read" in name_lower or "file" in name_lower:
+            return "file_read"
+        elif "shell" in name_lower or "run" in name_lower:
+            return "shell_output"
+        elif "search" in name_lower or "grep" in name_lower:
+            return "search"
+        elif "web" in name_lower or "http" in name_lower:
+            return "web"
+        else:
+            return "tool_output"
+
+    def _get_offload_identifier(self, tool_call: ToolCall) -> str:
+        """Generate identifier for offloaded file."""
+        # Try common path arguments
+        for key in ["path", "file_path", "file", "url"]:
+            if key in tool_call.arguments:
+                value = tool_call.arguments[key]
+                if isinstance(value, str):
+                    return value
+        # Fallback to tool name + timestamp
+        return f"{tool_call.name}_{int(time.time())}"
 
 
 __all__ = [

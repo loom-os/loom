@@ -13,6 +13,79 @@ from loom.cognitive import (
     ThoughtStep,
 )
 from loom.cognitive.types import Observation, ToolCall
+from loom.context import Step
+
+# ============================================================================
+# Context Engineering Integration Tests
+# ============================================================================
+
+
+class TestThoughtStepIntegration:
+    """Test ThoughtStep integration with context engineering."""
+
+    def test_thought_step_with_reduced_step(self):
+        """Test ThoughtStep properly holds reduced_step reference."""
+        reduced = Step(
+            id="step_001",
+            tool_name="fs:read_file",
+            minimal_args={"path": "test.txt"},
+            observation="Read test.txt (1.2KB)",
+            success=True,
+        )
+
+        thought = ThoughtStep(
+            step=1,
+            reasoning="Reading file",
+            tool_call=ToolCall(name="fs:read_file", arguments={"path": "test.txt"}),
+            observation=Observation(
+                tool_name="fs:read_file",
+                success=True,
+                output="file contents...",
+                reduced_step=reduced,
+            ),
+            reduced_step=reduced,
+        )
+
+        assert thought.reduced_step is not None
+        assert thought.reduced_step.id == "step_001"
+        assert thought.reduced_step.observation == "Read test.txt (1.2KB)"
+
+    def test_observation_carries_reduced_step(self):
+        """Test Observation properly references reduced_step."""
+        reduced = Step(
+            id="step_001",
+            tool_name="web:search",
+            minimal_args={"query": "test"},
+            observation="Found 5 results",
+            success=True,
+            outcome_ref=".loom/cache/search/result.json",
+        )
+
+        obs = Observation(
+            tool_name="web:search",
+            success=True,
+            output='{"count": 5}',
+            reduced_step=reduced,
+        )
+
+        assert obs.reduced_step is not None
+        assert obs.reduced_step.outcome_ref == ".loom/cache/search/result.json"
+
+    def test_thought_step_without_reduced_step(self):
+        """Test ThoughtStep works without reduced_step (backward compat)."""
+        thought = ThoughtStep(
+            step=1,
+            reasoning="Simple reasoning",
+            tool_call=ToolCall(name="simple:tool", arguments={}),
+            observation=Observation(
+                tool_name="simple:tool",
+                success=True,
+                output="simple result",
+            ),
+        )
+
+        assert thought.reduced_step is None
+
 
 # ============================================================================
 # Mock Fixtures

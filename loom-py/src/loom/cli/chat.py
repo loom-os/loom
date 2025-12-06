@@ -176,6 +176,19 @@ def print_result(result: dict):
     if stats:
         print(f"{Colors.DIM}{' │ '.join(stats)}{Colors.RESET}")
 
+    # Context engineering metrics
+    steps = result.get("steps", [])
+    if steps:
+        offloaded_count = sum(
+            1
+            for s in steps
+            if s.get("observation")
+            and hasattr(s.get("observation"), "reduced_step")
+            and s["observation"].get("reduced_step", {}).get("outcome_ref")
+        )
+        if offloaded_count > 0:
+            print(f"{Colors.DIM}📊 Context: {offloaded_count} offloaded outputs{Colors.RESET}")
+
 
 def print_help():
     """Print help message."""
@@ -228,11 +241,42 @@ def print_stream_step_complete(step):
         if step.observation:
             if step.observation.success:
                 output = step.observation.output
-                if len(output) > 150:
-                    output = output[:150] + "..."
-                print(f"{Colors.GREEN}   ✅ Result:{Colors.RESET}")
-                for line in output.split("\n")[:3]:
-                    print(f"{Colors.DIM}      {line[:width-10]}{Colors.RESET}")
+
+                # Check if data was offloaded
+                if step.reduced_step and step.reduced_step.outcome_ref:
+                    print(f"{Colors.GREEN}   ✅ Result:{Colors.RESET}")
+                    # Show workspace-relative path and how to view it
+                    ref_path = step.reduced_step.outcome_ref
+                    print(
+                        f"{Colors.DIM}      📄 Offloaded to: {Colors.CYAN}{ref_path}{Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.DIM}      💡 Summary: {step.reduced_step.observation[:100]}{Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.DIM}      📖 View with: {Colors.YELLOW}cat {ref_path}{Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.DIM}      💡 Summary: {step.reduced_step.observation[:100]}{Colors.RESET}"
+                    )
+                else:
+                    # Show output with smart truncation
+                    max_lines = 8
+                    lines = output.split("\n")
+                    print(f"{Colors.GREEN}   ✅ Result:{Colors.RESET}")
+
+                    if len(lines) > max_lines:
+                        # Show first few and last few lines
+                        for line in lines[: max_lines - 2]:
+                            print(f"{Colors.DIM}      {line[:width-10]}{Colors.RESET}")
+                        print(
+                            f"{Colors.DIM}      ... ({len(lines) - max_lines} more lines) ...{Colors.RESET}"
+                        )
+                        for line in lines[-2:]:
+                            print(f"{Colors.DIM}      {line[:width-10]}{Colors.RESET}")
+                    else:
+                        for line in lines:
+                            print(f"{Colors.DIM}      {line[:width-10]}{Colors.RESET}")
             else:
                 print(f"{Colors.RED}   ❌ Error: {step.observation.error}{Colors.RESET}")
         print()
