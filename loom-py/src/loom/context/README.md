@@ -68,11 +68,8 @@ context/
 - Import from top level: `from loom.context import StepReducer`
 - Or from submodule: `from loom.context.engineering import StepReducer`
 - Both work, use what makes sense for your code
-  ├── offloader.py # DataOffloader for file offloading
-  ├── tools.py # ToolDescriptor, dynamic discovery
-  └── isolation.py # IsolatedContext for multi-agent
 
-````
+```
 
 ## Usage Example
 
@@ -92,7 +89,7 @@ context = builder.build()
 # Manage token window
 window = TokenWindowManager(max_tokens=8192)
 window.allocate(system=1500, history=2000, context=1500, response=3192)
-````
+```
 
 ## Design Principles
 

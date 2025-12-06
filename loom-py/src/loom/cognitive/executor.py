@@ -219,11 +219,11 @@ class ToolExecutor:
 
         try:
             if tool_call.name == "system:shell":
-                output = await self._execute_shell_command(tool_call, start_time)
+                output = await self._execute_shell_command(tool_call)
             elif tool_call.name == "fs:write_file":
-                output = await self._execute_write_file(tool_call, start_time)
+                output = await self._execute_write_file(tool_call)
             elif tool_call.name == "fs:delete":
-                output = await self._execute_delete(tool_call, start_time)
+                output = await self._execute_delete(tool_call)
             else:
                 return Observation(
                     tool_name=tool_call.name,
@@ -262,7 +262,7 @@ class ToolExecutor:
                 latency_ms=int((time.time() - start_time) * 1000),
             )
 
-    async def _execute_shell_command(self, tool_call: ToolCall, start_time: float) -> str:
+    async def _execute_shell_command(self, tool_call: ToolCall) -> str:
         """Execute shell command directly (user approved)."""
         command = tool_call.arguments.get("command", "")
         args = tool_call.arguments.get("args", [])
@@ -288,7 +288,7 @@ class ToolExecutor:
             indent=2,
         )
 
-    async def _execute_write_file(self, tool_call: ToolCall, start_time: float) -> str:
+    async def _execute_write_file(self, tool_call: ToolCall) -> str:
         """Write file directly in Python (user approved)."""
         file_path = tool_call.arguments.get("path", "")
         content = tool_call.arguments.get("content", "")
@@ -314,7 +314,7 @@ class ToolExecutor:
             indent=2,
         )
 
-    async def _execute_delete(self, tool_call: ToolCall, start_time: float) -> str:
+    async def _execute_delete(self, tool_call: ToolCall) -> str:
         """Delete file or directory directly in Python (user approved)."""
         file_path = tool_call.arguments.get("path", "")
 
