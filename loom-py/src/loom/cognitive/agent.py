@@ -51,7 +51,7 @@ from .strategies import StrategyExecutor
 from .types import CognitiveResult, ThoughtStep
 
 if TYPE_CHECKING:
-    from ..agent import Context
+    from ..agent import EventContext
     from ..llm import LLMProvider
 
 # Get tracer for cognitive spans
@@ -61,14 +61,14 @@ tracer = trace.get_tracer(__name__)
 class CognitiveAgent:
     """Autonomous agent with perceive-think-act cognitive loop.
 
-    This class wraps an Agent's Context and LLMProvider to implement
+    This class wraps an Agent's EventContext and LLMProvider to implement
     the cognitive loop pattern for autonomous task execution.
     """
 
     def __init__(
         self,
-        ctx: Context,
-        llm: LLMProvider,
+        ctx: "EventContext",
+        llm: "LLMProvider",
         config: Optional[CognitiveConfig] = None,
         available_tools: Optional[list[str]] = None,
         permission_callback: Optional[callable] = None,

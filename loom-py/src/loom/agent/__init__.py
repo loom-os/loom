@@ -2,16 +2,20 @@
 
 This module provides the primary agent classes:
 - Agent: Main class for connecting to Loom Runtime
-- Context: Agent's interface to Rust Core
+- EventContext: Agent's interface to Rust Core Event Bus
 - Envelope: Message wrapper for event communication
 """
 
 from .base import Agent
-from .context import Context
 from .envelope import Envelope
+from .event import EventContext
+
+# Backward compatibility alias
+Context = EventContext
 
 __all__ = [
     "Agent",
-    "Context",
+    "EventContext",
+    "Context",  # Backward compatibility
     "Envelope",
 ]

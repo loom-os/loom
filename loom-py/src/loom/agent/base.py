@@ -17,13 +17,13 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 from opentelemetry import trace
 from opentelemetry.trace import set_span_in_context
 
-from .context import Context
 from .envelope import Envelope
+from .event import EventContext
 
 if TYPE_CHECKING:
     from ..tools import Tool
 
-EventHandler = Callable[[Context, str, Envelope], Awaitable[None]]
+EventHandler = Callable[[EventContext, str, Envelope], Awaitable[None]]
 
 # Get tracer for agent spans
 tracer = trace.get_tracer(__name__)
@@ -105,7 +105,7 @@ class Agent:
 
         self._on_event = on_event
         self.client = BridgeClient(address=address) if address else BridgeClient()
-        self._ctx = Context(agent_id=self.agent_id, client=self.client)
+        self._ctx = EventContext(agent_id=self.agent_id, client=self.client)
         self._outbound_queue: asyncio.Queue = asyncio.Queue(maxsize=1024)
         self._ctx._bind(self._outbound_queue)
         self._stream_task: Optional[asyncio.Task] = None
@@ -114,8 +114,8 @@ class Agent:
         self._reconnect_lock = asyncio.Lock()
 
     @property
-    def ctx(self) -> Context:
-        """Get the agent's context."""
+    def ctx(self) -> EventContext:
+        """Get the agent's event context."""
         return self._ctx
 
     async def start(self):

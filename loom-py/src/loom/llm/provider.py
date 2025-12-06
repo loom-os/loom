@@ -19,7 +19,7 @@ from opentelemetry import trace
 from .config import LLMConfig
 
 if TYPE_CHECKING:
-    from ..agent import Context
+    from ..agent import EventContext
     from ..runtime.config import ProjectConfig
 
 # Get tracer for LLM operation spans
@@ -61,22 +61,22 @@ class LLMProvider:
         timeout_ms=30000,
     )
 
-    def __init__(self, ctx: Context, config: Optional[LLMConfig] = None):
+    def __init__(self, ctx: "EventContext", config: Optional[LLMConfig] = None):
         """Initialize LLM provider.
 
         Args:
-            ctx: Loom agent context
+            ctx: Loom agent event context
             config: LLM configuration (defaults to LOCAL)
         """
         self.ctx = ctx
         self.config = config or self.LOCAL
 
     @classmethod
-    def from_name(cls, ctx: Context, provider_name: str) -> LLMProvider:
+    def from_name(cls, ctx: "EventContext", provider_name: str) -> LLMProvider:
         """Create provider from name.
 
         Args:
-            ctx: Loom agent context
+            ctx: Loom agent event context
             provider_name: One of "deepseek", "openai", "local"
 
         Returns:
@@ -97,9 +97,9 @@ class LLMProvider:
     @classmethod
     def from_config(
         cls,
-        ctx: Context,
+        ctx: "EventContext",
         provider_name: str,
-        project_config: ProjectConfig,
+        project_config: "ProjectConfig",
     ) -> LLMProvider:
         """Create provider from ProjectConfig.
 
@@ -107,7 +107,7 @@ class LLMProvider:
         Falls back to built-in presets if not found.
 
         Args:
-            ctx: Loom agent context
+            ctx: Loom agent event context
             provider_name: Name of the provider (e.g., "deepseek", "openai", "local")
             project_config: Loaded ProjectConfig from loom.toml
 

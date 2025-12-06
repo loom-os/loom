@@ -21,7 +21,7 @@ from ..context import Step
 from .types import Observation, ToolCall
 
 if TYPE_CHECKING:
-    from ..agent import Context
+    from ..agent import EventContext
     from ..context import DataOffloader, StepReducer
 
 # Get tracer for tool execution spans
@@ -39,9 +39,9 @@ class ToolExecutor:
 
     def __init__(
         self,
-        ctx: Context,
-        step_reducer: StepReducer,
-        data_offloader: DataOffloader,
+        ctx: "EventContext",
+        step_reducer: "StepReducer",
+        data_offloader: "DataOffloader",
         permission_callback: Optional[callable] = None,
     ):
         """Initialize tool executor.
