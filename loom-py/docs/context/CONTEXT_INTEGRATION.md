@@ -304,63 +304,6 @@ def test_full_pipeline_with_offloading(tmp_path):
     # Verify preview is shown, not full output
     assert len(prompt) < len(large_content)
 ```
-
-## Common Issues
-
-### Issue 1: AttributeError: 'Step' object has no attribute 'outcome'
-
-**Cause**: Using `step.outcome` instead of `step.observation`
-
-**Fix**:
-
-```python
-# WRONG
-summary = step.reduced_step.outcome[:100]
-
-# CORRECT
-summary = step.reduced_step.observation[:100]
-```
-
-### Issue 2: reduced_step is None
-
-**Cause**: Not propagating from Observation to ThoughtStep
-
-**Fix**:
-
-```python
-# In CognitiveAgent._run_react():
-step = ThoughtStep(
-    ...,
-    observation=observation,
-    reduced_step=observation.reduced_step,  # ← Add this!
-)
-```
-
-### Issue 3: Compaction not working
-
-**Cause**: Not passing compactor to build_react_prompt
-
-**Fix**:
-
-```python
-# WRONG
-prompt = build_react_prompt(goal, steps)
-
-# CORRECT
-prompt = build_react_prompt(
-    goal,
-    steps,
-    compactor=self.step_compactor,
-    use_compaction=True,
-)
-```
-
-### Issue 4: Offload references not shown in prompt
-
-**Cause**: Prompt builder not checking outcome_ref
-
-**Fix**: Already fixed in loop.py:120-125
-
 ## Performance Impact
 
 ### Token Savings

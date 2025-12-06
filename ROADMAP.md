@@ -97,10 +97,11 @@ Context Engineering in Loom
 │     ├── agent.spawn / agent.result
 │     └── No shared prompt context
 │
-├── Offloading (Rust + Python)   ← P1: Scalability
-│     ├── Data → workspace files
-│     ├── Tools → CLI sandbox
-│     └── Logic → script APIs
+├── Offloading (Rust + Python)   ← P1: Scalability (lifecycle design)
+│     ├── Phase 1-4: Creation → Reference → Retrieval ✅
+│     ├── Phase 5: Promotion (SHORT → LONG term) 📋
+│     ├── Phase 6-7: TTL → Garbage Collection 📋
+│     └── Phase 8: Archival with search 📋
 │
 ├── Hierarchical Tools           ← P2: Simplify LLM
 │     ├── L1: Function tools (LLM-facing)
@@ -117,38 +118,45 @@ Context Engineering in Loom
 
 **P0: Core Context Quality (Week 1-2)** ✅ **COMPLETED**
 
-| Task                   | Description                             | Status | Commit    |
-| ---------------------- | --------------------------------------- | ------ | --------- |
-| 2.1 Step & CompactStep | Unified step model with reduction       | ✅     | 2741a77   |
-| 2.2 StepReducer        | Tool-specific minimal observation rules | ✅     | 2741a77   |
-| 2.3 StepCompactor      | Step history compaction with grouping   | ✅     | 2741a77   |
-| 2.4 File Offloading    | Heavy output → workspace files          | ✅     | 2741a77   |
-| 2.5 Prompt Integration | Compaction in build_react_prompt        | ✅     | 785af0d   |
-| 2.6 Tool Descriptors   | Full parameter info in system prompt    | ✅     | 9185ec2   |
-| 2.7 Few-Shot Examples  | Curated ReAct success patterns          | ✅     | 9185ec2   |
-| 2.8 Agent Integration  | Auto reduction/offload in CognitiveAgent| ✅     | ae51993   |
+| Task                   | Description                              | Status | Commit  |
+| ---------------------- | ---------------------------------------- | ------ | ------- |
+| 2.1 Step & CompactStep | Unified step model with reduction        | ✅     | 2741a77 |
+| 2.2 StepReducer        | Tool-specific minimal observation rules  | ✅     | 2741a77 |
+| 2.3 StepCompactor      | Step history compaction with grouping    | ✅     | 2741a77 |
+| 2.4 File Offloading    | Heavy output → workspace files           | ✅     | 2741a77 |
+| 2.5 Prompt Integration | Compaction in build_react_prompt         | ✅     | 785af0d |
+| 2.6 Tool Descriptors   | Full parameter info in system prompt     | ✅     | 9185ec2 |
+| 2.7 Few-Shot Examples  | Curated ReAct success patterns           | ✅     | 9185ec2 |
+| 2.8 Agent Integration  | Auto reduction/offload in CognitiveAgent | ✅     | ae51993 |
 
 **Key Metrics:**
+
 - 97 unit tests passing (30 step + 17 compactor + 26 offloader + 22 tool descriptor + 2 integration)
 - ~1,700 lines of production code
 - 29.4% token reduction measured in synthetic scenarios
 - No negative impact on task completion (identical iteration counts)
 
-**P1: Multi-Agent Foundation (Week 3)** 📋
+**P1: Offload Lifecycle & Multi-Agent (Week 3)** 📋
 
-| Task                    | Description                 | Status |
-| ----------------------- | --------------------------- | ------ |
-| 2.6 Context Isolation   | Per-agent working memory    | 📋     |
-| 2.7 Agent Spawning      | EventBus-based spawn/result | 📋     |
-| 2.8 Goal-only Prompting | No parent context leak      | 📋     |
+| Task                     | Description                           | Status |
+| ------------------------ | ------------------------------------- | ------ |
+| 2.9 Offload Index        | JSON-based metadata persistence       | 📋     |
+| 2.10 TTL & GC            | Automatic expiration and cleanup      | 📋     |
+| 2.11 Promotion API       | SHORT_TERM → LONG_TERM tier promotion | 📋     |
+| 2.12 Context Isolation   | Per-agent working memory              | 📋     |
+| 2.13 Agent Spawning      | EventBus-based spawn/result           | 📋     |
+| 2.14 Goal-only Prompting | No parent context leak                | 📋     |
 
 **P2: Advanced Features (Week 4+)** 📋
 
-| Task                   | Description               | Status |
-| ---------------------- | ------------------------- | ------ |
-| 2.9 Hierarchical Tools | L1/L2/L3 action space     | 📋     |
-| 2.10 Script Offloading | python:run_script tool    | 📋     |
-| 2.11 Semantic Ranking  | Embedding-based retrieval | 📋     |
+| Task                     | Description                       | Status |
+| ------------------------ | --------------------------------- | ------ |
+| 2.15 Archival System     | Semantic search in archived files | 📋     |
+| 2.16 RocksDB Integration | Long-term offload metadata in DB  | 📋     |
+| 2.17 Task-scoped Offload | `.loom/offload/<task_id>/` layout | 📋     |
+| 2.18 Hierarchical Tools  | L1/L2/L3 action space             | 📋     |
+| 2.19 Script Offloading   | python:run_script tool            | 📋     |
+| 2.20 Semantic Ranking    | Embedding-based retrieval         | 📋     |
 
 ### Previous Completions
 
@@ -212,7 +220,9 @@ Context Engineering in Loom
 - `loom-py/docs/context/DESIGN.md` — Full Context Engineering specification
 - `loom-py/docs/context/REDUCTION.md` — Step reduction & compaction
 - `loom-py/docs/context/ISOLATION.md` — Multi-agent context isolation
-- `loom-py/docs/context/OFFLOADING.md` — Data & logic offloading
+- `loom-py/docs/context/OFFLOADING.md` — Data & logic offloading patterns
+- `loom-py/docs/context/LIFECYCLE.md` — Complete 8-phase offload lifecycle ✨ NEW
+- `loom-py/docs/OFFLOAD_MANAGEMENT.md` — User guide for viewing/cleaning files
 
 ---
 

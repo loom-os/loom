@@ -118,9 +118,12 @@ class TestCLIDisplay:
 
         # Verify output contains offload reference
         assert ".loom/cache/search/websearch_123.json" in captured.out
-        assert "Data offloaded" in captured.out
-        assert "Summary:" in captured.out
+        assert "Offloaded to:" in captured.out
+        assert "Summary:" in captured.out or "Summary" in captured.out
         assert "Search completed" in captured.out
+        # Check for "View with:" and "cat" separately due to ANSI codes
+        assert "View with:" in captured.out
+        assert "cat " in captured.out
 
     def test_display_non_offloaded_step(self, capsys):
         """Test CLI display for normal (non-offloaded) tool output."""

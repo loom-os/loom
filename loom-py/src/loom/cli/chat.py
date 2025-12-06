@@ -245,8 +245,16 @@ def print_stream_step_complete(step):
                 # Check if data was offloaded
                 if step.reduced_step and step.reduced_step.outcome_ref:
                     print(f"{Colors.GREEN}   ✅ Result:{Colors.RESET}")
+                    # Show workspace-relative path and how to view it
+                    ref_path = step.reduced_step.outcome_ref
                     print(
-                        f"{Colors.DIM}      📄 Data offloaded to: {step.reduced_step.outcome_ref}{Colors.RESET}"
+                        f"{Colors.DIM}      📄 Offloaded to: {Colors.CYAN}{ref_path}{Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.DIM}      💡 Summary: {step.reduced_step.observation[:100]}{Colors.RESET}"
+                    )
+                    print(
+                        f"{Colors.DIM}      📖 View with: {Colors.YELLOW}cat {ref_path}{Colors.RESET}"
                     )
                     print(
                         f"{Colors.DIM}      💡 Summary: {step.reduced_step.observation[:100]}{Colors.RESET}"

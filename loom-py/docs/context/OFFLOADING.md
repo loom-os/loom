@@ -2,6 +2,8 @@
 
 This document details the offloading strategies for keeping LLM context lean.
 
+> 📖 **See also:** [LIFECYCLE.md](LIFECYCLE.md) for the complete 8-phase offload lifecycle (creation → archival)
+
 ---
 
 ## Principle

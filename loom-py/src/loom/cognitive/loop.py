@@ -206,6 +206,7 @@ def parse_react_response(response: str) -> dict[str, Any]:
         r"\nThought\s*\d+:",  # Next thought (should wait for real observation)
         r"\nAction:\s*\n*Action:",  # Repeated action markers
         r"\nAction:\s*[a-z_]+:",  # Format like "Action: fs:write_file(...)"
+        r"\nFINAL ANSWER:",  # Repeated final answer (keep only first)
     ]
 
     for pattern in truncation_patterns:
@@ -217,15 +218,15 @@ def parse_react_response(response: str) -> dict[str, Any]:
                 response = before.strip()
                 break
 
-    # Check for final answer - must be near end of response to avoid false matches
-    # Split by lines and check last few non-empty lines
-    lines = [line.strip() for line in response.split("\n") if line.strip()]
-    if lines:
-        # Check last 3 lines for FINAL ANSWER marker
-        check_text = "\n".join(lines[-3:]) if len(lines) >= 3 else response
-        final_match = re.search(r"FINAL ANSWER:\s*(.+)", check_text, re.IGNORECASE | re.DOTALL)
-        if final_match:
-            return {"type": "final_answer", "content": final_match.group(1).strip()}
+    # Check for final answer - find first occurrence and use only that
+    # This prevents LLM from repeating the same final answer multiple times
+    final_match = re.search(
+        r"FINAL ANSWER:\s*(.+?)(?=\nFINAL ANSWER:|\nThought|\nAction|$)",
+        response,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if final_match:
+        return {"type": "final_answer", "content": final_match.group(1).strip()}
 
     # Try to extract tool call - supports multiple formats
     tool_call = extract_tool_call(response)
