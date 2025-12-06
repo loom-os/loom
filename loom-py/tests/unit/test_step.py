@@ -1,6 +1,6 @@
 """Tests for Step types and StepReducer."""
 
-from loom.context.reducer import (
+from loom.context.engineering.reducer import (
     DefaultReducer,
     FileEditReducer,
     FileReadReducer,
@@ -10,7 +10,7 @@ from loom.context.reducer import (
     StepReducer,
     WebFetchReducer,
 )
-from loom.context.step import (
+from loom.context.engineering.step import (
     CompactStep,
     Step,
     compute_content_hash,

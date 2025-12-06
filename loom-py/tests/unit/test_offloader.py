@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from loom.context.offloader import (
+from loom.context.engineering.offloader import (
     DataOffloader,
     OffloadConfig,
     OffloadResult,
@@ -334,7 +334,7 @@ class TestIntegration:
 
     def test_offloader_with_step_reducer(self, temp_workspace):
         """Test using offloader alongside step reducer."""
-        from loom.context.reducer import StepReducer
+        from loom.context.engineering.reducer import StepReducer
 
         offloader = DataOffloader(temp_workspace, OffloadConfig(size_threshold=100))
         reducer = StepReducer()
