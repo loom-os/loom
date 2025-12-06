@@ -5,7 +5,8 @@
 - **SDK Guide**: `SDK_GUIDE.md` - Build your first agent
 - **LLM Provider Guide**: `LLM_GUIDE.md` - Configure LLM providers
 - **Cognitive Loop Guide**: `COGNITIVE_GUIDE.md` - Implement reasoning patterns
-- **CLI Guide**: `CLI_GUIDE.md` - Interactive chat interface ✨ NEW
+- **CLI Guide**: `CLI_GUIDE.md` - Interactive chat interface
+- **Benchmarking**: `BENCHMARKING.md` - Agent evaluation strategy ✨ NEW ✨ NEW
 
 ## Context Engineering
 

@@ -151,23 +151,26 @@ Context Engineering in Loom
 
 | Task                     | Description                           | Status |
 | ------------------------ | ------------------------------------- | ------ |
-| 2.9 Offload Index        | JSON-based metadata persistence       | 📋     |
-| 2.10 TTL & GC            | Automatic expiration and cleanup      | 📋     |
-| 2.11 Promotion API       | SHORT_TERM → LONG_TERM tier promotion | 📋     |
-| 2.12 Context Isolation   | Per-agent working memory              | 📋     |
-| 2.13 Agent Spawning      | EventBus-based spawn/result           | 📋     |
-| 2.14 Goal-only Prompting | No parent context leak                | 📋     |
+| 2.9 Benchmark Validation | SWE-bench integration & comparison    | 📋     |
+| 2.10 Offload Index       | JSON-based metadata persistence       | 📋     |
+| 2.11 TTL & GC            | Automatic expiration and cleanup      | 📋     |
+| 2.12 Promotion API       | SHORT_TERM → LONG_TERM tier promotion | 📋     |
+| 2.13 Context Isolation   | Per-agent working memory              | 📋     |
+| 2.14 Agent Spawning      | EventBus-based spawn/result           | 📋     |
+| 2.15 Goal-only Prompting | No parent context leak                | 📋     |
 
 **P2: Advanced Features (Week 4+)** 📋
 
 | Task                     | Description                       | Status |
 | ------------------------ | --------------------------------- | ------ |
-| 2.15 Archival System     | Semantic search in archived files | 📋     |
-| 2.16 RocksDB Integration | Long-term offload metadata in DB  | 📋     |
-| 2.17 Task-scoped Offload | `.loom/offload/<task_id>/` layout | 📋     |
-| 2.18 Hierarchical Tools  | L1/L2/L3 action space             | 📋     |
-| 2.19 Script Offloading   | python:run_script tool            | 📋     |
-| 2.20 Semantic Ranking    | Embedding-based retrieval         | 📋     |
+| 2.16 WebArena Benchmark  | Real-world web interaction tasks  | 📋     |
+| 2.17 GAIA Benchmark      | General assistant evaluation      | 📋     |
+| 2.18 Archival System     | Semantic search in archived files | 📋     |
+| 2.19 RocksDB Integration | Long-term offload metadata in DB  | 📋     |
+| 2.20 Task-scoped Offload | `.loom/offload/<task_id>/` layout | 📋     |
+| 2.21 Hierarchical Tools  | L1/L2/L3 action space             | 📋     |
+| 2.22 Script Offloading   | python:run_script tool            | 📋     |
+| 2.23 Semantic Ranking    | Embedding-based retrieval         | 📋     |
 
 ### Previous Completions
 
@@ -230,11 +233,12 @@ Context Engineering in Loom
 
 - `loom-py/docs/context/DESIGN.md` — Full Context Engineering specification
 - `loom-py/docs/context/REDUCTION.md` — Step reduction & per-tool rules
-- `loom-py/docs/context/COMPACTION.md` — Long conversation history compression ✨ NEW
+- `loom-py/docs/context/COMPACTION.md` — Long conversation history compression
 - `loom-py/docs/context/ISOLATION.md` — Multi-agent context isolation
 - `loom-py/docs/context/OFFLOADING.md` — Data & logic offloading patterns
-- `loom-py/docs/context/LIFECYCLE.md` — Complete 8-phase offload lifecycle ✨ NEW
-- `loom-py/docs/context/OFFLOAD_MANAGEMENT.md` — User guide for viewing/cleaning files ✨ NEW
+- `loom-py/docs/context/LIFECYCLE.md` — Complete 8-phase offload lifecycle
+- `loom-py/docs/context/OFFLOAD_MANAGEMENT.md` — User guide for viewing/cleaning files
+- `loom-py/docs/BENCHMARKING.md` — Agent benchmark strategy & integration ✨ NEW
 
 ---
 
