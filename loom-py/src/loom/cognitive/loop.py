@@ -129,7 +129,11 @@ def build_react_prompt(
                         parts.append(f"Action: {step.tool_call.name}({step.tool_call.arguments})")
                     if step.observation:
                         if step.observation.success:
-                            parts.append(f"Observation: {step.observation.output}")
+                            # Show offload reference if available
+                            if step.reduced_step and step.reduced_step.outcome_ref:
+                                parts.append(f"Observation: (See {step.reduced_step.outcome_ref})")
+                            else:
+                                parts.append(f"Observation: {step.observation.output}")
                         else:
                             parts.append(f"Observation: Error - {step.observation.error}")
         else:
@@ -213,10 +217,15 @@ def parse_react_response(response: str) -> dict[str, Any]:
                 response = before.strip()
                 break
 
-    # Check for final answer first
-    final_match = re.search(r"FINAL ANSWER:\s*(.+)", response, re.IGNORECASE | re.DOTALL)
-    if final_match:
-        return {"type": "final_answer", "content": final_match.group(1).strip()}
+    # Check for final answer - must be near end of response to avoid false matches
+    # Split by lines and check last few non-empty lines
+    lines = [line.strip() for line in response.split("\n") if line.strip()]
+    if lines:
+        # Check last 3 lines for FINAL ANSWER marker
+        check_text = "\n".join(lines[-3:]) if len(lines) >= 3 else response
+        final_match = re.search(r"FINAL ANSWER:\s*(.+)", check_text, re.IGNORECASE | re.DOTALL)
+        if final_match:
+            return {"type": "final_answer", "content": final_match.group(1).strip()}
 
     # Try to extract tool call - supports multiple formats
     tool_call = extract_tool_call(response)

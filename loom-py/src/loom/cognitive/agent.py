@@ -280,8 +280,13 @@ class CognitiveAgent:
                     "goal": goal[:100],
                 },
             ) as iter_span:
-                # Build prompt with history
-                prompt = build_react_prompt(goal, result.steps)
+                # Build prompt with history (pass compactor for context engineering)
+                prompt = build_react_prompt(
+                    goal,
+                    result.steps,
+                    compactor=self.step_compactor,
+                    use_compaction=True,
+                )
 
                 # Think - LLM call
                 with tracer.start_as_current_span(
@@ -319,7 +324,7 @@ class CognitiveAgent:
                     observation = await self._execute_tool(step.tool_call)
                     step.observation = observation
 
-                    # Attach reduced step if available
+                    # Attach reduced step if available (for context engineering)
                     if observation.reduced_step:
                         step.reduced_step = observation.reduced_step
 
@@ -328,10 +333,14 @@ class CognitiveAgent:
                         "assistant",
                         f"Thought: {step.reasoning}\nAction: {step.tool_call.name}",
                     )
-                    self.memory.add(
-                        "system",
-                        f"Observation: {observation.output if observation.success else observation.error}",
-                    )
+                    # Add observation with offload reference if available
+                    if observation.reduced_step and observation.reduced_step.outcome_ref:
+                        obs_text = (
+                            f"Observation: (Data saved to {observation.reduced_step.outcome_ref})"
+                        )
+                    else:
+                        obs_text = f"Observation: {observation.output if observation.success else observation.error}"
+                    self.memory.add("system", obs_text)
 
                 else:
                     # Just reasoning, continue
@@ -438,8 +447,13 @@ class CognitiveAgent:
                     "steps_so_far": len(result.steps),
                 },
             ) as iter_span:
-                # Build prompt with history
-                prompt = build_react_prompt(goal, result.steps)
+                # Build prompt with history (pass compactor for context engineering)
+                prompt = build_react_prompt(
+                    goal,
+                    result.steps,
+                    compactor=self.step_compactor,
+                    use_compaction=True,
+                )
 
                 # Stream the LLM response with thinking span
                 full_response = ""

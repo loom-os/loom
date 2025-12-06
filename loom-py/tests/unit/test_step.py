@@ -18,6 +18,64 @@ from loom.context.step import (
 )
 
 
+class TestStepAttributes:
+    """Test Step object attributes to prevent attribute errors."""
+
+    def test_step_has_observation_not_outcome(self):
+        """Verify Step uses 'observation' attribute, not 'outcome'."""
+        step = Step(
+            id="step_001",
+            tool_name="test:tool",
+            minimal_args={"key": "value"},
+            observation="Test observation",
+            success=True,
+        )
+
+        # Should have observation
+        assert hasattr(step, "observation")
+        assert step.observation == "Test observation"
+
+        # Should NOT have outcome
+        assert not hasattr(step, "outcome")
+
+    def test_step_outcome_ref_for_offloaded_data(self):
+        """Test outcome_ref attribute for offloaded data references."""
+        step = Step(
+            id="step_001",
+            tool_name="web:search",
+            minimal_args={"query": "test"},
+            observation="Search completed with 5 results",
+            success=True,
+            outcome_ref=".loom/cache/search/result.json",
+        )
+
+        assert step.outcome_ref == ".loom/cache/search/result.json"
+        assert step.observation == "Search completed with 5 results"
+
+    def test_step_all_required_attributes(self):
+        """Verify all expected Step attributes exist."""
+        step = Step(
+            id="step_001",
+            tool_name="test:tool",
+            minimal_args={},
+            observation="test",
+            success=True,
+        )
+
+        # Required attributes
+        assert hasattr(step, "id")
+        assert hasattr(step, "tool_name")
+        assert hasattr(step, "minimal_args")
+        assert hasattr(step, "observation")
+        assert hasattr(step, "success")
+        assert hasattr(step, "timestamp_ms")
+
+        # Optional attributes
+        assert hasattr(step, "outcome_ref")
+        assert hasattr(step, "error")
+        assert hasattr(step, "metadata")
+
+
 class TestStep:
     """Tests for Step dataclass."""
 
