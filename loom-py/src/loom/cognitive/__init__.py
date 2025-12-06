@@ -8,6 +8,10 @@ This module implements the cognitive loop pattern for autonomous agent reasoning
 The cognitive module is the "Brain" in Loom's Brain/Hand separation:
 - Brain (Python): LLM calls, reasoning, context engineering
 - Hands (Rust Core): Tool execution, event bus, persistence
+
+Internal Components:
+- ToolExecutor: Handles tool execution with approval management
+- StrategyExecutor: Implements different thinking strategies
 """
 
 # Re-export WorkingMemory for convenience (lives in context.memory)
