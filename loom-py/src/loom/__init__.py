@@ -59,7 +59,7 @@ Module structure:
 """
 
 # Agent
-from .agent import Agent, Context, Envelope
+from .agent import Agent, Envelope, EventContext
 
 # Cognitive
 from .cognitive import (
@@ -81,6 +81,9 @@ from .telemetry import init_telemetry, shutdown_telemetry
 
 # Tools
 from .tools import Capability, Tool, capability, tool
+
+# Backward compatibility
+Context = EventContext
 
 __all__ = [
     # Agent

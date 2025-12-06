@@ -28,29 +28,47 @@ Context Engineering
 
 ```
 context/
-├── __init__.py         # Public exports
-├── README.md           # This file
-├── builder.py          # ContextBuilder, ContextWindow
-├── memory/
-│   ├── types.py        # MemoryItem, MemoryTier
-│   ├── working.py      # WorkingMemory
-│   └── store.py        # InMemoryStore
-├── ranking/
-│   └── ranker.py       # ContextRanker, ScoredItem
-└── window/
-    └── manager.py      # TokenWindowManager, TokenBudget
+├── __init__.py              # Public exports
+├── README.md                # This file
+├── ranking.py               # ContextRanker, ScoredItem
+├── window.py                # TokenWindowManager, TokenBudget
+├── engineering/             # Context optimization
+│   ├── __init__.py
+│   ├── step.py              # Step, CompactStep dataclasses
+│   ├── reducer.py           # StepReducer with per-tool rules
+│   ├── compactor.py         # StepCompactor for history compression
+│   └── offloader.py         # DataOffloader for large outputs
+├── prompting/               # Prompt construction
+│   ├── __init__.py
+│   ├── builder.py           # ContextBuilder, ContextWindow
+│   ├── few_shot.py          # FewShotExample, FewShotLibrary
+│   └── tool_descriptor.py   # ToolDescriptor, ToolRegistry
+└── memory/                  # Memory management
+    ├── __init__.py
+    ├── types.py             # MemoryItem, MemoryTier
+    ├── working.py           # WorkingMemory
+    └── store.py             # InMemoryStore
 ```
 
-## Planned Additions (P0)
+## Organization Principles
 
-```
-context/
-├── step.py             # Step, CompactStep dataclasses
-├── reducer.py          # StepReducer with per-tool rules
-├── compactor.py        # StepCompactor for history compression
-├── offloader.py        # DataOffloader for file offloading
-├── tools.py            # ToolDescriptor, dynamic discovery
-└── isolation.py        # IsolatedContext for multi-agent
+### 1. Flat is Better Than Nested (for simple modules)
+
+- `ranking.py` and `window.py` are at the top level (114 and 156 lines respectively)
+- No need for subdirectories when modules are small and focused
+
+### 2. Logical Grouping (for related functionality)
+
+- **engineering/**: Token optimization techniques (reducer, compactor, offloader, step)
+- **prompting/**: Prompt construction utilities (builder, few_shot, tool_descriptor)
+- **memory/**: Memory management (working, store, types)
+
+### 3. Progressive Disclosure
+
+- Import from top level: `from loom.context import StepReducer`
+- Or from submodule: `from loom.context.engineering import StepReducer`
+- Both work, use what makes sense for your code
+
 ```
 
 ## Usage Example

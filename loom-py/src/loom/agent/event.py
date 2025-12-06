@@ -1,9 +1,12 @@
-"""Agent Context - Agent's interface to Rust Core.
+"""Event Context - Agent's interface to Rust Core Event Bus.
 
-This module provides the Context class which is the agent's handle for:
-- Publishing/subscribing to events
+This module provides the EventContext class which is the agent's handle for:
+- Publishing/subscribing to events via Event Bus
 - Invoking tools via Bridge
 - Managing memory via Core
+
+This is the agent's connection to Rust Core's event-driven architecture,
+working together with Envelope for event encapsulation.
 """
 
 from __future__ import annotations
@@ -22,17 +25,18 @@ from .envelope import Envelope
 if TYPE_CHECKING:
     from ..bridge import BridgeClient
 
-EventHandler = Callable[["Context", str, Envelope], Awaitable[None]]
+EventHandler = Callable[["EventContext", str, Envelope], Awaitable[None]]
 
 # Get tracer for tool invocation spans
 tracer = trace.get_tracer(__name__)
 
 
-class Context:
-    """Agent context - interface to Rust Core via Bridge.
+class EventContext:
+    """Event context - agent's interface to Rust Core Event Bus.
 
     Provides event publishing, tool invocation, and memory operations.
-    Each agent has one Context instance.
+    Each agent has one EventContext instance that handles all communication
+    with Rust Core's event bus and bridge services.
     """
 
     def __init__(self, agent_id: str, client: BridgeClient):
@@ -504,4 +508,4 @@ class Context:
         }
 
 
-__all__ = ["Context"]
+__all__ = ["EventContext"]

@@ -1,11 +1,11 @@
 """Tests for StepCompactor."""
 
-from loom.context.compactor import (
+from loom.context.engineering.compactor import (
     CompactedHistory,
     CompactionConfig,
     StepCompactor,
 )
-from loom.context.step import Step
+from loom.context.engineering.step import Step
 
 
 def make_step(id: str, tool: str, success: bool = True) -> Step:
@@ -91,7 +91,7 @@ class TestCompactedHistory:
 
     def test_format_with_compact_and_recent(self):
         """Test formatting with both compact and recent steps."""
-        from loom.context.step import CompactStep
+        from loom.context.engineering.step import CompactStep
 
         history = CompactedHistory(
             recent_steps=[make_step("step_010", "fs:write_file")],

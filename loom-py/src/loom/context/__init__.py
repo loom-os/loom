@@ -3,65 +3,72 @@
 This is the Python SDK's context engineering system, corresponding to
 core/src/context/ in Rust Core. It provides:
 
-- **builder**: Assemble prompts from memory and context
-- **memory**: Working memory, short-term, and persistent storage
-- **ranking**: Rank and prioritize context items
-- **window**: Token budget management
-- **step**: Reduced step representations for context efficiency
-- **reducer**: Per-tool reduction rules
-- **compactor**: Step history compaction
-- **offloader**: Large data offloading to files
+**Module Organization:**
+
+- **engineering/**: Context optimization (reducer, compactor, offloader, step)
+- **prompting/**: Prompt construction (builder, few_shot, tool_descriptor)
+- **memory/**: Working memory and persistent storage
+- **ranking.py**: Context ranking and prioritization
+- **window.py**: Token budget management
 
 Per the Brain/Hand separation:
 - Python handles context assembly, ranking, and memory strategies
 - Rust Core handles persistent storage (RocksDB) via Bridge
 """
 
-from .builder import ContextBuilder, ContextWindow
-from .compactor import CompactedHistory, CompactionConfig, StepCompactor
-from .few_shot import FewShotExample, FewShotLibrary, get_default_library
-from .memory import InMemoryStore, MemoryItem, MemoryTier, WorkingMemory, _memory
-from .offloader import DataOffloader, OffloadConfig, OffloadResult
-from .ranking import ContextRanker, ScoredItem
-from .reducer import (
+# Core utilities
+# Engineering submodule
+from .engineering import (
+    CompactedHistory,
+    CompactionConfig,
+    CompactStep,
+    DataOffloader,
     DefaultReducer,
     FileEditReducer,
     FileReadReducer,
     FileWriteReducer,
+    OffloadConfig,
+    OffloadResult,
     SearchReducer,
     ShellReducer,
+    Step,
+    StepCompactor,
     StepReducer,
     ToolReducer,
     WebFetchReducer,
+    compute_content_hash,
+    generate_step_id,
 )
-from .step import CompactStep, Step, compute_content_hash, generate_step_id
-from .tool_descriptor import (
+
+# Memory submodule
+from .memory import InMemoryStore, MemoryItem, MemoryTier, WorkingMemory, _memory
+
+# Prompting submodule
+from .prompting import (
+    ContextBuilder,
+    ContextWindow,
+    FewShotExample,
+    FewShotLibrary,
     ToolDescriptor,
     ToolParameter,
     ToolRegistry,
     create_default_registry,
+    get_default_library,
 )
+from .ranking import ContextRanker, ScoredItem
 from .window import TokenBudget, TokenWindowManager
 
 __all__ = [
-    # Builder
-    "ContextBuilder",
-    "ContextWindow",
-    # Memory
-    "WorkingMemory",
-    "InMemoryStore",
-    "_memory",
-    "MemoryItem",
-    "MemoryTier",
-    # Ranking
+    # Ranking & Window (main level)
     "ContextRanker",
     "ScoredItem",
-    # Step (Context Reduction)
+    "TokenWindowManager",
+    "TokenBudget",
+    # Engineering
     "Step",
     "CompactStep",
     "generate_step_id",
     "compute_content_hash",
-    # Reducer
     "StepReducer",
     "ToolReducer",
     "FileReadReducer",
@@ -71,24 +78,26 @@ __all__ = [
     "SearchReducer",
     "WebFetchReducer",
     "DefaultReducer",
-    # Compactor
     "StepCompactor",
     "CompactionConfig",
     "CompactedHistory",
-    # Offloader
     "DataOffloader",
     "OffloadConfig",
     "OffloadResult",
-    # Tool Descriptor
+    # Memory
+    "WorkingMemory",
+    "InMemoryStore",
+    "_memory",
+    "MemoryItem",
+    "MemoryTier",
+    # Prompting
+    "ContextBuilder",
+    "ContextWindow",
+    "FewShotExample",
+    "FewShotLibrary",
+    "get_default_library",
     "ToolDescriptor",
     "ToolParameter",
     "ToolRegistry",
     "create_default_registry",
-    # Few-shot Examples
-    "FewShotExample",
-    "FewShotLibrary",
-    "get_default_library",
-    # Window
-    "TokenWindowManager",
-    "TokenBudget",
 ]
