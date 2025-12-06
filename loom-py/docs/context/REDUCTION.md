@@ -1,6 +1,8 @@
 # Context Reduction & Compaction
 
-This document details the reduction and compaction strategies for Loom's Context Engineering.
+This document details the **per-step reduction** strategies for Loom's Context Engineering.
+
+> 📖 **See also:** [COMPACTION.md](COMPACTION.md) for long conversation history compression (when >5 steps)
 
 ---
 
@@ -175,6 +177,10 @@ Every tool result follows: `{minimal_args, observation, outcome_ref}`
 ---
 
 ## Compaction: History Compression
+
+> **⚠️ This section provides a simplified overview. See [COMPACTION.md](COMPACTION.md) for complete details.**
+
+When conversations exceed 5 steps, the full per-step reduction above is not enough. We need to compress older steps into ultra-minimal summaries.
 
 ### Token Budget
 

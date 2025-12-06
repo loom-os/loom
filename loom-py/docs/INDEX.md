@@ -11,6 +11,7 @@
 
 - **Architecture**: `context/DESIGN.md` - Overall design and principles
 - **Reduction**: `context/REDUCTION.md` - Step reduction strategies
+- **Compaction**: `context/COMPACTION.md` - Long conversation history compression ✨ NEW
 - **Offloading**: `context/OFFLOADING.md` - Data offloading patterns
 - **Lifecycle**: `context/LIFECYCLE.md` - Complete 8-phase offload lifecycle ✨ NEW
 - **Isolation**: `context/ISOLATION.md` - Multi-agent context management
