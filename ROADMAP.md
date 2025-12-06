@@ -115,15 +115,24 @@ Context Engineering in Loom
 
 ### Tasks by Priority
 
-**P0: Core Context Quality (Week 1-2)** 🚧
+**P0: Core Context Quality (Week 1-2)** ✅ **COMPLETED**
 
-| Task                   | Description                             | Status |
-| ---------------------- | --------------------------------------- | ------ |
-| 2.1 Step & CompactStep | Unified step model with reduction       | 📋     |
-| 2.2 StepCompactor      | Tool-specific minimal observation rules | 📋     |
-| 2.3 File Offloading    | Heavy output → workspace files          | 📋     |
-| 2.4 Tool Descriptors   | Full JSON Schema in prompt              | 📋     |
-| 2.5 Few-Shot Examples  | Curated success patterns                | 📋     |
+| Task                   | Description                             | Status | Commit    |
+| ---------------------- | --------------------------------------- | ------ | --------- |
+| 2.1 Step & CompactStep | Unified step model with reduction       | ✅     | 2741a77   |
+| 2.2 StepReducer        | Tool-specific minimal observation rules | ✅     | 2741a77   |
+| 2.3 StepCompactor      | Step history compaction with grouping   | ✅     | 2741a77   |
+| 2.4 File Offloading    | Heavy output → workspace files          | ✅     | 2741a77   |
+| 2.5 Prompt Integration | Compaction in build_react_prompt        | ✅     | 785af0d   |
+| 2.6 Tool Descriptors   | Full parameter info in system prompt    | ✅     | 9185ec2   |
+| 2.7 Few-Shot Examples  | Curated ReAct success patterns          | ✅     | 9185ec2   |
+| 2.8 Agent Integration  | Auto reduction/offload in CognitiveAgent| ✅     | ae51993   |
+
+**Key Metrics:**
+- 97 unit tests passing (30 step + 17 compactor + 26 offloader + 22 tool descriptor + 2 integration)
+- ~1,700 lines of production code
+- 29.4% token reduction measured in synthetic scenarios
+- No negative impact on task completion (identical iteration counts)
 
 **P1: Multi-Agent Foundation (Week 3)** 📋
 
