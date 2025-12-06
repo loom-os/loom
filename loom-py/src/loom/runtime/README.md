@@ -30,6 +30,7 @@ await run_orchestrator(config)
 ```
 
 **Features:**
+
 - Automatic runtime startup (Core + Bridge + Dashboard)
 - Agent process management with restart on failure
 - Graceful shutdown with SIGTERM → SIGKILL escalation
@@ -37,6 +38,7 @@ await run_orchestrator(config)
 - Health checking
 
 **Runtime Modes:**
+
 - `full`: Core + Bridge + Dashboard (default)
 - `bridge-only`: Bridge only (for agent-only deployments)
 
@@ -62,11 +64,13 @@ binary_path = await get_binary(
 ```
 
 **Binary Management:**
+
 1. **Local builds**: Check `target/release/` and `target/debug/` first
 2. **Cache**: Use `~/.cache/loom/bin/` if available
 3. **Download**: Fetch from GitHub releases if needed
 
 **Functions:**
+
 - `start_bridge()`: Start Bridge server
 - `start_core()`: Start Core runtime
 - `get_binary()`: Download/cache binary
@@ -115,6 +119,7 @@ env = { BRAVE_API_KEY = "${BRAVE_API_KEY}" }
 ```
 
 **Types:**
+
 - `ProjectConfig`: Root configuration
 - `BridgeConfig`: Bridge connection settings
 - `LLMProviderConfig`: LLM provider configuration
@@ -229,6 +234,7 @@ Binaries are cached in `~/.cache/loom/bin/`:
 ```
 
 Cache management:
+
 - Automatic version validation
 - SHA256 checksum verification
 - Platform-specific storage

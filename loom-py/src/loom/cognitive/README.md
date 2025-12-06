@@ -59,6 +59,7 @@ Now: Three focused modules (1057 lines total)
 - **`strategies.py`** (321 lines): Thinking strategies
 
 **Benefits:**
+
 - ✅ Clear separation of concerns
 - ✅ Easier testing of individual components
 - ✅ Simplified extensibility
@@ -97,6 +98,7 @@ print(result.answer)
 ```
 
 **Key Methods:**
+
 - `run(goal)`: Execute cognitive loop (blocking)
 - `run_stream(goal)`: Execute with streaming output
 - `register_tool()`: Add tool to registry
@@ -118,6 +120,7 @@ observation = await executor.execute_tool(tool_call)
 ```
 
 **Features:**
+
 - **Human-in-the-loop**: Approval for destructive tools (fs:write, fs:delete)
 - **Security**: Path traversal prevention, input validation
 - **Context Engineering**: Automatic reduction and offloading
@@ -142,6 +145,7 @@ result = await strategy.run_single_shot(goal)  # Single call
 ```
 
 **Strategies:**
+
 1. **ReAct**: Iterative reasoning with tool use
 2. **CoT**: Multi-step reasoning without tools
 3. **Single-shot**: One LLM call, no iteration
@@ -157,6 +161,7 @@ config = CognitiveConfig(thinking_strategy=ThinkingStrategy.REACT)
 ```
 
 **Example:**
+
 ```
 Iteration 1:
   Thought: I need to search for information
@@ -182,6 +187,7 @@ config = CognitiveConfig(thinking_strategy=ThinkingStrategy.CHAIN_OF_THOUGHT)
 ```
 
 **Example:**
+
 ```
 Step 1: First, let's break down the problem
 Step 2: Consider the constraints
@@ -198,6 +204,7 @@ config = CognitiveConfig(thinking_strategy=ThinkingStrategy.SINGLE_SHOT)
 ```
 
 **Example:**
+
 ```
 Question: What is 2+2?
 Answer: 4
@@ -229,6 +236,7 @@ history = compactor.compact_many(steps)
 ```
 
 **Benefits:**
+
 - Token savings: 40-60% reduction
 - Stays within context limits
 - Preserves key information
@@ -252,6 +260,7 @@ async for item in cognitive.run_stream(goal):
 ```
 
 **Use Cases:**
+
 - CLI chat interface
 - Web UI with live updates
 - Progress monitoring
@@ -276,6 +285,7 @@ cognitive = CognitiveAgent(
 ```
 
 **Protected Tools:**
+
 - `fs:write_file` - Can overwrite files
 - `fs:delete` - Can delete files
 
@@ -422,6 +432,7 @@ await agent.ctx.save_plan(
 ### Token Optimization
 
 With context engineering:
+
 - **Before**: 8000 tokens (exceeds 4K limit)
 - **After**: 2000 tokens (75% reduction)
 
@@ -433,10 +444,12 @@ With context engineering:
 ### Cost
 
 DeepSeek pricing (example):
+
 - Input: $0.001 per 1K tokens
 - Output: $0.002 per 1K tokens
 
 Typical cognitive run:
+
 - Input: 2000 tokens = $0.002
 - Output: 500 tokens = $0.001
 - **Total: $0.003 per run**

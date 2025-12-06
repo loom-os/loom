@@ -156,6 +156,7 @@ if response.tool_calls:
 Load provider config from project file:
 
 **loom.toml:**
+
 ```toml
 [llm.deepseek]
 base_url = "https://api.deepseek.com/v1"
@@ -171,6 +172,7 @@ api_key_env = "OPENAI_API_KEY"
 ```
 
 **Python:**
+
 ```python
 from loom.runtime import load_project_config
 
@@ -350,12 +352,12 @@ responses = await asyncio.gather(*tasks)
 
 ## Supported Providers
 
-| Provider | Base URL | Model | API Key Env |
-|----------|----------|-------|-------------|
+| Provider | Base URL            | Model         | API Key Env      |
+| -------- | ------------------- | ------------- | ---------------- |
 | DeepSeek | api.deepseek.com/v1 | deepseek-chat | DEEPSEEK_API_KEY |
-| OpenAI | api.openai.com/v1 | gpt-4o-mini | OPENAI_API_KEY |
-| Local | localhost:8000/v1 | qwen2.5-0.5b | (none) |
-| Custom | (custom) | (custom) | (custom) |
+| OpenAI   | api.openai.com/v1   | gpt-4o-mini   | OPENAI_API_KEY   |
+| Local    | localhost:8000/v1   | qwen2.5-0.5b  | (none)           |
+| Custom   | (custom)            | (custom)      | (custom)         |
 
 ## Custom Provider
 
