@@ -1,13 +1,47 @@
+use crate::tools::{Tool, ToolError, ToolResult};
+use async_trait::async_trait;
 use serde_json::json;
+use serde_json::Value;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use crate::tools::error::{ToolError, ToolResult};
-
-/// Git operations tool for repository management
+/// Git operations tool for repository management in benchmarks and workflows
+///
+/// Provides safe git operations with path validation and security checks.
+/// All paths must be relative to prevent directory traversal attacks.
+///
+/// # Examples
+///
+/// Clone a repository:
+/// ```json
+/// {
+///   "operation": "clone",
+///   "url": "https://github.com/user/repo.git",
+///   "path": "my-repo",
+///   "branch": "main"
+/// }
+/// ```
+///
+/// Checkout a commit:
+/// ```json
+/// {
+///   "operation": "checkout",
+///   "repo_path": "my-repo",
+///   "commit": "abc123"
+/// }
+/// ```
 pub struct GitTool;
 
+impl Default for GitTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GitTool {
+    pub fn new() -> Self {
+        Self
+    }
     /// Clone a git repository
     pub fn clone(url: &str, path: &str, branch: Option<&str>) -> ToolResult<serde_json::Value> {
         // Validate path is safe
@@ -166,5 +200,126 @@ mod tests {
     fn test_clone_rejects_parent_traversal() {
         let result = GitTool::clone("https://github.com/test/repo.git", "../repo", None);
         assert!(result.is_err());
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tool trait implementation
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[async_trait]
+impl Tool for GitTool {
+    fn name(&self) -> String {
+        "git".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Perform git operations like clone, checkout, and apply patches. All paths must be relative for security.".to_string()
+    }
+
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["clone", "checkout", "apply_patch", "current_commit"],
+                    "description": "Git operation to perform"
+                },
+                "url": {
+                    "type": "string",
+                    "description": "Repository URL (for clone operation)"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Local path for cloned repository (must be relative)"
+                },
+                "branch": {
+                    "type": "string",
+                    "description": "Branch to clone (optional, for clone operation)"
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": "Path to repository (for checkout, apply_patch, current_commit)"
+                },
+                "commit": {
+                    "type": "string",
+                    "description": "Commit hash or branch to checkout"
+                },
+                "patch_content": {
+                    "type": "string",
+                    "description": "Patch content to apply (for apply_patch)"
+                }
+            },
+            "required": ["operation"],
+            "examples": [
+                {
+                    "operation": "clone",
+                    "url": "https://github.com/user/repo.git",
+                    "path": "my-repo",
+                    "branch": "main"
+                },
+                {
+                    "operation": "checkout",
+                    "repo_path": "my-repo",
+                    "commit": "abc123def"
+                },
+                {
+                    "operation": "current_commit",
+                    "repo_path": "my-repo"
+                }
+            ]
+        })
+    }
+
+    async fn call(&self, arguments: Value) -> ToolResult<Value> {
+        let operation = arguments["operation"]
+            .as_str()
+            .ok_or_else(|| ToolError::InvalidArguments("Missing 'operation' field".into()))?;
+
+        match operation {
+            "clone" => {
+                let url = arguments["url"]
+                    .as_str()
+                    .ok_or_else(|| ToolError::InvalidArguments("Missing 'url' for clone".into()))?;
+                let path = arguments["path"].as_str().ok_or_else(|| {
+                    ToolError::InvalidArguments("Missing 'path' for clone".into())
+                })?;
+                let branch = arguments["branch"].as_str();
+
+                Self::clone(url, path, branch)
+            }
+            "checkout" => {
+                let repo_path = arguments["repo_path"].as_str().ok_or_else(|| {
+                    ToolError::InvalidArguments("Missing 'repo_path' for checkout".into())
+                })?;
+                let commit = arguments["commit"].as_str().ok_or_else(|| {
+                    ToolError::InvalidArguments("Missing 'commit' for checkout".into())
+                })?;
+
+                Self::checkout(repo_path, commit)
+            }
+            "apply_patch" => {
+                let repo_path = arguments["repo_path"].as_str().ok_or_else(|| {
+                    ToolError::InvalidArguments("Missing 'repo_path' for apply_patch".into())
+                })?;
+                let patch_content = arguments["patch_content"].as_str().ok_or_else(|| {
+                    ToolError::InvalidArguments("Missing 'patch_content' for apply_patch".into())
+                })?;
+
+                Self::apply_patch(repo_path, patch_content)
+            }
+            "current_commit" => {
+                let repo_path = arguments["repo_path"].as_str().ok_or_else(|| {
+                    ToolError::InvalidArguments("Missing 'repo_path' for current_commit".into())
+                })?;
+
+                Self::current_commit(repo_path)
+            }
+            _ => Err(ToolError::InvalidArguments(format!(
+                "Unknown operation '{}'. Supported: clone, checkout, apply_patch, current_commit",
+                operation
+            ))),
+        }
     }
 }

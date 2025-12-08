@@ -224,6 +224,9 @@ async def cmd_benchmark_compare(args):
         print(f"   Available: {list(llm_configs.keys())}")
         return
 
+    # Import centralized prompt
+    from ..benchmark.prompts import get_generic_prompt
+
     # Create agent factory - receives context and LLMConfig
     def agent_factory(ctx, llm_config_arg):
         # Create LLM provider with the given context
@@ -232,7 +235,7 @@ async def cmd_benchmark_compare(args):
             ctx=ctx,
             llm=llm,
             config=CognitiveConfig(
-                system_prompt="You are a software engineering assistant. Fix bugs and complete coding tasks.",
+                system_prompt=get_generic_prompt(),
                 max_iterations=20,
             ),
             workspace_path=Path(args.workspace) if args.workspace else Path.cwd(),

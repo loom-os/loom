@@ -30,6 +30,7 @@ Example:
 """
 
 from .metrics import BenchmarkResults, ComparisonReport, TaskMetrics
+from .prompts import get_generic_prompt, get_swe_bench_prompt
 from .runner import BenchmarkRunner
 
 __all__ = [
@@ -37,4 +38,6 @@ __all__ = [
     "TaskMetrics",
     "BenchmarkResults",
     "ComparisonReport",
+    "get_swe_bench_prompt",
+    "get_generic_prompt",
 ]

@@ -14,7 +14,6 @@ Dataset: https://github.com/princeton-nlp/SWE-bench
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -68,13 +67,17 @@ class SWEBenchAdapter:
 
         Returns:
             List of task specifications
+
+        Raises:
+            FileNotFoundError: If dataset file not found
+            ValueError: If dataset format is invalid
         """
         # Try to find the dataset file
         dataset_files = [
+            self.dataset_path / "tasks.json",
             self.dataset_path / "swe-bench-lite.json",
             self.dataset_path / "swe_bench_lite.json",
             self.dataset_path / "test.json",
-            self.dataset_path / "tasks.json",
         ]
 
         dataset_file = None
@@ -84,8 +87,10 @@ class SWEBenchAdapter:
                 break
 
         if dataset_file is None:
-            # If no file found, return synthetic tasks for testing
-            return self._generate_synthetic_tasks(max_tasks)
+            raise FileNotFoundError(
+                f"No SWE-bench dataset found in {self.dataset_path}. "
+                "Expected one of: tasks.json, swe-bench-lite.json"
+            )
 
         # Load real dataset
         with open(dataset_file) as f:
@@ -100,8 +105,7 @@ class SWEBenchAdapter:
             elif "instances" in data:
                 tasks = data["instances"][:max_tasks]
             else:
-                # Assume the dict itself is a single task
-                tasks = [data]
+                raise ValueError("Dataset must contain 'tasks' or 'instances' key")
         else:
             raise ValueError(f"Unexpected dataset format: {type(data)}")
 
@@ -147,151 +151,28 @@ class SWEBenchAdapter:
         Returns:
             Formatted prompt for the agent
         """
-        return f"""You are working on a software engineering task from the {repo} repository.
+        return f"""Fix the bug in the {repo} repository.
 
-Task ID: {task_id}
+**Task ID**: {task_id}
 
-Problem Statement:
+**Problem Statement**:
 {problem_statement}
 
-Your goal is to:
-1. Understand the codebase and locate the relevant files
-2. Identify the root cause of the issue
-3. Implement a fix
-4. Verify the fix works correctly
+**Instructions**:
+1. The code is in the `repo/` directory
+2. Explore using `fs:list` and `fs:read` to understand the codebase
+3. Locate the relevant files and identify the root cause
+4. Make minimal, precise changes using `fs:write`
+5. You can run tests with `shell:run` if needed
 
-Available tools:
-- fs:read_file - Read file contents
-- fs:write_file - Write/modify files
-- fs:list_dir - List directory contents
-- shell:run - Run shell commands (e.g., tests)
-- web:search - Search for documentation (if needed)
-
-Please fix the issue and verify your changes work.
+Be systematic and thorough. Read the issue carefully before making changes.
 """
-
-    def _generate_synthetic_tasks(self, max_tasks: int) -> list[dict]:
-        """Generate synthetic tasks for testing when dataset is unavailable.
-
-        Args:
-            max_tasks: Number of synthetic tasks to generate
-
-        Returns:
-            List of synthetic task specifications
-        """
-        synthetic_tasks = []
-
-        # Task 1: Simple function with bug
-        synthetic_tasks.append(
-            {
-                "task_id": "synthetic-python-0",
-                "repo": "test/python-project",
-                "problem_statement": """There is a bug in the calculate_average function in calculator.py.
-The function should calculate the average of a list of numbers, but it returns incorrect results.
-
-The function is located in calculator.py and currently has an off-by-one error.
-Please fix the bug and ensure the function returns the correct average.""",
-                "test_patch": "test_calculator.py",
-                "base_commit": "",
-                "files": {
-                    "calculator.py": '''def calculate_average(numbers):
-    """Calculate the average of a list of numbers."""
-    if not numbers:
-        return 0
-    total = sum(numbers)
-    # BUG: Should divide by len(numbers), not len(numbers) + 1
-    return total / (len(numbers) + 1)
-''',
-                    "test_calculator.py": """import calculator
-
-def test_calculate_average():
-    assert calculator.calculate_average([1, 2, 3, 4, 5]) == 3.0
-    assert calculator.calculate_average([10, 20, 30]) == 20.0
-    assert calculator.calculate_average([5]) == 5.0
-    assert calculator.calculate_average([]) == 0
-    print("All tests passed!")
-
-if __name__ == "__main__":
-    test_calculate_average()
-""",
-                },
-            }
-        )
-
-        # Task 2: String manipulation bug
-        synthetic_tasks.append(
-            {
-                "task_id": "synthetic-python-1",
-                "repo": "test/string-utils",
-                "problem_statement": """The reverse_words function in string_utils.py is not working correctly.
-It should reverse the order of words in a sentence while preserving spaces,
-but it's currently reversing the entire string instead.
-
-Please fix the function to reverse only the word order, not the characters.""",
-                "test_patch": "test_string_utils.py",
-                "base_commit": "",
-                "files": {
-                    "string_utils.py": '''def reverse_words(sentence):
-    """Reverse the order of words in a sentence."""
-    # BUG: This reverses characters, not words
-    return sentence[::-1]
-''',
-                    "test_string_utils.py": """import string_utils
-
-def test_reverse_words():
-    assert string_utils.reverse_words("hello world") == "world hello"
-    assert string_utils.reverse_words("the quick brown fox") == "fox brown quick the"
-    assert string_utils.reverse_words("single") == "single"
-    print("All tests passed!")
-
-if __name__ == "__main__":
-    test_reverse_words()
-""",
-                },
-            }
-        )
-
-        # Task 3: List processing bug
-        synthetic_tasks.append(
-            {
-                "task_id": "synthetic-python-2",
-                "repo": "test/list-processing",
-                "problem_statement": """The remove_duplicates function in list_utils.py should remove duplicate elements
-from a list while preserving the original order of first occurrences.
-Currently, it's not preserving order correctly.
-
-Please fix the function to maintain the order of first occurrences.""",
-                "test_patch": "test_list_utils.py",
-                "base_commit": "",
-                "files": {
-                    "list_utils.py": '''def remove_duplicates(items):
-    """Remove duplicates from list, preserving order."""
-    # BUG: set() doesn't preserve order in older Python versions
-    # and this doesn't work correctly anyway
-    return list(set(items))
-''',
-                    "test_list_utils.py": """import list_utils
-
-def test_remove_duplicates():
-    assert list_utils.remove_duplicates([1, 2, 2, 3, 1, 4]) == [1, 2, 3, 4]
-    assert list_utils.remove_duplicates(['a', 'b', 'a', 'c']) == ['a', 'b', 'c']
-    assert list_utils.remove_duplicates([1, 1, 1]) == [1]
-    print("All tests passed!")
-
-if __name__ == "__main__":
-    test_remove_duplicates()
-""",
-                },
-            }
-        )
-
-        return [self._normalize_task(t) for t in synthetic_tasks[:max_tasks]]
 
     async def prepare_task(self, task: dict) -> Any:
         """Prepare execution environment for a task.
 
-        This sets up the workspace with the repository code and any
-        necessary configuration for the agent to work on the task.
+        This clones the repository and checks out the specific commit
+        where the bug exists.
 
         Args:
             task: Task specification
@@ -303,113 +184,96 @@ if __name__ == "__main__":
         task_workspace = self.workspace_path / task_id
         task_workspace.mkdir(parents=True, exist_ok=True)
 
-        # If task has files (synthetic tasks), create them
-        if "files" in task["raw_task"]:
-            for filename, content in task["raw_task"]["files"].items():
-                file_path = task_workspace / filename
-                file_path.write_text(content)
+        # Clone the repository
+        repo_name = task["repo"]
+        base_commit = task.get("base_commit", "")
 
-        # In a full implementation with real SWE-bench:
-        # 1. Clone the repository at the correct commit
-        # 2. Apply any necessary patches
-        # 3. Set up the Python environment
+        if not base_commit or not repo_name:
+            raise ValueError(f"Task {task_id} missing repo or base_commit")
+
+        repo_url = f"https://github.com/{repo_name}.git"
+        repo_path = task_workspace / "repo"
+
+        if not repo_path.exists():
+            # TODO: Use native git tool instead of subprocess
+            # For now, use subprocess as a temporary solution
+            # The git tool needs to be integrated into the Python context
+            import subprocess
+
+            try:
+                # Clone repository with all branches
+                print(f"  Cloning {repo_name}...")
+                subprocess.run(
+                    [
+                        "git",
+                        "clone",
+                        "--depth",
+                        "1",
+                        "--no-single-branch",
+                        repo_url,
+                        str(repo_path),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    timeout=60,
+                )
+
+                # Fetch and checkout specific commit
+                print(f"  Checking out {base_commit[:8]}...")
+                subprocess.run(
+                    ["git", "fetch", "origin", base_commit],
+                    cwd=repo_path,
+                    check=True,
+                    capture_output=True,
+                    timeout=30,
+                )
+                subprocess.run(
+                    ["git", "checkout", base_commit],
+                    cwd=repo_path,
+                    check=True,
+                    capture_output=True,
+                    timeout=10,
+                )
+
+                print(f"  ✓ Repository ready at {repo_path}")
+            except subprocess.TimeoutExpired:
+                raise RuntimeError(f"Timeout cloning repository {repo_name}") from None
+            except subprocess.CalledProcessError as e:
+                error_msg = e.stderr.decode() if e.stderr else str(e)
+                raise RuntimeError(f"Git error: {error_msg}") from e
 
         return task_workspace
 
     async def evaluate_result(self, task: dict, result: CognitiveResult) -> bool:
         """Evaluate if the agent's result correctly solves the task.
 
-        This runs the test suite to check if the fix is correct.
+        For real evaluation, this should apply the test patch and run tests.
+        Currently uses a simple heuristic: check if agent completed work.
 
         Args:
             task: Task specification
             result: Agent's cognitive result
 
         Returns:
-            True if the task was solved correctly
+            True if the task was solved (heuristic-based)
         """
         if not result.success:
             return False
 
         task_id = task["task_id"]
         task_workspace = self.workspace_path / task_id
+        repo_path = task_workspace / "repo"
 
-        # Check if workspace exists
-        if not task_workspace.exists():
+        # Check if workspace and repo exist
+        if not repo_path.exists():
             return False
 
-        # For synthetic tasks with test files, actually run the tests
-        if "files" in task["raw_task"]:
-            test_file = None
-            for filename in task["raw_task"]["files"].keys():
-                if filename.startswith("test_"):
-                    test_file = task_workspace / filename
-                    break
-
-            if test_file and test_file.exists():
-                try:
-                    # Run the test file
-                    result = subprocess.run(
-                        ["python", test_file.name],
-                        cwd=task_workspace,
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                    )
-
-                    # Check if tests passed
-                    success = result.returncode == 0
-                    if success and "All tests passed!" in result.stdout:
-                        return True
-                    return success
-
-                except subprocess.TimeoutExpired:
-                    return False
-                except Exception:
-                    return False
-
-        # For real SWE-bench tasks, check if solution files were modified
-        # Simple heuristic: check if Python files exist
-        python_files = list(task_workspace.rglob("*.py"))
-        if not python_files:
-            return False
-
-        # Basic check: did agent complete with substantial work?
+        # Simple heuristic: did agent complete with substantial work?
+        # A proper implementation would:
+        # 1. Apply test_patch to create test suite
+        # 2. Run tests and check if they pass
+        # 3. Compare with gold patch
         return result.iterations >= 2
-
-    async def run_tests(self, task: dict, workspace: Path) -> tuple[bool, str]:
-        """Run test suite for the task.
-
-        Args:
-            task: Task specification
-            workspace: Path to workspace with agent's changes
-
-        Returns:
-            Tuple of (success, output)
-        """
-        test_patch = task.get("test_patch", "")
-        if not test_patch:
-            return True, "No tests provided"
-
-        try:
-            # Run pytest or unittest
-            result = subprocess.run(
-                ["python", "-m", "pytest", "-xvs"],
-                cwd=workspace,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            success = result.returncode == 0
-            output = result.stdout + result.stderr
-
-            return success, output
-
-        except subprocess.TimeoutExpired:
-            return False, "Tests timed out"
-        except Exception as e:
-            return False, f"Test execution failed: {e}"
 
 
 __all__ = ["SWEBenchAdapter"]

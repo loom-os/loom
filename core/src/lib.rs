@@ -39,7 +39,8 @@ pub use messaging::{
 // Export tool types
 pub use tools::mcp::{McpClient, McpManager, McpToolAdapter};
 pub use tools::native::{
-    DeleteFileTool, ListDirTool, ReadFileTool, ShellTool, WeatherTool, WebSearchTool, WriteFileTool,
+    DeleteFileTool, GitTool, ListDirTool, ReadFileTool, ShellTool, WeatherTool, WebSearchTool,
+    WriteFileTool,
 };
 pub use tools::{Tool, ToolError, ToolRegistry};
 
@@ -203,6 +204,7 @@ impl Loom {
             tool_registry
                 .register(SyncArc::new(WebSearchTool::new()))
                 .await;
+            tool_registry.register(SyncArc::new(GitTool::new())).await;
         }
 
         let mcp_manager = std::sync::Arc::new(tools::mcp::McpManager::new(std::sync::Arc::clone(

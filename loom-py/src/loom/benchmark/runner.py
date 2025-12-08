@@ -101,7 +101,6 @@ class BenchmarkRunner:
             FileNotFoundError: If loom.toml not found
             ValueError: If configuration is invalid
         """
-        from ..agent import Agent
         from ..cognitive import CognitiveConfig, ThinkingStrategy
         from ..llm import LLMProvider
         from ..runtime.config import load_project_config
@@ -116,17 +115,35 @@ class BenchmarkRunner:
         agent_id = list(config.agents.keys())[0]
         agent_config = config.agents[agent_id]
 
-        # Create base agent
-        base_agent = Agent(
-            agent_id=agent_id,
-            topics=agent_config.get("topics", []),
-            address=config.bridge.address,
-        )
-        await base_agent.start()
+        # For benchmark, we don't need the bridge - create a mock context
 
-        # Create LLM provider
+        # Create a minimal context without gRPC connection
+        class MockContext:
+            def __init__(self, agent_id):
+                self.agent_id = agent_id
+
+        mock_ctx = MockContext(agent_id)
+
+        # Create LLM provider with mock context
         llm_name = agent_config.get("llm_provider", "deepseek")
-        llm = LLMProvider.from_config(base_agent._ctx, llm_name, config)
+
+        # Get LLM config from project config
+        if llm_name in config.llm_providers:
+            llm_cfg = config.llm_providers[llm_name]
+            from ..llm.config import LLMConfig
+
+            llm_config = LLMConfig(
+                base_url=llm_cfg.api_base,
+                model=llm_cfg.model,
+                api_key=llm_cfg.api_key,
+                temperature=llm_cfg.temperature,
+                max_tokens=llm_cfg.max_tokens,
+                timeout_ms=llm_cfg.timeout_sec * 1000,
+            )
+            llm = LLMProvider(mock_ctx, llm_config)
+        else:
+            # Fallback to preset
+            llm = LLMProvider.from_name(mock_ctx, llm_name)
 
         # Create cognitive config
         strategy_name = agent_config.get("thinking_strategy", "react")
@@ -136,23 +153,28 @@ class BenchmarkRunner:
             "chain_of_thought": ThinkingStrategy.CHAIN_OF_THOUGHT,
         }.get(strategy_name, ThinkingStrategy.REACT)
 
+        # Get system prompt - use from config if provided, otherwise use centralized prompt
+        from .prompts import get_swe_bench_prompt
+
+        system_prompt = agent_config.get("system_prompt")
+        if not system_prompt:
+            # Use centralized prompt as fallback
+            system_prompt = get_swe_bench_prompt()
+
         cognitive_config = CognitiveConfig(
-            system_prompt=agent_config.get(
-                "system_prompt",
-                "You are a software engineering assistant. Fix bugs and complete coding tasks.",
-            ),
+            system_prompt=system_prompt,
             max_iterations=agent_config.get("max_iterations", 20),
             thinking_strategy=strategy,
         )
 
-        # Create cognitive agent
-        # Get available tools from config or use defaults for SWE-bench
+        # Get available tools from config or use defaults
         available_tools = agent_config.get(
-            "tools", ["fs:read", "fs:write", "fs:list", "fs:delete", "shell:run", "web:search"]
+            "tools", ["fs:read", "fs:write", "fs:list", "fs:delete", "shell:run"]
         )
 
+        # Create cognitive agent without event bus dependency
         cognitive = CognitiveAgent(
-            ctx=base_agent._ctx,
+            ctx=mock_ctx,
             llm=llm,
             config=cognitive_config,
             available_tools=available_tools,
