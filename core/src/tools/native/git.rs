@@ -5,6 +5,16 @@ use serde_json::Value;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+/// Validate that a path is safe (relative, no parent directory traversal)
+fn validate_path(path: &str) -> ToolResult<()> {
+    if path.contains("..") || path.starts_with('/') {
+        return Err(ToolError::InvalidArguments(
+            "Path must be relative and cannot contain '..'".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Git operations tool for repository management in benchmarks and workflows
 ///
 /// Provides safe git operations with path validation and security checks.
@@ -45,11 +55,7 @@ impl GitTool {
     /// Clone a git repository
     pub fn clone(url: &str, path: &str, branch: Option<&str>) -> ToolResult<serde_json::Value> {
         // Validate path is safe
-        if path.contains("..") || path.starts_with('/') {
-            return Err(ToolError::InvalidArguments(
-                "Path must be relative and cannot contain '..'".into(),
-            ));
-        }
+        validate_path(path)?;
 
         let mut cmd = Command::new("git");
         cmd.arg("clone");
@@ -92,6 +98,9 @@ impl GitTool {
 
     /// Checkout a specific commit
     pub fn checkout(repo_path: &str, commit: &str) -> ToolResult<serde_json::Value> {
+        // Validate path is safe
+        validate_path(repo_path)?;
+
         let path = Path::new(repo_path);
         if !path.exists() || !path.is_dir() {
             return Err(ToolError::InvalidArguments(format!(
@@ -124,6 +133,9 @@ impl GitTool {
 
     /// Apply a patch file
     pub fn apply_patch(repo_path: &str, patch_content: &str) -> ToolResult<serde_json::Value> {
+        // Validate path is safe
+        validate_path(repo_path)?;
+
         let path = Path::new(repo_path);
         if !path.exists() || !path.is_dir() {
             return Err(ToolError::InvalidArguments(format!(
@@ -132,8 +144,10 @@ impl GitTool {
             )));
         }
 
-        // Write patch to temp file
-        let patch_file = path.join(".loom_temp.patch");
+        // Use system temp directory for patch file
+        let temp_dir = std::env::temp_dir();
+        let patch_file = temp_dir.join(format!("loom_patch_{}.patch", std::process::id()));
+
         std::fs::write(&patch_file, patch_content)
             .map_err(|e| ToolError::ExecutionFailed(format!("Failed to write patch: {}", e)))?;
 
@@ -144,8 +158,13 @@ impl GitTool {
             .output()
             .map_err(|e| ToolError::ExecutionFailed(format!("Git apply failed: {}", e)))?;
 
-        // Clean up temp file
-        let _ = std::fs::remove_file(&patch_file);
+        // Clean up temp file, log warning if it fails
+        if let Err(e) = std::fs::remove_file(&patch_file) {
+            eprintln!(
+                "Warning: Failed to clean up temp patch file {:?}: {}",
+                patch_file, e
+            );
+        }
 
         if output.status.success() {
             Ok(json!({
@@ -163,6 +182,9 @@ impl GitTool {
 
     /// Get current commit hash
     pub fn current_commit(repo_path: &str) -> ToolResult<serde_json::Value> {
+        // Validate path is safe
+        validate_path(repo_path)?;
+
         let output = Command::new("git")
             .current_dir(repo_path)
             .arg("rev-parse")
