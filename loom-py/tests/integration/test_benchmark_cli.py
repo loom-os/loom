@@ -136,11 +136,12 @@ llm_provider = "deepseek"
 
             await cmd_benchmark_compare(mock_args)
 
-            # Verify BenchmarkRunner was created with llm_config
+            # Verify BenchmarkRunner was created with agent_path (new API)
             assert MockRunner.called
             call_kwargs = MockRunner.call_args[1]
-            assert "llm_config" in call_kwargs
-            assert "llm" not in call_kwargs
+            assert "agent_path" in call_kwargs
+            assert "llm_config" not in call_kwargs  # Old API no longer used
+            assert "agent_factory" not in call_kwargs  # Old API no longer used
 
     @pytest.mark.asyncio
     async def test_all_llm_providers_are_valid(self, mock_args):
