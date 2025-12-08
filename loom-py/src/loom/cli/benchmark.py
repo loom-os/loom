@@ -204,49 +204,19 @@ async def cmd_benchmark_run(args):
 async def cmd_benchmark_compare(args):
     """Run comparison between baseline and optimized."""
     from ..benchmark import BenchmarkRunner
-    from ..cognitive import CognitiveAgent, CognitiveConfig
-    from ..llm import LLMProvider
 
     print(f"📊 Running comparison for {args.benchmark}")
     print(f"Dataset: {args.dataset}")
     print(f"Max tasks per run: {args.max_tasks}")
+    if args.agent_path:
+        print(f"Agent: {args.agent_path}")
     print()
 
-    # Get LLM config based on provider name
-    llm_configs = {
-        "deepseek": LLMProvider.DEEPSEEK,
-        "openai": LLMProvider.OPENAI,
-        "local": LLMProvider.LOCAL,
-    }
-    llm_config = llm_configs.get(args.llm.lower())
-    if not llm_config:
-        print(f"❌ Unknown LLM provider: {args.llm}")
-        print(f"   Available: {list(llm_configs.keys())}")
-        return
-
-    # Import centralized prompt
-    from ..benchmark.prompts import get_generic_prompt
-
-    # Create agent factory - receives context and LLMConfig
-    def agent_factory(ctx, llm_config_arg):
-        # Create LLM provider with the given context
-        llm = LLMProvider(ctx, llm_config_arg)
-        return CognitiveAgent(
-            ctx=ctx,
-            llm=llm,
-            config=CognitiveConfig(
-                system_prompt=get_generic_prompt(),
-                max_iterations=20,
-            ),
-            workspace_path=Path(args.workspace) if args.workspace else Path.cwd(),
-        )
-
-    # Create runner
+    # Create runner with agent path
     runner = BenchmarkRunner(
-        agent_factory=agent_factory,
-        llm_config=llm_config,
         benchmark=args.benchmark,
         dataset_path=args.dataset,
+        agent_path=args.agent_path,
         workspace_path=args.workspace,
     )
 
