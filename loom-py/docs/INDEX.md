@@ -6,7 +6,9 @@
 - **LLM Provider Guide**: `LLM_GUIDE.md` - Configure LLM providers
 - **Cognitive Loop Guide**: `COGNITIVE_GUIDE.md` - Implement reasoning patterns
 - **CLI Guide**: `CLI_GUIDE.md` - Interactive chat interface
-- **Benchmarking**: `BENCHMARKING.md` - Agent evaluation strategy ✨ NEW ✨ NEW
+- **Benchmarking**: `BENCHMARKING.md` - Agent evaluation strategy
+- **Benchmark Quick Start**: `BENCHMARK_QUICKSTART.md` - 5-minute benchmark guide ✨ NEW
+- **Benchmark Implementation**: `BENCHMARK_IMPLEMENTATION.md` - Technical details ✨ NEW
 
 ## Context Engineering
 
@@ -24,7 +26,53 @@
 - Quickstart & Runtime: `../../docs/QUICKSTART.md`, `../../docs/BUILD_LOCAL.md`
 - Architecture: `../../ARCHITECTURE.md`, `../../ROADMAP.md`
 
-## Recent Updates (Dec 6, 2025)
+## Recent Updates (Dec 7, 2025)
+
+### Benchmark Infrastructure v0.3.0 ✨ NEW
+
+**Added**:
+
+- ✅ Complete benchmark framework for agent evaluation
+- ✅ SWE-bench adapter (MVP implementation)
+- ✅ CLI commands: `loom benchmark run/compare/report`
+- ✅ Metrics collection: TaskMetrics, BenchmarkResults, ComparisonReport
+- ✅ Context engineering impact measurement
+- ✅ Token savings calculation (reduction + compaction + offloading)
+- ✅ Cost/quality trade-off analysis
+- 🧪 12 new unit tests (all passing)
+- 📚 Complete documentation and examples
+
+**Features**:
+
+```bash
+# Run benchmark with 10 tasks
+loom benchmark run swe-bench --dataset ./data --max-tasks 10 -v
+
+# Compare baseline vs optimized
+loom benchmark compare swe-bench --dataset ./data --max-tasks 50
+
+# Generate markdown report
+loom benchmark report results/comparison.json --format markdown
+```
+
+**Expected Results**:
+
+| Metric  | Baseline   | Optimized  | Improvement |
+| ------- | ---------- | ---------- | ----------- |
+| Tokens  | 8,000/task | 1,500/task | **-81%**    |
+| Cost    | $0.40      | $0.08      | **-80%**    |
+| Quality | 75%        | 75%        | **0%**      |
+
+**Documentation**:
+
+- `BENCHMARK_QUICKSTART.md` - 5-minute getting started guide
+- `BENCHMARK_IMPLEMENTATION.md` - Technical implementation details
+- `benchmark/README.md` - Module documentation
+- `BENCHMARKING.md` - Full strategy (updated)
+
+**Next Steps**: Run real SWE-bench Lite (300 tasks), publish results, add WebArena adapter
+
+---
 
 ### Context Engineering Integration v0.2.2
 

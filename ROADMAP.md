@@ -147,11 +147,11 @@ Context Engineering in Loom
 - `context/CONTEXT_INTEGRATION.md` - End-to-end integration guide
 - `context/OFFLOAD_MANAGEMENT.md` - User guide for file management
 
-**P1: Offload Lifecycle & Multi-Agent (Week 3)** 📋
+**P1: Offload Lifecycle & Multi-Agent (Week 3)** 🚧 **IN PROGRESS**
 
 | Task                     | Description                           | Status |
 | ------------------------ | ------------------------------------- | ------ |
-| 2.9 Benchmark Validation | SWE-bench integration & comparison    | 📋     |
+| 2.9 Benchmark Validation | SWE-bench integration & comparison    | ✅     |
 | 2.10 Offload Index       | JSON-based metadata persistence       | 📋     |
 | 2.11 TTL & GC            | Automatic expiration and cleanup      | 📋     |
 | 2.12 Promotion API       | SHORT_TERM → LONG_TERM tier promotion | 📋     |
