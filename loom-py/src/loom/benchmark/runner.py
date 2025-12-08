@@ -85,6 +85,10 @@ class BenchmarkRunner:
         self.dataset_path = Path(dataset_path)
         self.workspace_path = Path(workspace_path) if workspace_path else Path.cwd()
 
+        # Validate dataset path exists before loading adapter
+        if not self.dataset_path.exists():
+            raise FileNotFoundError(f"Dataset path does not exist: {self.dataset_path}")
+
         # Load adapter for the benchmark
         self.adapter = self._load_adapter(benchmark)
 

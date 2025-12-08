@@ -185,7 +185,7 @@ async def cmd_benchmark_run(args):
     results = await runner.run(
         max_tasks=args.max_tasks,
         context_engineering=not args.no_context_engineering,
-        verbose=args.verbose or True,
+        verbose=args.verbose,
     )
 
     # Save results
