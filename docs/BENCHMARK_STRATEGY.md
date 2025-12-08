@@ -1,119 +1,119 @@
 # Benchmark Strategy for Loom
 
-## 核心问题：SWE-bench 是否适合 Loom？
+## Core Question: Is SWE-bench Suitable for Loom?
 
-### Loom 的核心设计理念
+### Loom's Core Design Philosophy
 
 ```
 Loom = Event-Driven Runtime for Long-Lifecycle Agents
       ≠ One-Shot Script Executor
 ```
 
-**关键特性**：
+**Key Characteristics**:
 
-1. **长生命周期** - 运行数小时/天，不是几分钟
-2. **事件驱动** - 响应 hotkey、file change、timer，不是单一 function call
-3. **多 Agent 协作** - EventBus 跨进程通信，不是单 Agent 完成任务
-4. **系统集成** - Desktop/edge 环境深度集成
-5. **Context Engineering** - 长对话的 token 优化和 memory 管理
-
----
-
-## 一、SWE-bench 与 Loom 的契合度分析
-
-### ✅ 契合点（20%）
-
-| Loom 特性           | SWE-bench 体现                     | 契合度 |
-| ------------------- | ---------------------------------- | ------ |
-| Tool Use            | 文件读写、shell 执行               | ⭐⭐⭐ |
-| ReAct Loop          | 迭代式调试（读代码 → 修改 → 测试） | ⭐⭐⭐ |
-| Context Engineering | 大型代码库需要 token 优化          | ⭐⭐   |
-
-### ❌ 不契合点（80%）
-
-| Loom 核心能力          | SWE-bench 是否评估          | 问题                           |
-| ---------------------- | --------------------------- | ------------------------------ |
-| **长生命周期**         | ❌ 每个任务独立，10-30 分钟 | SWE-bench 是 one-shot 任务     |
-| **事件驱动**           | ❌ 单一代码调用             | 没有 hotkey、timer、file watch |
-| **多 Agent 协作**      | ❌ 单 Agent 完成            | 无 EventBus、无 pub/sub 测试   |
-| **系统集成**           | ❌ Docker 隔离              | 无 clipboard、notification 等  |
-| **持久化 Memory**      | ❌ 无状态跨任务             | 每个任务从头开始               |
-| **Agent Lifecycle**    | ❌ 无重启/恢复              | 无 heartbeat、crash recovery   |
-| **QoS & Backpressure** | ❌ 无并发场景               | 无 event queue 压力测试        |
-
-### 战略性冲突
-
-**SWE-bench 评估的是**：
-
-```
-单Agent → 代码修复 → 一次性完成 → Docker隔离
-```
-
-**Loom 想证明的是**：
-
-```
-多Agent → 事件响应 → 长期运行 → 真实环境集成
-```
-
-**结论**：SWE-bench 能测试 Loom 的**25%能力**（ReAct + Tool Use），但**无法评估核心价值主张**（Runtime 特性）。
+1. **Long Lifecycle** - Runs for hours/days, not minutes
+2. **Event-Driven** - Responds to hotkeys, file changes, timers—not single function calls
+3. **Multi-Agent Collaboration** - EventBus for cross-process communication, not single-agent task completion
+4. **System Integration** - Deep integration with desktop/edge environments
+5. **Context Engineering** - Token optimization and memory management for long conversations
 
 ---
 
-## 二、推荐的 Benchmark 优先级
+## I. SWE-bench Alignment Analysis with Loom
 
-### 🥇 Tier 1: 契合 Loom 核心能力的 Benchmark（优先实现）
+### ✅ Aligned Areas (20%)
+
+| Loom Feature        | SWE-bench Coverage                         | Alignment |
+| ------------------- | ------------------------------------------ | --------- |
+| Tool Use            | File read/write, shell execution           | ⭐⭐⭐    |
+| ReAct Loop          | Iterative debugging (read → modify → test) | ⭐⭐⭐    |
+| Context Engineering | Token optimization for large codebases     | ⭐⭐      |
+
+### ❌ Misaligned Areas (80%)
+
+| Loom Core Capability   | SWE-bench Coverage              | Issue                                |
+| ---------------------- | ------------------------------- | ------------------------------------ |
+| **Long Lifecycle**     | ❌ Independent tasks, 10-30 min | SWE-bench is one-shot tasks          |
+| **Event-Driven**       | ❌ Single code invocation       | No hotkeys, timers, or file watchers |
+| **Multi-Agent Collab** | ❌ Single agent completion      | No EventBus, no pub/sub testing      |
+| **System Integration** | ❌ Docker isolation             | No clipboard, notifications, etc.    |
+| **Persistent Memory**  | ❌ Stateless across tasks       | Each task starts from scratch        |
+| **Agent Lifecycle**    | ❌ No restart/recovery          | No heartbeat, crash recovery         |
+| **QoS & Backpressure** | ❌ No concurrent scenarios      | No event queue stress testing        |
+
+### Strategic Conflict
+
+**What SWE-bench evaluates**:
+
+```
+Single Agent → Code Fixes → One-shot Completion → Docker Isolation
+```
+
+**What Loom aims to prove**:
+
+```
+Multi-Agent → Event Response → Long-running → Real Environment Integration
+```
+
+**Conclusion**: SWE-bench tests **25% of Loom's capabilities** (ReAct + Tool Use), but **fails to evaluate core value proposition** (Runtime features).
+
+---
+
+## II. Recommended Benchmark Priorities
+
+### 🥇 Tier 1: Benchmarks Aligned with Loom's Core Capabilities (Priority Implementation)
 
 #### 1. **GAIA (General AI Assistants)** ⭐⭐⭐⭐⭐
 
-**为什么最适合**：
+**Why Most Suitable**:
 
-- ✅ **真实助手任务**：搜索信息、分析数据、生成报告
-- ✅ **多工具协作**：web search + file 操作 + 数据分析
-- ✅ **长对话场景**：165 个任务，平均 5-10 轮交互
-- ✅ **Context Engineering 测试**：需要管理长对话 token
-- ✅ **开放式评估**：human eval + automatic verification
+- ✅ **Real assistant tasks**: Search information, analyze data, generate reports
+- ✅ **Multi-tool collaboration**: web search + file operations + data analysis
+- ✅ **Long conversation scenarios**: 165 tasks, avg 5-10 interaction rounds
+- ✅ **Context Engineering testing**: Requires managing long conversation tokens
+- ✅ **Open-ended evaluation**: human eval + automatic verification
 
-**任务示例**：
+**Task Example**:
 
 ```
 "Find the top 3 trending topics on Twitter today,
 analyze their sentiment, and write a 2-paragraph
 summary saved to report.md"
 
-→ 需要: web:search → data analysis → fs:write
-→ 测试: 多工具协作、文件操作、结果验证
+→ Requires: web:search → data analysis → fs:write
+→ Tests: Multi-tool collaboration, file operations, result verification
 ```
 
-**数据集**：
+**Dataset**:
 
 - GAIA-validation: 165 tasks
 - GAIA-test: 300 tasks (private)
 - Hugging Face: `gaia-benchmark/GAIA`
 
-**实现难度**：⭐⭐ (2 周)
+**Implementation Difficulty**: ⭐⭐ (2 weeks)
 
-- 已有工具：web:search, fs:read, fs:write
-- 需要增强：data analysis tools
+- Existing tools: web:search, fs:read, fs:write
+- Need to enhance: data analysis tools
 
-**战略价值**：
+**Strategic Value**:
 
-- ✅ 直接对应 `chat-assistant` app
-- ✅ 评估 Context Engineering 效果
-- ✅ 与 GPT-4、Claude 对标
-- ✅ 论文/营销材料最佳选择
+- ✅ Directly maps to `chat-assistant` app
+- ✅ Evaluates Context Engineering effectiveness
+- ✅ Benchmarks against GPT-4, Claude
+- ✅ Best choice for papers/marketing materials
 
 ---
 
 #### 2. **TAU-bench (Thousand Tools)** ⭐⭐⭐⭐⭐
 
-**为什么适合**：
+**Why Suitable**:
 
-- ✅ **多 Agent 场景**：Travel planning 需要多个 API 协作
-- ✅ **EventBus 测试**：Retail 需要 price monitoring + alert
-- ✅ **真实 API 集成**：航班、酒店、天气、地图等
-- ✅ **长生命周期**：监控型任务（price drop → notify user）
+- ✅ **Multi-agent scenarios**: Travel planning requires multiple API coordination
+- ✅ **EventBus testing**: Retail requires price monitoring + alerts
+- ✅ **Real API integration**: Flights, hotels, weather, maps, etc.
+- ✅ **Long lifecycle**: Monitoring tasks (price drop → notify user)
 
-**任务示例**：
+**Task Example**:
 
 ```
 "Monitor Bitcoin price, alert me when it drops
@@ -122,270 +122,270 @@ below $40k, and execute a buy order"
 → Agent A: Price monitoring (poll OKX API)
 → Agent B: Alert system (notify user)
 → Agent C: Trade executor (OKX order)
-→ 测试: EventBus协作、proactive agents
+→ Tests: EventBus collaboration, proactive agents
 ```
 
-**数据集**：
+**Dataset**:
 
 - TAU-bench: 1000+ tool APIs
 - Travel, Retail, Finance domains
 - arXiv: https://arxiv.org/abs/2406.12902
 
-**实现难度**：⭐⭐⭐ (3-4 周)
+**Implementation Difficulty**: ⭐⭐⭐ (3-4 weeks)
 
-- 需要实现：API connectors
-- 需要增强：EventBus multi-agent orchestration
+- Need to implement: API connectors
+- Need to enhance: EventBus multi-agent orchestration
 
-**战略价值**：
+**Strategic Value**:
 
-- ✅ 直接对应 `market-analyst` app
-- ✅ 展示 EventBus 优势
-- ✅ Multi-agent 协作证明
-- ✅ Proactive agent 能力
+- ✅ Directly maps to `market-analyst` app
+- ✅ Demonstrates EventBus advantages
+- ✅ Proves multi-agent collaboration
+- ✅ Proactive agent capabilities
 
 ---
 
 #### 3. **AgentBench (OS Interaction)** ⭐⭐⭐⭐
 
-**为什么适合**：
+**Why Suitable**:
 
-- ✅ **Desktop 集成**：File operations + Shell commands
-- ✅ **长任务序列**：平均 15-20 步操作
-- ✅ **真实环境**：不是 Docker 隔离，是真实 OS
-- ✅ **系统工具**：测试 sandboxed shell execution
+- ✅ **Desktop integration**: File operations + Shell commands
+- ✅ **Long task sequences**: Average 15-20 step operations
+- ✅ **Real environment**: Not Docker isolation, but real OS
+- ✅ **System tools**: Tests sandboxed shell execution
 
-**任务示例**：
+**Task Example**:
 
 ```
 "Find all .log files modified in last 7 days,
 compress them to logs_archive.tar.gz, and upload
 to S3 bucket 'backups'"
 
-→ 测试: fs:list → fs:filter → shell:tar → shell:aws
-→ 展示: Tool chaining + Shell safety
+→ Tests: fs:list → fs:filter → shell:tar → shell:aws
+→ Demonstrates: Tool chaining + Shell safety
 ```
 
-**数据集**：
+**Dataset**:
 
 - AgentBench OS: 144 tasks
-- 8 个场景：File ops, Web, Database, etc.
+- 8 scenarios: File ops, Web, Database, etc.
 - GitHub: microsoft/AgentBench
 
-**实现难度**：⭐⭐ (2 周)
+**Implementation Difficulty**: ⭐⭐ (2 weeks)
 
-- 已有工具：fs:\*, shell:run
-- 需要增强：Tool safety allowlist
+- Existing tools: fs:\*, shell:run
+- Need to enhance: Tool safety allowlist
 
-**战略价值**：
+**Strategic Value**:
 
-- ✅ 证明 Rust Tool Sandbox 安全性
-- ✅ 展示 Shell tool 的实用性
-- ✅ 对标 AutoGPT 等竞品
+- ✅ Proves Rust Tool Sandbox security
+- ✅ Demonstrates Shell tool practicality
+- ✅ Benchmarks against AutoGPT and competitors
 
 ---
 
-### 🥈 Tier 2: 部分契合的 Benchmark（可选实现）
+### 🥈 Tier 2: Partially Aligned Benchmarks (Optional Implementation)
 
 #### 4. **WebArena (Web Automation)** ⭐⭐⭐
 
-**契合度**：中等
+**Alignment**: Medium
 
-- ✅ 真实网站交互（Reddit, GitLab, Shopping）
-- ✅ 长任务序列（平均 30-50 步）
-- ⚠️ 需要浏览器控制工具（新增 Playwright）
-- ⚠️ 单 Agent 完成，无 multi-agent
+- ✅ Real website interaction (Reddit, GitLab, Shopping)
+- ✅ Long task sequences (average 30-50 steps)
+- ⚠️ Requires browser control tools (new Playwright integration)
+- ⚠️ Single agent completion, no multi-agent
 
-**实现难度**：⭐⭐⭐⭐ (4-5 周)
+**Implementation Difficulty**: ⭐⭐⭐⭐ (4-5 weeks)
 
-- 需要集成：Playwright/Selenium
-- 需要维护：测试网站环境
+- Need to integrate: Playwright/Selenium
+- Need to maintain: Test website environment
 
-**战略价值**：
+**Strategic Value**:
 
 - ✅ RPA/automation use case
-- ⚠️ 不是 Loom 核心场景
+- ⚠️ Not Loom's core scenario
 
 ---
 
 #### 5. **SWE-bench (Code Editing)** ⭐⭐
 
-**契合度**：低
+**Alignment**: Low
 
-- ✅ ReAct loop 测试
-- ✅ Tool use 测试
-- ❌ 单 Agent one-shot 任务
-- ❌ 无 EventBus、无 multi-agent
-- ❌ 无 Desktop integration
+- ✅ ReAct loop testing
+- ✅ Tool use testing
+- ❌ Single agent one-shot tasks
+- ❌ No EventBus, no multi-agent
+- ❌ No Desktop integration
 
-**实现难度**：⭐⭐⭐⭐⭐ (3-4 周)
+**Implementation Difficulty**: ⭐⭐⭐⭐⭐ (3-4 weeks)
 
-- 需要完整评估 harness（Docker + test execution）
+- Requires complete evaluation harness (Docker + test execution)
 
-**战略价值**：
+**Strategic Value**:
 
-- ⚠️ 业界认可度高（排行榜）
-- ❌ 不展示 Loom 独特价值
-- ❌ 与 Devin、SWE-agent 直接竞争（不利）
+- ⚠️ High industry recognition (leaderboard)
+- ❌ Doesn't showcase Loom's unique value
+- ❌ Direct competition with Devin, SWE-agent (disadvantageous)
 
 ---
 
-### 🥉 Tier 3: 不适合的 Benchmark（不推荐）
+### 🥉 Tier 3: Unsuitable Benchmarks (Not Recommended)
 
 #### ❌ HumanEval / MBPP (Code Generation)
 
-- 问题：纯代码生成，无 Tool use，无 Agent 特性
-- 结论：LLM benchmark，不是 Agent benchmark
+- Issue: Pure code generation, no tool use, no agent features
+- Conclusion: LLM benchmark, not agent benchmark
 
 #### ❌ ToolBench (API Calling)
 
-- 问题：Single-turn API 调用，无复杂推理
-- 结论：测试 API wrapper，不是 Agent 能力
+- Issue: Single-turn API calls, no complex reasoning
+- Conclusion: Tests API wrapper, not agent capabilities
 
 #### ❌ MMLU / BBH (Knowledge QA)
 
-- 问题：纯 QA，无 tool use，无 action
-- 结论：LLM 能力测试，不是 Agent benchmark
+- Issue: Pure QA, no tool use, no actions
+- Conclusion: LLM capability test, not agent benchmark
 
 ---
 
-## 三、推荐的实施路线图
+## III. Recommended Implementation Roadmap
 
-### Phase 1: Quick Win（Week 1-3）
+### Phase 1: Quick Win (Week 1-3)
 
-**目标**：证明基础能力，发布初版结果
+**Objective**: Prove baseline capabilities, publish initial results
 
-**选择**: **GAIA-validation** (165 tasks)
+**Choice**: **GAIA-validation** (165 tasks)
 
-**理由**：
+**Rationale**:
 
-1. ✅ 已有 80%工具（web:search, fs:\*, shell:run）
-2. ✅ 直接对应 chat-assistant app
-3. ✅ 2 周可出结果
-4. ✅ 与 GPT-4/Claude 直接对比
+1. ✅ Already have 80% of tools (web:search, fs:\*, shell:run)
+2. ✅ Directly corresponds to chat-assistant app
+3. ✅ Can deliver results in 2 weeks
+4. ✅ Direct comparison with GPT-4/Claude
 
-**实施计划**：
+**Implementation Plan**:
 
 ```
-Week 1: 环境搭建 + 评估harness
-  - 下载GAIA dataset
-  - 实现automatic evaluation
-  - 人工验证10个样例
+Week 1: Environment setup + Evaluation harness
+  - Download GAIA dataset
+  - Implement automatic evaluation
+  - Manually verify 10 samples
 
-Week 2: Agent优化 + 工具增强
-  - 优化ReAct prompt for GAIA
-  - 添加data analysis tools (pandas操作)
-  - Context engineering调优
+Week 2: Agent optimization + Tool enhancement
+  - Optimize ReAct prompt for GAIA
+  - Add data analysis tools (pandas operations)
+  - Tune context engineering
 
-Week 3: 规模运行 + 结果分析
-  - 运行165个任务
-  - 分析失败case
-  - 撰写技术报告
+Week 3: Scale run + Results analysis
+  - Run 165 tasks
+  - Analyze failure cases
+  - Write technical report
 ```
 
-**成功指标**：
+**Success Metrics**:
 
 - Baseline: ≥30% success rate
-- 目标: ≥40% success rate (超过 GPT-4 baseline)
-- 展示: Context Engineering 带来 10-15% token 节省
+- Target: ≥40% success rate (exceeding GPT-4 baseline)
+- Demonstrate: Context Engineering brings 10-15% token savings
 
 ---
 
-### Phase 2: 展示核心能力（Week 4-7）
+### Phase 2: Showcase Core Capabilities (Week 4-7)
 
-**目标**：证明 Multi-agent + EventBus 价值
+**Objective**: Prove Multi-agent + EventBus value
 
-**选择**: **TAU-bench** (subset: Finance + Retail)
+**Choice**: **TAU-bench** (subset: Finance + Retail)
 
-**理由**：
+**Rationale**:
 
-1. ✅ Multi-agent 协作场景
-2. ✅ 对应 market-analyst app
-3. ✅ EventBus 价值可视化
-4. ✅ Proactive agent 展示
+1. ✅ Multi-agent collaboration scenarios
+2. ✅ Maps to market-analyst app
+3. ✅ EventBus value visualization
+4. ✅ Proactive agent demonstration
 
-**实施计划**：
+**Implementation Plan**:
 
 ```
-Week 4: Multi-agent框架
-  - 实现agent.spawn / agent.result
+Week 4: Multi-agent framework
+  - Implement agent.spawn / agent.result
   - EventBus topic routing
   - Agent coordination patterns
 
-Week 5-6: TAU-bench集成
+Week 5-6: TAU-bench integration
   - Finance APIs (price data, trading)
   - Retail APIs (product, inventory)
-  - 50个任务子集运行
+  - Run 50-task subset
 
-Week 7: 对比实验
+Week 7: Comparative experiments
   - Single-agent baseline
   - Multi-agent with EventBus
-  - 证明协作优势（速度/质量）
+  - Prove collaboration advantages (speed/quality)
 ```
 
-**成功指标**：
+**Success Metrics**:
 
-- Multi-agent 比 Single-agent 快 30-50%
-- EventBus QoS 展示（Realtime vs Batched）
-- Agent crash recovery 演示
-
----
-
-### Phase 3: 长期优化（Week 8+）
-
-**目标**：完善生态，对标竞品
-
-**选择**: **AgentBench OS** + **WebArena**(optional)
-
-**理由**：
-
-1. AgentBench: 证明 Tool Sandbox 安全性
-2. WebArena: 扩展到 Browser automation
+- Multi-agent 30-50% faster than single-agent
+- EventBus QoS demonstration (Realtime vs Batched)
+- Agent crash recovery demo
 
 ---
 
-## 四、Benchmark 对比矩阵
+### Phase 3: Long-term Optimization (Week 8+)
 
-| Benchmark         | Loom 契合度 | 实现难度   | 战略价值   | 推荐优先级 | 时间估算 |
-| ----------------- | ----------- | ---------- | ---------- | ---------- | -------- |
-| **GAIA**          | ⭐⭐⭐⭐⭐  | ⭐⭐       | ⭐⭐⭐⭐⭐ | 🥇 P0      | 2-3 周   |
-| **TAU-bench**     | ⭐⭐⭐⭐⭐  | ⭐⭐⭐     | ⭐⭐⭐⭐⭐ | 🥇 P0      | 3-4 周   |
-| **AgentBench OS** | ⭐⭐⭐⭐    | ⭐⭐       | ⭐⭐⭐⭐   | 🥈 P1      | 2 周     |
-| **WebArena**      | ⭐⭐⭐      | ⭐⭐⭐⭐   | ⭐⭐⭐     | 🥈 P1      | 4-5 周   |
-| **SWE-bench**     | ⭐⭐        | ⭐⭐⭐⭐⭐ | ⭐⭐       | 🥉 P2      | 3-4 周   |
+**Objective**: Complete ecosystem, benchmark against competitors
+
+**Choice**: **AgentBench OS** + **WebArena** (optional)
+
+**Rationale**:
+
+1. AgentBench: Prove Tool Sandbox security
+2. WebArena: Expand to Browser automation
 
 ---
 
-## 五、决策建议
+## IV. Benchmark Comparison Matrix
 
-### 立即行动（本周）
+| Benchmark         | Loom Alignment | Difficulty | Strategic Value | Priority | Time Est. |
+| ----------------- | -------------- | ---------- | --------------- | -------- | --------- |
+| **GAIA**          | ⭐⭐⭐⭐⭐     | ⭐⭐       | ⭐⭐⭐⭐⭐      | 🥇 P0    | 2-3 weeks |
+| **TAU-bench**     | ⭐⭐⭐⭐⭐     | ⭐⭐⭐     | ⭐⭐⭐⭐⭐      | 🥇 P0    | 3-4 weeks |
+| **AgentBench OS** | ⭐⭐⭐⭐       | ⭐⭐       | ⭐⭐⭐⭐        | 🥈 P1    | 2 weeks   |
+| **WebArena**      | ⭐⭐⭐         | ⭐⭐⭐⭐   | ⭐⭐⭐          | 🥈 P1    | 4-5 weeks |
+| **SWE-bench**     | ⭐⭐           | ⭐⭐⭐⭐⭐ | ⭐⭐            | 🥉 P2    | 3-4 weeks |
 
-**移除 SWE-bench 实现，转向 GAIA**
+---
 
-**理由**：
+## V. Decision Recommendations
 
-1. ❌ SWE-bench 不展示 Loom 核心价值（Runtime 特性）
-2. ❌ 评估系统复杂（Docker harness + 真实测试）
-3. ❌ 与 Devin/SWE-agent 直接竞争（不占优势）
-4. ✅ GAIA 直接对应 chat-assistant app
-5. ✅ 2 周可出结果，营销价值更高
+### Immediate Action (This Week)
 
-### 具体步骤
+**Remove SWE-bench implementation, pivot to GAIA**
 
-**Day 1-2: 清理当前实现**
+**Rationale**:
+
+1. ❌ SWE-bench doesn't showcase Loom's core value (Runtime features)
+2. ❌ Complex evaluation system (Docker harness + real tests)
+3. ❌ Direct competition with Devin/SWE-agent (no advantage)
+4. ✅ GAIA directly maps to chat-assistant app
+5. ✅ Results in 2 weeks, higher marketing value
+
+### Specific Steps
+
+**Day 1-2: Clean up current implementation**
 
 ```bash
-# 保留benchmark框架，移除SWE-bench特定代码
+# Keep benchmark framework, remove SWE-bench specific code
 rm -rf loom-py/src/loom/benchmark/adapters/swe_bench.py
 rm -rf datasets/swe-bench-lite/
 rm -rf docs/REFACTOR_SWEBENCH.md
 
-# 保留可复用的：
-# - BenchmarkRunner (框架)
-# - TaskMetrics (通用指标)
-# - Token tracking (已验证正确)
+# Keep reusable components:
+# - BenchmarkRunner (framework)
+# - TaskMetrics (generic metrics)
+# - Token tracking (verified correct)
 ```
 
-**Day 3-5: GAIA 集成**
+**Day 3-5: GAIA Integration**
 
 ```python
 # loom-py/src/loom/benchmark/adapters/gaia.py
@@ -400,95 +400,95 @@ class GAIAAdapter:
         """Compare with gold answer (exact match or LLM judge)"""
 ```
 
-**Week 1-2: 运行 + 优化**
+**Week 1-2: Run + Optimize**
 
-- 运行 GAIA-validation (165 tasks)
-- 分析失败原因
-- 迭代优化 Agent
+- Run GAIA-validation (165 tasks)
+- Analyze failure reasons
+- Iteratively optimize agent
 
-**Week 3: 发布结果**
+**Week 3: Publish Results**
 
-- 技术博客
-- GitHub README 更新
-- 社交媒体宣传
-
----
-
-## 六、营销角度对比
-
-### SWE-bench 的问题
-
-```
-标题: "Loom在SWE-bench上达到5%"
-反应: "所以...你比Devin差10倍？"
-问题: 直接暴露弱点，不利于早期产品
-```
-
-### GAIA 的优势
-
-```
-标题: "Loom在GAIA上超越GPT-4 baseline 10%"
-       "通过Context Engineering节省35% tokens"
-反应: "哇，新的优化方法有效！"
-优势: 展示独特价值，吸引早期用户
-```
-
-### TAU-bench 的优势
-
-```
-标题: "Multi-agent协作比单Agent快40%"
-       "EventBus实现5个Agent实时协作"
-反应: "这才是Agent Runtime的价值"
-优势: 展示核心差异化，定义新品类
-```
+- Technical blog post
+- Update GitHub README
+- Social media promotion
 
 ---
 
-## 七、总结与行动计划
+## VI. Marketing Perspective Comparison
 
-### 核心结论
-
-**SWE-bench 不适合 Loom 的原因**：
-
-1. ❌ 评估 one-shot 能力，Loom 是 long-lifecycle runtime
-2. ❌ 单 Agent 任务，Loom 是 multi-agent 协作平台
-3. ❌ Docker 隔离，Loom 是真实环境集成
-4. ❌ 与 Devin/SWE-agent 直接竞争，不占优势
-5. ❌ 实现复杂（3-4 周），收益低（不展示核心价值）
-
-**推荐策略**：
+### SWE-bench Problem
 
 ```
-Phase 1 (Week 1-3):  GAIA          → 证明基础能力
-Phase 2 (Week 4-7):  TAU-bench     → 展示Multi-agent
-Phase 3 (Week 8+):   AgentBench OS → 完善工具生态
-Optional:            WebArena      → 扩展Browser场景
+Headline: "Loom achieves 5% on SWE-bench"
+Reaction: "So... you're 10x worse than Devin?"
+Issue: Directly exposes weakness, harmful for early product
 ```
 
-### 下一步行动（本周）
+### GAIA Advantage
+
+```
+Headline: "Loom exceeds GPT-4 baseline by 10% on GAIA"
+          "Context Engineering saves 35% tokens"
+Reaction: "Wow, the new optimization approach works!"
+Advantage: Showcases unique value, attracts early users
+```
+
+### TAU-bench Advantage
+
+```
+Headline: "Multi-agent collaboration 40% faster than single agent"
+          "EventBus enables real-time 5-agent coordination"
+Reaction: "This is the value of an Agent Runtime"
+Advantage: Demonstrates core differentiation, defines new category
+```
+
+---
+
+## VII. Summary and Action Plan
+
+### Core Conclusion
+
+**Why SWE-bench is Unsuitable for Loom**:
+
+1. ❌ Evaluates one-shot capability, Loom is a long-lifecycle runtime
+2. ❌ Single-agent tasks, Loom is a multi-agent collaboration platform
+3. ❌ Docker isolation, Loom integrates with real environments
+4. ❌ Direct competition with Devin/SWE-agent, no advantage
+5. ❌ Complex implementation (3-4 weeks), low ROI (doesn't showcase core value)
+
+**Recommended Strategy**:
+
+```
+Phase 1 (Week 1-3):  GAIA          → Prove baseline capabilities
+Phase 2 (Week 4-7):  TAU-bench     → Demonstrate multi-agent
+Phase 3 (Week 8+):   AgentBench OS → Complete tool ecosystem
+Optional:            WebArena      → Expand browser scenarios
+```
+
+### Next Steps (This Week)
 
 **Monday**:
 
-- [ ] Review 这份分析
-- [ ] 决定：保留 or 移除 SWE-bench 实现
-- [ ] 如果移除：清理代码，保留 benchmark 框架
+- [ ] Review this analysis
+- [ ] Decide: Keep or remove SWE-bench implementation
+- [ ] If removing: Clean up code, preserve benchmark framework
 
 **Tuesday-Friday**:
 
-- [ ] 下载 GAIA dataset
-- [ ] 研究 GAIA evaluation protocol
-- [ ] 实现 GAIAAdapter prototype
-- [ ] 测试 10 个样例任务
+- [ ] Download GAIA dataset
+- [ ] Study GAIA evaluation protocol
+- [ ] Implement GAIAAdapter prototype
+- [ ] Test 10 sample tasks
 
 **Next Week**:
 
-- [ ] 完整 GAIA 集成
-- [ ] 运行 165 个任务
-- [ ] 撰写技术报告
+- [ ] Complete GAIA integration
+- [ ] Run 165 tasks
+- [ ] Write technical report
 
 ---
 
-## 附录：资源链接
+## Appendix: Resource Links
 
 ### GAIA
 
@@ -517,4 +517,4 @@ Optional:            WebArena      → 扩展Browser场景
 
 ---
 
-**结论**: 移除 SWE-bench，All-in GAIA + TAU-bench。这才能展示 Loom 作为 Runtime 的真正价值。
+**Conclusion**: Remove SWE-bench, go all-in on GAIA + TAU-bench. This is what truly demonstrates Loom's value as a Runtime.
