@@ -146,10 +146,16 @@ class BenchmarkRunner:
         )
 
         # Create cognitive agent
+        # Get available tools from config or use defaults for SWE-bench
+        available_tools = agent_config.get(
+            "tools", ["fs:read", "fs:write", "fs:list", "fs:delete", "shell:run", "web:search"]
+        )
+
         cognitive = CognitiveAgent(
             ctx=base_agent._ctx,
             llm=llm,
             config=cognitive_config,
+            available_tools=available_tools,
             workspace_path=self.workspace_path,
         )
 
@@ -241,14 +247,21 @@ class BenchmarkRunner:
 
         try:
             # Prepare task workspace
-            await self.adapter.prepare_task(task)
+            task_workspace = await self.adapter.prepare_task(task)
 
             # Get or load cognitive agent
             if self.agent:
                 cognitive_agent = self.agent
+                # Update workspace path for this task
+                if hasattr(cognitive_agent, "data_offloader"):
+                    cognitive_agent.data_offloader.workspace_path = task_workspace
             else:
                 # Load agent from project directory
                 cognitive_agent = await self._load_agent_from_path(self.agent_path)
+                # Set workspace to task-specific directory
+                cognitive_agent.workspace_path = task_workspace
+                if hasattr(cognitive_agent, "data_offloader"):
+                    cognitive_agent.data_offloader.workspace_path = task_workspace
 
             # Configure context engineering
             if not context_engineering:
@@ -280,10 +293,10 @@ class BenchmarkRunner:
             if context_engineering and hasattr(cognitive_agent, "step_compactor"):
                 compacted_steps = getattr(cognitive_agent.step_compactor, "total_compacted", 0)
 
-            # Token usage (from cognitive result or LLM provider)
-            total_tokens = getattr(result, "total_tokens", 0)
-            avg_prompt_tokens = getattr(result, "avg_prompt_tokens", 0)
-            peak_prompt_tokens = getattr(result, "peak_prompt_tokens", 0)
+            # Token usage (from cognitive result)
+            total_tokens = result.total_tokens
+            avg_prompt_tokens = result.avg_prompt_tokens
+            peak_prompt_tokens = result.peak_prompt_tokens
 
             # Estimate token savings (rough heuristic)
             token_savings_pct = 0.0
@@ -291,9 +304,12 @@ class BenchmarkRunner:
                 # Rough estimate: 70-85% savings based on offloading + compaction
                 token_savings_pct = min(85.0, (offloaded_files * 10 + compacted_steps * 5))
 
-            # Cost calculation (rough estimate based on tokens)
-            # Assuming ~$0.05 per 1K tokens (adjust based on actual LLM pricing)
-            total_cost_usd = (total_tokens / 1000) * 0.05
+            # Cost calculation based on actual token usage
+            # Assuming DeepSeek pricing: ~$0.14 per 1M input tokens, ~$0.28 per 1M output tokens
+            # (Adjust based on actual LLM pricing)
+            input_cost = (result.prompt_tokens / 1_000_000) * 0.14
+            output_cost = (result.completion_tokens / 1_000_000) * 0.28
+            total_cost_usd = input_cost + output_cost
 
             return TaskMetrics(
                 task_id=task_id,

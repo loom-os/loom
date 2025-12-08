@@ -179,18 +179,113 @@ Please fix the issue and verify your changes work.
         Returns:
             List of synthetic task specifications
         """
-        synthetic_tasks = [
-            {
-                "task_id": f"synthetic-python-{i}",
-                "repo": "test/python-project",
-                "problem_statement": f"Fix bug #{i}: Function returns incorrect result",
-                "test_patch": "",
-                "base_commit": "",
-            }
-            for i in range(min(max_tasks, 5))
-        ]
+        synthetic_tasks = []
 
-        return [self._normalize_task(t) for t in synthetic_tasks]
+        # Task 1: Simple function with bug
+        synthetic_tasks.append(
+            {
+                "task_id": "synthetic-python-0",
+                "repo": "test/python-project",
+                "problem_statement": """There is a bug in the calculate_average function in calculator.py.
+The function should calculate the average of a list of numbers, but it returns incorrect results.
+
+The function is located in calculator.py and currently has an off-by-one error.
+Please fix the bug and ensure the function returns the correct average.""",
+                "test_patch": "test_calculator.py",
+                "base_commit": "",
+                "files": {
+                    "calculator.py": '''def calculate_average(numbers):
+    """Calculate the average of a list of numbers."""
+    if not numbers:
+        return 0
+    total = sum(numbers)
+    # BUG: Should divide by len(numbers), not len(numbers) + 1
+    return total / (len(numbers) + 1)
+''',
+                    "test_calculator.py": """import calculator
+
+def test_calculate_average():
+    assert calculator.calculate_average([1, 2, 3, 4, 5]) == 3.0
+    assert calculator.calculate_average([10, 20, 30]) == 20.0
+    assert calculator.calculate_average([5]) == 5.0
+    assert calculator.calculate_average([]) == 0
+    print("All tests passed!")
+
+if __name__ == "__main__":
+    test_calculate_average()
+""",
+                },
+            }
+        )
+
+        # Task 2: String manipulation bug
+        synthetic_tasks.append(
+            {
+                "task_id": "synthetic-python-1",
+                "repo": "test/string-utils",
+                "problem_statement": """The reverse_words function in string_utils.py is not working correctly.
+It should reverse the order of words in a sentence while preserving spaces,
+but it's currently reversing the entire string instead.
+
+Please fix the function to reverse only the word order, not the characters.""",
+                "test_patch": "test_string_utils.py",
+                "base_commit": "",
+                "files": {
+                    "string_utils.py": '''def reverse_words(sentence):
+    """Reverse the order of words in a sentence."""
+    # BUG: This reverses characters, not words
+    return sentence[::-1]
+''',
+                    "test_string_utils.py": """import string_utils
+
+def test_reverse_words():
+    assert string_utils.reverse_words("hello world") == "world hello"
+    assert string_utils.reverse_words("the quick brown fox") == "fox brown quick the"
+    assert string_utils.reverse_words("single") == "single"
+    print("All tests passed!")
+
+if __name__ == "__main__":
+    test_reverse_words()
+""",
+                },
+            }
+        )
+
+        # Task 3: List processing bug
+        synthetic_tasks.append(
+            {
+                "task_id": "synthetic-python-2",
+                "repo": "test/list-processing",
+                "problem_statement": """The remove_duplicates function in list_utils.py should remove duplicate elements
+from a list while preserving the original order of first occurrences.
+Currently, it's not preserving order correctly.
+
+Please fix the function to maintain the order of first occurrences.""",
+                "test_patch": "test_list_utils.py",
+                "base_commit": "",
+                "files": {
+                    "list_utils.py": '''def remove_duplicates(items):
+    """Remove duplicates from list, preserving order."""
+    # BUG: set() doesn't preserve order in older Python versions
+    # and this doesn't work correctly anyway
+    return list(set(items))
+''',
+                    "test_list_utils.py": """import list_utils
+
+def test_remove_duplicates():
+    assert list_utils.remove_duplicates([1, 2, 2, 3, 1, 4]) == [1, 2, 3, 4]
+    assert list_utils.remove_duplicates(['a', 'b', 'a', 'c']) == ['a', 'b', 'c']
+    assert list_utils.remove_duplicates([1, 1, 1]) == [1]
+    print("All tests passed!")
+
+if __name__ == "__main__":
+    test_remove_duplicates()
+""",
+                },
+            }
+        )
+
+        return [self._normalize_task(t) for t in synthetic_tasks[:max_tasks]]
 
     async def prepare_task(self, task: dict) -> Any:
         """Prepare execution environment for a task.
@@ -202,20 +297,23 @@ Please fix the issue and verify your changes work.
             task: Task specification
 
         Returns:
-            EventContext or similar object for agent initialization
+            Path to task workspace
         """
         task_id = task["task_id"]
         task_workspace = self.workspace_path / task_id
         task_workspace.mkdir(parents=True, exist_ok=True)
 
-        # In a full implementation, we would:
+        # If task has files (synthetic tasks), create them
+        if "files" in task["raw_task"]:
+            for filename, content in task["raw_task"]["files"].items():
+                file_path = task_workspace / filename
+                file_path.write_text(content)
+
+        # In a full implementation with real SWE-bench:
         # 1. Clone the repository at the correct commit
         # 2. Apply any necessary patches
         # 3. Set up the Python environment
-        # For now, we just create the workspace directory
 
-        # Return a mock context (in real implementation, create EventContext)
-        # For now, return the workspace path as context
         return task_workspace
 
     async def evaluate_result(self, task: dict, result: CognitiveResult) -> bool:
@@ -230,37 +328,54 @@ Please fix the issue and verify your changes work.
         Returns:
             True if the task was solved correctly
         """
-        # In a full implementation:
-        # 1. Apply the agent's changes
-        # 2. Run the test suite
-        # 3. Check if tests pass
-
-        # For now, we use a simple heuristic:
-        # - Task succeeded if agent completed without errors
-        # - At least one tool was used (showing work was done)
         if not result.success:
             return False
 
-        # Check if agent did substantial work
-        if result.iterations < 2:
-            return False
-
-        # In real implementation, run actual tests
         task_id = task["task_id"]
         task_workspace = self.workspace_path / task_id
 
-        # Check if any files were modified
+        # Check if workspace exists
         if not task_workspace.exists():
             return False
 
-        # Simple heuristic: if workspace has Python files, assume some work was done
+        # For synthetic tasks with test files, actually run the tests
+        if "files" in task["raw_task"]:
+            test_file = None
+            for filename in task["raw_task"]["files"].keys():
+                if filename.startswith("test_"):
+                    test_file = task_workspace / filename
+                    break
+
+            if test_file and test_file.exists():
+                try:
+                    # Run the test file
+                    result = subprocess.run(
+                        ["python", test_file.name],
+                        cwd=task_workspace,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+
+                    # Check if tests passed
+                    success = result.returncode == 0
+                    if success and "All tests passed!" in result.stdout:
+                        return True
+                    return success
+
+                except subprocess.TimeoutExpired:
+                    return False
+                except Exception:
+                    return False
+
+        # For real SWE-bench tasks, check if solution files were modified
+        # Simple heuristic: check if Python files exist
         python_files = list(task_workspace.rglob("*.py"))
         if not python_files:
             return False
 
-        # TODO: Actually run tests from test_patch
-        # For now, return True if agent completed and modified files
-        return True
+        # Basic check: did agent complete with substantial work?
+        return result.iterations >= 2
 
     async def run_tests(self, task: dict, workspace: Path) -> tuple[bool, str]:
         """Run test suite for the task.

@@ -70,6 +70,7 @@ class LLMProvider:
         """
         self.ctx = ctx
         self.config = config or self.LOCAL
+        self._last_usage: Dict[str, int] = {}  # Track last call's token usage
 
     @classmethod
     def from_name(cls, ctx: "EventContext", provider_name: str) -> LLMProvider:
@@ -227,7 +228,13 @@ class LLMProvider:
                     span.set_attribute(
                         "llm.usage.completion_tokens", result["usage"].get("completion_tokens", 0)
                     )
+                    span.set_attribute(
+                        "llm.usage.total_tokens", result["usage"].get("total_tokens", 0)
+                    )
                 span.set_status(trace.Status(trace.StatusCode.OK))
+
+                # Store usage in response metadata for downstream access
+                self._last_usage = result.get("usage", {})
 
                 return generated_text
 

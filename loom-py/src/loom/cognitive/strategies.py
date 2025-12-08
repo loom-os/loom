@@ -76,15 +76,31 @@ class StrategyExecutor:
 
         self.memory.add("assistant", response)
 
+        # Collect token usage from LLM provider
+        usage = getattr(self.llm, "_last_usage", {})
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+        total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
+
         return CognitiveResult(
             answer=response,
             iterations=1,
             success=True,
+            total_tokens=total_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            avg_prompt_tokens=prompt_tokens,
+            peak_prompt_tokens=prompt_tokens,
         )
 
     async def run_react(self, goal: str) -> CognitiveResult:
         """ReAct pattern: iterative Thought -> Action -> Observation."""
         result = CognitiveResult(answer="", iterations=0)
+
+        # Track token usage across iterations
+        prompt_tokens_list = []
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
 
         system = build_react_system_prompt(
             self.config.system_prompt,
@@ -120,6 +136,14 @@ class StrategyExecutor:
                         system=system,
                         temperature=self.config.temperature,
                     )
+
+                    # Collect token usage from this LLM call
+                    usage = getattr(self.llm, "_last_usage", {})
+                    prompt_tokens = usage.get("prompt_tokens", 0)
+                    completion_tokens = usage.get("completion_tokens", 0)
+                    prompt_tokens_list.append(prompt_tokens)
+                    total_prompt_tokens += prompt_tokens
+                    total_completion_tokens += completion_tokens
 
                 # Parse response
                 parsed = parse_react_response(response)
@@ -179,6 +203,15 @@ class StrategyExecutor:
         if not result.answer:
             result.answer = synthesize_answer(result.steps)
             result.success = bool(result.answer)
+
+        # Set token usage metrics
+        result.total_tokens = total_prompt_tokens + total_completion_tokens
+        result.prompt_tokens = total_prompt_tokens
+        result.completion_tokens = total_completion_tokens
+        result.avg_prompt_tokens = (
+            int(total_prompt_tokens / len(prompt_tokens_list)) if prompt_tokens_list else 0
+        )
+        result.peak_prompt_tokens = max(prompt_tokens_list) if prompt_tokens_list else 0
 
         return result
 
@@ -308,10 +341,21 @@ class StrategyExecutor:
 
         self.memory.add("assistant", response)
 
+        # Collect token usage from LLM provider
+        usage = getattr(self.llm, "_last_usage", {})
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+        total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
+
         return CognitiveResult(
             answer=response,
             iterations=1,
             success=True,
+            total_tokens=total_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            avg_prompt_tokens=prompt_tokens,
+            peak_prompt_tokens=prompt_tokens,
         )
 
 

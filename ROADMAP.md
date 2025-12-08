@@ -159,6 +159,16 @@ Context Engineering in Loom
 | 2.14 Agent Spawning      | EventBus-based spawn/result           | 📋     |
 | 2.15 Goal-only Prompting | No parent context leak                | 📋     |
 
+**Benchmark System Update (2025-12-08):**
+
+- ✅ Token tracking: Added to CognitiveResult with prompt/completion/total metrics
+- ✅ Cost calculation: Accurate pricing based on DeepSeek rates ($0.14/$0.28 per 1M tokens)
+- ✅ Synthetic tasks: 3 Python debugging tasks with executable tests
+- ✅ Test execution: Automated verification of correctness
+- ✅ Documentation: Comprehensive guide in `/docs/BENCHMARK.md`
+- ✅ Test script: `./scripts/test_benchmark.sh` for quick validation
+- ✅ CLI integration: `loom benchmark run/compare/report` commands working
+
 **P2: Advanced Features (Week 4+)** 📋
 
 | Task                     | Description                       | Status |

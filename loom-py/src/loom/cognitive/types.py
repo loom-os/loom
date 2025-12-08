@@ -61,6 +61,13 @@ class CognitiveResult:
     error: Optional[str] = None
     total_latency_ms: int = 0
 
+    # Token usage tracking for benchmarking
+    total_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    avg_prompt_tokens: int = 0
+    peak_prompt_tokens: int = 0
+
 
 __all__ = [
     "ToolCall",

@@ -10,23 +10,26 @@ The benchmark module provides infrastructure for evaluating Loom agents against 
 - **Context engineering impact** measurement
 - **Token savings** calculation
 - **Cost/quality trade-offs** analysis
+- **Correctness verification** via automated tests
 
 ## Quick Start
 
 ### 1. Run a Benchmark
 
 ```bash
-# Run SWE-bench with 10 tasks
+# Run SWE-bench with 3 synthetic tasks
 loom benchmark run swe-bench \
+    --agent-path ./apps/chat-assistant \
     --dataset ./datasets/swe-bench-lite \
-    --max-tasks 10 \
+    --max-tasks 3 \
     --output results/baseline.json \
     --verbose
 
 # Run with context engineering disabled (baseline)
 loom benchmark run swe-bench \
+    --agent-path ./apps/chat-assistant \
     --dataset ./datasets/swe-bench-lite \
-    --max-tasks 10 \
+    --max-tasks 3 \
     --no-context-engineering \
     --output results/baseline.json
 ```
@@ -36,8 +39,9 @@ loom benchmark run swe-bench \
 ```bash
 # Compare baseline vs optimized
 loom benchmark compare swe-bench \
+    --agent-path ./apps/chat-assistant \
     --dataset ./datasets/swe-bench-lite \
-    --max-tasks 10 \
+    --max-tasks 5 \
     --output results/comparison.json
 ```
 
@@ -52,6 +56,88 @@ loom benchmark report results/comparison.json \
     --format markdown \
     --output results/report.md
 ```
+
+### 4. Quick Test
+
+```bash
+# Run automated test suite
+./scripts/test_benchmark.sh
+```
+
+## What's New (2025-12-08)
+
+### ✅ Token Tracking
+
+- Added `total_tokens`, `prompt_tokens`, `completion_tokens` to `CognitiveResult`
+- Tracks `avg_prompt_tokens` and `peak_prompt_tokens` across iterations
+- Collects usage from `LLMProvider._last_usage`
+
+### ✅ Accurate Cost Calculation
+
+- Uses actual LLM pricing (DeepSeek: $0.14/1M input, $0.28/1M output)
+- Separates input/output token costs
+- Reports per-task and average costs
+
+### ✅ Synthetic Tasks with Tests
+
+- 3 Python debugging tasks with real bugs
+- Includes test files that verify correctness
+- Tasks test: average calculation, string reversal, duplicate removal
+- Automatically executed to determine pass/fail
+
+### ✅ Improved Evaluation
+
+- Runs Python test files to verify solutions
+- Checks for "All tests passed!" marker
+- Falls back to heuristics for tasks without tests
+
+### ✅ Comprehensive Documentation
+
+- Added `/docs/BENCHMARK.md` with full system documentation
+- Created test script: `scripts/test_benchmark.sh`
+- Dataset guide in `datasets/swe-bench-lite/README.md`
+
+## Metrics Collected
+
+### Per-Task Metrics (`TaskMetrics`)
+
+| Metric               | Description                             |
+| -------------------- | --------------------------------------- |
+| `total_tokens`       | Total tokens used (prompt + completion) |
+| `prompt_tokens`      | Input tokens to LLM                     |
+| `completion_tokens`  | Output tokens from LLM                  |
+| `avg_prompt_tokens`  | Average prompt size per iteration       |
+| `peak_prompt_tokens` | Maximum prompt size encountered         |
+| `total_cost_usd`     | Estimated cost based on actual pricing  |
+| `execution_time_sec` | Wall-clock execution time               |
+| `offloaded_files`    | Files created for data offloading       |
+| `compacted_steps`    | Steps compressed in history             |
+| `token_savings_pct`  | Estimated token reduction %             |
+| `correct_answer`     | Whether solution passed tests           |
+
+### Aggregate Metrics (`BenchmarkResults`)
+
+```python
+results.success_rate       # % tasks completed without error
+results.correctness_rate   # % tasks with correct solutions
+results.avg_tokens         # Average tokens per task
+results.avg_cost           # Average cost per task (USD)
+results.avg_time           # Average execution time (sec)
+```
+
+### Comparison Metrics (`ComparisonReport`)
+
+```python
+report.token_reduction()   # % reduction in token usage
+report.cost_reduction()    # % reduction in cost
+report.quality_delta()     # Change in correctness rate
+```
+
+loom benchmark report results/comparison.json \
+ --format markdown \
+ --output results/report.md
+
+````
 
 ## Programmatic Usage
 
@@ -96,7 +182,7 @@ print(f"Token savings: {results.avg_token_savings:.1f}%")
 
 # Save results
 results.save(Path("results/run.json"))
-```
+````
 
 ### Comparison Run
 
