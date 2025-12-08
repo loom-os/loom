@@ -1,5 +1,0 @@
-# Ignore large JSON task files
-*.json
-
-# Keep documentation
-!README.md

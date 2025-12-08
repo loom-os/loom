@@ -37,8 +37,8 @@ def add_benchmark_subparser(subparsers):
     )
     run_parser.add_argument(
         "benchmark",
-        choices=["swe-bench"],
-        help="Benchmark to run (currently only swe-bench supported)",
+        type=str,
+        help="Benchmark to run (e.g., 'gaia', 'tau-bench', 'agentbench')",
     )
     run_parser.add_argument(
         "--agent-path",
@@ -88,8 +88,8 @@ def add_benchmark_subparser(subparsers):
     )
     compare_parser.add_argument(
         "benchmark",
-        choices=["swe-bench"],
-        help="Benchmark to run",
+        type=str,
+        help="Benchmark to run (e.g., 'gaia', 'tau-bench', 'agentbench')",
     )
     compare_parser.add_argument(
         "--agent-path",

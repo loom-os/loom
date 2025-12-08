@@ -1,7 +1,7 @@
 """Benchmark infrastructure for evaluating agent performance.
 
 This module provides tools for benchmarking Loom agents with industry-standard
-benchmarks like SWE-bench, WebArena, and GAIA. It includes:
+benchmarks like GAIA, TAU-bench, and AgentBench. It includes:
 
 - BenchmarkRunner: Execute benchmark tasks with/without context engineering
 - TaskMetrics: Capture detailed performance metrics
@@ -10,7 +10,7 @@ benchmarks like SWE-bench, WebArena, and GAIA. It includes:
 
 Example:
     ```python
-    from loom.benchmark import BenchmarkRunner, SWEBenchAdapter
+    from loom.benchmark import BenchmarkRunner
     from loom.cognitive import CognitiveAgent
 
     # Setup agent
@@ -18,9 +18,9 @@ Example:
 
     # Run benchmark
     runner = BenchmarkRunner(
-        agent=agent,
-        benchmark="swe-bench",
-        dataset_path="./datasets/swe-bench-lite"
+        agent_path="apps/chat-assistant",
+        benchmark="gaia",
+        dataset_path="./datasets/gaia-validation"
     )
 
     results = await runner.run(max_tasks=50)
@@ -30,7 +30,7 @@ Example:
 """
 
 from .metrics import BenchmarkResults, ComparisonReport, TaskMetrics
-from .prompts import get_generic_prompt, get_swe_bench_prompt
+from .prompts import get_generic_prompt
 from .runner import BenchmarkRunner
 
 __all__ = [

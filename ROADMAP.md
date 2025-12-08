@@ -151,36 +151,48 @@ Context Engineering in Loom
 
 | Task                     | Description                           | Status |
 | ------------------------ | ------------------------------------- | ------ |
-| 2.9 Benchmark Validation | SWE-bench integration & comparison    | ✅     |
-| 2.10 Offload Index       | JSON-based metadata persistence       | 📋     |
-| 2.11 TTL & GC            | Automatic expiration and cleanup      | 📋     |
-| 2.12 Promotion API       | SHORT_TERM → LONG_TERM tier promotion | 📋     |
-| 2.13 Context Isolation   | Per-agent working memory              | 📋     |
-| 2.14 Agent Spawning      | EventBus-based spawn/result           | 📋     |
-| 2.15 Goal-only Prompting | No parent context leak                | 📋     |
+| 2.9 GAIA Benchmark       | General AI assistant evaluation       | 📋     |
+| 2.10 TAU-bench           | Multi-agent tool coordination         | 📋     |
+| 2.11 Offload Index       | JSON-based metadata persistence       | 📋     |
+| 2.12 TTL & GC            | Automatic expiration and cleanup      | 📋     |
+| 2.13 Promotion API       | SHORT_TERM → LONG_TERM tier promotion | 📋     |
+| 2.14 Context Isolation   | Per-agent working memory              | 📋     |
+| 2.15 Agent Spawning      | EventBus-based spawn/result           | 📋     |
+| 2.16 Goal-only Prompting | No parent context leak                | 📋     |
 
-**Benchmark System Update (2025-12-08):**
+**Benchmark System (2025-12-08):**
 
 - ✅ Token tracking: Added to CognitiveResult with prompt/completion/total metrics
 - ✅ Cost calculation: Accurate pricing based on DeepSeek rates ($0.14/$0.28 per 1M tokens)
-- ✅ Synthetic tasks: 3 Python debugging tasks with executable tests
-- ✅ Test execution: Automated verification of correctness
+- ✅ Generic framework: BenchmarkRunner, TaskMetrics, ComparisonReport
+- ✅ Test infrastructure: Integration tests for runner and CLI
 - ✅ Documentation: Comprehensive guide in `/docs/BENCHMARK.md`
-- ✅ Test script: `./scripts/test_benchmark.sh` for quick validation
-- ✅ CLI integration: `loom benchmark run/compare/report` commands working
+
+**Strategic Pivot (2025-12-08):**
+
+Removed SWE-bench adapter. **Rationale**: SWE-bench evaluates one-shot coding tasks (20% of Loom's value),
+missing core runtime features like EventBus, multi-agent collaboration, long lifecycle, and desktop integration.
+
+**New Priorities**:
+
+- **GAIA** (P0): General AI assistant tasks, maps to chat-assistant app, evaluates tool coordination
+- **TAU-bench** (P0): Multi-agent scenarios, maps to market-analyst app, tests EventBus and collaboration
+- **SWE-bench** (P2, Optional): If we implement Docker harness for full evaluation (3-4 weeks effort)
+
+See `docs/BENCHMARK_STRATEGY.md` for detailed comparison.
 
 **P2: Advanced Features (Week 4+)** 📋
 
 | Task                     | Description                       | Status |
 | ------------------------ | --------------------------------- | ------ |
-| 2.16 WebArena Benchmark  | Real-world web interaction tasks  | 📋     |
-| 2.17 GAIA Benchmark      | General assistant evaluation      | 📋     |
-| 2.18 Archival System     | Semantic search in archived files | 📋     |
-| 2.19 RocksDB Integration | Long-term offload metadata in DB  | 📋     |
-| 2.20 Task-scoped Offload | `.loom/offload/<task_id>/` layout | 📋     |
-| 2.21 Hierarchical Tools  | L1/L2/L3 action space             | 📋     |
-| 2.22 Script Offloading   | python:run_script tool            | 📋     |
-| 2.23 Semantic Ranking    | Embedding-based retrieval         | 📋     |
+| 2.17 WebArena Benchmark  | Real-world web interaction tasks  | 📋     |
+| 2.18 SWE-bench           | Software engineering tasks        | 📋     |
+| 2.19 Archival System     | Semantic search in archived files | 📋     |
+| 2.20 RocksDB Integration | Long-term offload metadata in DB  | 📋     |
+| 2.21 Task-scoped Offload | `.loom/offload/<task_id>/` layout | 📋     |
+| 2.22 Hierarchical Tools  | L1/L2/L3 action space             | 📋     |
+| 2.23 Script Offloading   | python:run_script tool            | 📋     |
+| 2.24 Semantic Ranking    | Embedding-based retrieval         | 📋     |
 
 ### Previous Completions
 

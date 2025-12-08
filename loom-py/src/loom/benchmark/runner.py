@@ -34,8 +34,8 @@ class BenchmarkRunner:
         # Option 1: Use existing agent from a project directory
         runner = BenchmarkRunner(
             agent_path="apps/chat-assistant",
-            benchmark="swe-bench",
-            dataset_path="./datasets/swe-bench-lite"
+            benchmark="gaia",
+            dataset_path="./datasets/gaia-validation"
         )
 
         # Option 2: Provide a pre-configured agent instance
@@ -184,13 +184,27 @@ class BenchmarkRunner:
         return cognitive
 
     def _load_adapter(self, benchmark: str):
-        """Load the appropriate adapter for the benchmark."""
-        if benchmark == "swe-bench":
-            from .adapters.swe_bench import SWEBenchAdapter
+        """Load the appropriate adapter for the benchmark.
 
-            return SWEBenchAdapter(self.dataset_path, self.workspace_path)
-        else:
-            raise ValueError(f"Unsupported benchmark: {benchmark}")
+        Args:
+            benchmark: Benchmark name
+
+        Returns:
+            Adapter instance
+
+        Raises:
+            ValueError: If benchmark not supported
+        """
+        # Future adapters: GAIA, TAU-bench, AgentBench
+        # if benchmark == "gaia":
+        #     from .adapters.gaia import GAIAAdapter
+        #     return GAIAAdapter(self.dataset_path, self.workspace_path)
+
+        raise ValueError(
+            f"Benchmark '{benchmark}' not yet implemented. "
+            f"Planned adapters: GAIA, TAU-bench, AgentBench. "
+            f"See docs/BENCHMARK_STRATEGY.md for roadmap."
+        )
 
     async def run(
         self,

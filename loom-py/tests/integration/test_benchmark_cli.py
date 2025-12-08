@@ -18,7 +18,7 @@ class TestBenchmarkCLI:
     def mock_args(self, tmp_path):
         """Create mock CLI arguments."""
         args = Mock()
-        args.benchmark = "swe-bench"
+        args.benchmark = "test-benchmark"
         args.dataset = str(tmp_path / "dataset")
         args.max_tasks = 2
         args.no_context_engineering = False

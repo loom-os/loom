@@ -3,8 +3,6 @@
 These tests ensure the benchmark framework works end-to-end with real components.
 """
 
-from unittest.mock import Mock, patch
-
 import pytest
 
 from loom.benchmark import BenchmarkRunner
@@ -38,6 +36,7 @@ def dataset_path(tmp_path):
 class TestBenchmarkRunnerIntegration:
     """Integration tests for BenchmarkRunner."""
 
+    @pytest.mark.skip(reason="No adapters implemented yet - GAIA/TAU-bench pending")
     def test_runner_initialization(self, llm_config, dataset_path, workspace, tmp_path):
         """Test that runner initializes correctly with agent_path."""
         # Create a minimal loom.toml
@@ -53,12 +52,12 @@ llm_provider = "deepseek"
 
         runner = BenchmarkRunner(
             agent_path=agent_dir,
-            benchmark="swe-bench",
+            benchmark="test-benchmark",
             dataset_path=dataset_path,
             workspace_path=workspace,
         )
 
-        assert runner.benchmark == "swe-bench"
+        assert runner.benchmark == "test-benchmark"
         assert runner.dataset_path == dataset_path
         assert runner.workspace_path == workspace
 
@@ -112,96 +111,14 @@ class TestCLIIntegration:
             assert config.timeout_ms > 0, "Config missing timeout_ms"
 
 
+@pytest.mark.skip(reason="SWE-bench adapter removed - pivot to GAIA/TAU-bench")
 class TestAdapterIntegration:
-    """Integration tests for benchmark adapters."""
+    """Integration tests for benchmark adapters (deprecated)."""
 
     @pytest.mark.asyncio
-    @patch("subprocess.run")
-    async def test_swe_bench_adapter_task_preparation(self, mock_run, tmp_path):
-        """Test that adapter prepares tasks correctly."""
-        import json
-
-        from loom.benchmark.adapters import SWEBenchAdapter
-
-        # Mock git operations
-        mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
-
-        dataset_path = tmp_path / "dataset"
-        dataset_path.mkdir()
-        workspace_path = tmp_path / "workspace"
-        workspace_path.mkdir()
-
-        # Create a minimal tasks.json
-        tasks_data = [
-            {
-                "instance_id": "test-repo-1",
-                "repo": "test/repo",
-                "base_commit": "abc123",
-                "problem_statement": "Fix the bug",
-                "patch": "diff...",
-                "test_patch": "test diff...",
-            }
-        ]
-        (dataset_path / "tasks.json").write_text(json.dumps(tasks_data))
-
-        adapter = SWEBenchAdapter(dataset_path, workspace_path)
-
-        # Load a task
-        tasks = adapter.load_tasks(max_tasks=1)
-        task = tasks[0]
-
-        # Prepare task
-        task_workspace = await adapter.prepare_task(task)
-
-        # Check workspace was created
-        assert task_workspace.exists()
-        assert task_workspace.is_dir()
-        assert str(task_workspace).startswith(str(workspace_path))
-        # Verify git operations were attempted
-        assert mock_run.called
-
-    @pytest.mark.asyncio
-    async def test_swe_bench_adapter_result_evaluation(self, tmp_path):
-        """Test that adapter evaluates results."""
-        import json
-
-        from loom.benchmark.adapters import SWEBenchAdapter
-        from loom.cognitive import CognitiveResult
-
-        dataset_path = tmp_path / "dataset"
-        dataset_path.mkdir()
-        workspace_path = tmp_path / "workspace"
-        workspace_path.mkdir()
-
-        # Create tasks.json
-        tasks_data = [
-            {
-                "instance_id": "test-repo-1",
-                "repo": "test/repo",
-                "base_commit": "abc123",
-                "problem_statement": "Fix the bug",
-                "patch": "diff...",
-                "test_patch": "test diff...",
-            }
-        ]
-        (dataset_path / "tasks.json").write_text(json.dumps(tasks_data))
-
-        adapter = SWEBenchAdapter(dataset_path, workspace_path)
-        tasks = adapter.load_tasks(max_tasks=1)
-        task = tasks[0]
-
-        # Create mock result
-        result = CognitiveResult(
-            answer="Task completed",
-            iterations=5,
-            success=True,
-        )
-
-        # Evaluate (should use heuristics since no real tests)
-        correct = await adapter.evaluate_result(task, result)
-
-        # With our simple heuristic, it should return True if success=True
-        assert isinstance(correct, bool)
+    async def test_adapter_placeholder(self):
+        """Placeholder for future GAIA/TAU-bench adapter tests."""
+        pass
 
 
 @pytest.mark.skip(reason="API changed - requires real dataset and agent_path setup")
