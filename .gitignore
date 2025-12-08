@@ -29,6 +29,10 @@ env/
 data/
 logs/
 
+# Datasets (large files)
+datasets/**/*.json
+!datasets/**/README.md
+
 # Build outputs
 dist/
 build/

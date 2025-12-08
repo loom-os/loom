@@ -1,0 +1,38 @@
+{
+  "benchmark_name": "swe-bench",
+  "context_engineering_enabled": true,
+  "timestamp": "2025-12-08T18:19:54.870691",
+  "summary": {
+    "benchmark": "swe-bench",
+    "context_engineering": true,
+    "tasks_total": 1,
+    "tasks_succeeded": 1,
+    "tasks_correct": 1,
+    "success_rate": "100.0%",
+    "correctness_rate": "100.0%",
+    "avg_tokens": 25466,
+    "avg_cost_usd": "$0.0038",
+    "avg_time_sec": "115.6",
+    "total_offloaded_files": 2,
+    "total_compacted_steps": 0,
+    "avg_token_savings": "20.0%"
+  },
+  "tasks": [
+    {
+      "task_id": "astropy__astropy-12907",
+      "success": true,
+      "iterations": 20,
+      "total_tokens": 25466,
+      "total_cost_usd": 0.00378042,
+      "execution_time_sec": 115.61895799636841,
+      "offloaded_files": 2,
+      "compacted_steps": 0,
+      "avg_prompt_tokens": 1196,
+      "peak_prompt_tokens": 1325,
+      "token_savings_pct": 20,
+      "correct_answer": true,
+      "human_eval_score": null,
+      "error_message": null
+    }
+  ]
+}

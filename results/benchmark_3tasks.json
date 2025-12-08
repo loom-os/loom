@@ -1,0 +1,70 @@
+{
+  "benchmark_name": "swe-bench",
+  "context_engineering_enabled": true,
+  "timestamp": "2025-12-08T17:59:03.529854",
+  "summary": {
+    "benchmark": "swe-bench",
+    "context_engineering": true,
+    "tasks_total": 3,
+    "tasks_succeeded": 3,
+    "tasks_correct": 3,
+    "success_rate": "100.0%",
+    "correctness_rate": "100.0%",
+    "avg_tokens": 28015,
+    "avg_cost_usd": "$0.0041",
+    "avg_time_sec": "94.8",
+    "total_offloaded_files": 6,
+    "total_compacted_steps": 0,
+    "avg_token_savings": "20.0%"
+  },
+  "tasks": [
+    {
+      "task_id": "astropy__astropy-12907",
+      "success": true,
+      "iterations": 20,
+      "total_tokens": 25849,
+      "total_cost_usd": 0.0038088400000000004,
+      "execution_time_sec": 74.17287564277649,
+      "offloaded_files": 2,
+      "compacted_steps": 0,
+      "avg_prompt_tokens": 1224,
+      "peak_prompt_tokens": 1333,
+      "token_savings_pct": 20,
+      "correct_answer": true,
+      "human_eval_score": null,
+      "error_message": null
+    },
+    {
+      "task_id": "astropy__astropy-14182",
+      "success": true,
+      "iterations": 20,
+      "total_tokens": 30354,
+      "total_cost_usd": 0.00443646,
+      "execution_time_sec": 105.95342111587524,
+      "offloaded_files": 2,
+      "compacted_steps": 0,
+      "avg_prompt_tokens": 1450,
+      "peak_prompt_tokens": 1572,
+      "token_savings_pct": 20,
+      "correct_answer": true,
+      "human_eval_score": null,
+      "error_message": null
+    },
+    {
+      "task_id": "astropy__astropy-14365",
+      "success": true,
+      "iterations": 20,
+      "total_tokens": 27844,
+      "total_cost_usd": 0.004072320000000001,
+      "execution_time_sec": 104.28977560997009,
+      "offloaded_files": 2,
+      "compacted_steps": 0,
+      "avg_prompt_tokens": 1330,
+      "peak_prompt_tokens": 1449,
+      "token_savings_pct": 20,
+      "correct_answer": true,
+      "human_eval_score": null,
+      "error_message": null
+    }
+  ]
+}

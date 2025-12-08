@@ -433,6 +433,11 @@ def main():
     )
     schat.set_defaults(func=cmd_chat)
 
+    # Add benchmark subcommands
+    from .benchmark import add_benchmark_subparser
+
+    add_benchmark_subparser(sub)
+
     args = p.parse_args()
     args.func(args)
 

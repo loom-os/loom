@@ -13,6 +13,7 @@ tools/
 ├── native/         # Built-in native tools
 │   ├── filesystem.rs   # fs:read_file, fs:write_file, fs:list_dir, fs:delete
 │   ├── shell.rs        # system:shell
+│   ├── git.rs          # git:clone, git:checkout, git:apply_patch, git:current_commit
 │   ├── weather.rs      # weather:get
 │   └── web_search.rs   # web:search
 └── mcp/            # Model Context Protocol integration
@@ -38,15 +39,19 @@ pub trait Tool: Send + Sync {
 
 ## Native Tools
 
-| Tool            | Description              | Env Vars                       |
-| --------------- | ------------------------ | ------------------------------ |
-| `fs:read_file`  | Read file from workspace | -                              |
-| `fs:write_file` | Write file to workspace  | -                              |
-| `fs:list_dir`   | List directory contents  | -                              |
-| `fs:delete`     | Delete file/directory    | -                              |
-| `system:shell`  | Execute shell command    | -                              |
-| `weather:get`   | Get weather data         | -                              |
-| `web:search`    | Search the web           | `BRAVE_API_KEY`, `HTTPS_PROXY` |
+| Tool                 | Description               | Env Vars                       |
+| -------------------- | ------------------------- | ------------------------------ |
+| `fs:read_file`       | Read file from workspace  | -                              |
+| `fs:write_file`      | Write file to workspace   | -                              |
+| `fs:list_dir`        | List directory contents   | -                              |
+| `fs:delete`          | Delete file/directory     | -                              |
+| `system:shell`       | Execute shell command     | -                              |
+| `git:clone`          | Clone git repository      | -                              |
+| `git:checkout`       | Checkout commit/branch    | -                              |
+| `git:apply_patch`    | Apply patch to repository | -                              |
+| `git:current_commit` | Get current commit hash   | -                              |
+| `weather:get`        | Get weather data          | -                              |
+| `web:search`         | Search the web            | `BRAVE_API_KEY`, `HTTPS_PROXY` |
 
 See [docs/native_tools/](../../../docs/native_tools/) for detailed usage documentation.
 
