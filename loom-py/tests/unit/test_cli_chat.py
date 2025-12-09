@@ -6,20 +6,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from loom.cli.chat import (
-    ChatSession,
-    ConnectedChatSession,
-    StandaloneChatSession,
-    create_chat_session,
-)
+from loom.cli.chat import ChatSession
 
 
-class TestConnectedChatSession:
-    """Tests for ConnectedChatSession class."""
+class TestChatSession:
+    """Tests for ChatSession class."""
 
     def test_init_default(self):
         """Should initialize with default values."""
-        session = ConnectedChatSession()
+        session = ChatSession()
         assert session.backend_agent_id == "chat-assistant"
         assert session.backend_topic == "chat.input"
         assert session.bridge_addr is None
@@ -30,7 +25,7 @@ class TestConnectedChatSession:
 
     def test_init_custom(self):
         """Should initialize with custom values."""
-        session = ConnectedChatSession(
+        session = ChatSession(
             backend_agent_id="custom-agent",
             backend_topic="custom.topic",
             bridge_addr="localhost:9000",
@@ -45,34 +40,48 @@ class TestConnectedChatSession:
 
     def test_connected_property_false(self):
         """connected should be False when not connected."""
-        session = ConnectedChatSession()
+        session = ChatSession()
         assert session.connected is False
 
     def test_connected_property_true(self):
         """connected should be True when connected."""
-        session = ConnectedChatSession()
+        session = ChatSession()
         session._connected = True
         session._client = MagicMock()
         assert session.connected is True
 
     @pytest.mark.asyncio
-    async def test_connect_creates_client(self):
-        """connect should create ChatClient."""
-        session = ConnectedChatSession()
+    async def test_connect_success(self):
+        """connect should create ChatClient and connect."""
+        session = ChatSession()
 
+        mock_client_class = MagicMock()
         mock_client = AsyncMock()
         mock_client.connect = AsyncMock()
+        mock_client_class.return_value = mock_client
 
-        with patch("loom.cli.chat.ConnectedChatSession.connect") as mock_connect:
+        with patch("loom.cli.chat.ChatSession.connect") as mock_connect:
             mock_connect.return_value = True
             result = await session.connect()
-            # The actual connect is mocked, so we just verify it returns
             assert result is True
+
+    @pytest.mark.asyncio
+    async def test_connect_failure(self):
+        """connect should return False on failure."""
+        session = ChatSession()
+
+        mock_client_class = MagicMock()
+        mock_client_class.side_effect = Exception("Connection failed")
+
+        with patch("loom.streaming.ChatClient", mock_client_class):
+            result = await session.connect()
+            assert result is False
+            assert session._last_error == "Connection failed"
 
     @pytest.mark.asyncio
     async def test_disconnect(self):
         """disconnect should cleanup client."""
-        session = ConnectedChatSession()
+        session = ChatSession()
         session._client = AsyncMock()
         session._client.disconnect = AsyncMock()
         session._connected = True
@@ -85,7 +94,7 @@ class TestConnectedChatSession:
     @pytest.mark.asyncio
     async def test_disconnect_no_client(self):
         """disconnect should handle no client gracefully."""
-        session = ConnectedChatSession()
+        session = ChatSession()
         session._client = None
         session._connected = False
 
@@ -96,7 +105,7 @@ class TestConnectedChatSession:
     @pytest.mark.asyncio
     async def test_chat_not_connected(self):
         """chat should raise error when not connected."""
-        session = ConnectedChatSession()
+        session = ChatSession()
         session._client = None
 
         with pytest.raises(RuntimeError, match="Not connected"):
@@ -104,12 +113,34 @@ class TestConnectedChatSession:
 
     def test_get_history_empty(self):
         """get_history should return empty list when no client."""
-        session = ConnectedChatSession()
+        session = ChatSession()
         assert session.get_history() == []
+
+    def test_get_history_with_client(self):
+        """get_history should return messages from client."""
+        session = ChatSession()
+
+        mock_msg1 = MagicMock()
+        mock_msg1.role = "user"
+        mock_msg1.content = "Hello"
+
+        mock_msg2 = MagicMock()
+        mock_msg2.role = "assistant"
+        mock_msg2.content = "Hi!"
+
+        session._client = MagicMock()
+        session._client.get_thread_history.return_value = [mock_msg1, mock_msg2]
+
+        history = session.get_history()
+        assert len(history) == 2
+        assert history[0]["role"] == "user"
+        assert history[0]["content"] == "Hello"
+        assert history[1]["role"] == "assistant"
+        assert history[1]["content"] == "Hi!"
 
     def test_clear_history(self):
         """clear_history should call client method."""
-        session = ConnectedChatSession()
+        session = ChatSession()
         session._client = MagicMock()
         session._client.clear_thread = MagicMock()
 
@@ -117,155 +148,88 @@ class TestConnectedChatSession:
 
         session._client.clear_thread.assert_called_once()
 
+    def test_clear_history_no_client(self):
+        """clear_history should handle no client gracefully."""
+        session = ChatSession()
+        session._client = None
 
-class TestStandaloneChatSession:
-    """Tests for StandaloneChatSession class."""
-
-    def test_init_default(self):
-        """Should initialize with default values."""
-        session = StandaloneChatSession()
-        assert session.agent_id == "chat-assistant"
-        assert session.bridge_addr is None
-        assert session.verbose is True
-        assert session.streaming is True
-        assert session._agent is None
-        assert session._cognitive is None
-        assert session._conversation_history == []
-
-    def test_init_custom(self):
-        """Should initialize with custom values."""
-        session = StandaloneChatSession(
-            agent_id="custom-agent",
-            bridge_addr="localhost:9000",
-            verbose=False,
-            streaming=False,
-        )
-        assert session.agent_id == "custom-agent"
-        assert session.bridge_addr == "localhost:9000"
-        assert session.verbose is False
-        assert session.streaming is False
-
-    def test_connected_property_false(self):
-        """connected should be False when not connected."""
-        session = StandaloneChatSession()
-        assert session.connected is False
-
-    def test_connected_property_true(self):
-        """connected should be True when both agent and cognitive exist."""
-        session = StandaloneChatSession()
-        session._agent = MagicMock()
-        session._cognitive = MagicMock()
-        assert session.connected is True
-
-    def test_get_system_prompt(self):
-        """_get_system_prompt should return valid prompt."""
-        session = StandaloneChatSession()
-        prompt = session._get_system_prompt()
-        assert isinstance(prompt, str)
-        assert len(prompt) > 0
-        assert "tool" in prompt.lower()  # Should mention tools
-
-    @pytest.mark.asyncio
-    async def test_disconnect(self):
-        """disconnect should cleanup agent."""
-        session = StandaloneChatSession()
-        mock_agent = AsyncMock()
-        mock_agent.stop = AsyncMock()
-        session._agent = mock_agent
-        session._cognitive = MagicMock()
-
-        await session.disconnect()
-
-        mock_agent.stop.assert_called_once()
-        assert session._agent is None
-        assert session._cognitive is None
-
-    @pytest.mark.asyncio
-    async def test_chat_not_connected(self):
-        """chat should raise error when not connected."""
-        session = StandaloneChatSession()
-        session._cognitive = None
-
-        with pytest.raises(RuntimeError, match="Not connected"):
-            await session.chat("Hello")
-
-    def test_get_history_empty(self):
-        """get_history should return empty list initially."""
-        session = StandaloneChatSession()
-        assert session.get_history() == []
-
-    def test_get_history_with_messages(self):
-        """get_history should return conversation history."""
-        session = StandaloneChatSession()
-        session._conversation_history = [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi!"},
-        ]
-        history = session.get_history()
-        assert len(history) == 2
-        assert history[0]["role"] == "user"
-
-    def test_clear_history(self):
-        """clear_history should clear conversation history."""
-        session = StandaloneChatSession()
-        session._conversation_history = [{"role": "user", "content": "Hello"}]
-        session._cognitive = MagicMock()
-        session._cognitive.memory = MagicMock()
-        session._cognitive.memory.clear = MagicMock()
-
+        # Should not raise
         session.clear_history()
 
-        assert session._conversation_history == []
-        session._cognitive.memory.clear.assert_called_once()
 
+class TestPrintStreamStepComplete:
+    """Tests for print_stream_step_complete function."""
 
-class TestCreateChatSession:
-    """Tests for create_chat_session factory function."""
+    def test_handles_step_without_tool_call(self, capsys):
+        """Should handle step without tool call."""
+        from loom.cli.chat import print_stream_step_complete
 
-    def test_create_connected_mode(self):
-        """Should create ConnectedChatSession for 'connected' mode."""
-        session = create_chat_session(mode="connected")
-        assert isinstance(session, ConnectedChatSession)
+        step = MagicMock()
+        step.tool_call = None
 
-    def test_create_standalone_mode(self):
-        """Should create StandaloneChatSession for 'standalone' mode."""
-        session = create_chat_session(mode="standalone")
-        assert isinstance(session, StandaloneChatSession)
+        print_stream_step_complete(step)
 
-    def test_create_auto_mode(self):
-        """Should create session for 'auto' mode (default to standalone)."""
-        session = create_chat_session(mode="auto")
-        # Currently defaults to standalone
-        assert isinstance(session, StandaloneChatSession)
+        # Should not output anything
+        captured = capsys.readouterr()
+        assert captured.out == ""
 
-    def test_create_default_mode(self):
-        """Should create session for default mode."""
-        session = create_chat_session()
-        assert isinstance(session, (ConnectedChatSession, StandaloneChatSession))
+    def test_handles_step_with_tool_call(self, capsys):
+        """Should print step with tool call."""
+        from loom.cli.chat import print_stream_step_complete
 
-    def test_create_with_params(self):
-        """Should pass parameters to session."""
-        session = create_chat_session(
-            mode="standalone",
-            agent_id="test-agent",
-            bridge_addr="localhost:9000",
-            verbose=False,
-            streaming=False,
-        )
-        assert session.agent_id == "test-agent"
-        assert session.bridge_addr == "localhost:9000"
-        assert session.verbose is False
-        assert session.streaming is False
+        step = MagicMock()
+        step.step = 1
+        step.reasoning = "Thinking about this"
+        step.tool_call = MagicMock()
+        step.tool_call.name = "test:tool"
+        step.observation = MagicMock()
+        step.observation.success = True
+        step.observation.output = "Tool result"
+        step.reduced_step = None
 
+        print_stream_step_complete(step)
 
-class TestChatSessionAlias:
-    """Tests for backward compatibility alias."""
+        captured = capsys.readouterr()
+        assert "Step 1" in captured.out
+        assert "test:tool" in captured.out
 
-    def test_chat_session_is_standalone(self):
-        """ChatSession should be alias for StandaloneChatSession."""
-        assert ChatSession is StandaloneChatSession
+    def test_handles_offloaded_data(self, capsys):
+        """Should display offloaded data reference."""
+        from loom.cli.chat import print_stream_step_complete
 
-    def test_chat_session_creates_standalone(self):
-        """ChatSession should create StandaloneChatSession."""
-        session = ChatSession()
-        assert isinstance(session, StandaloneChatSession)
+        step = MagicMock()
+        step.step = 1
+        step.reasoning = "Reading file"
+        step.tool_call = MagicMock()
+        step.tool_call.name = "fs:read_file"
+        step.observation = MagicMock()
+        step.observation.success = True
+        step.reduced_step = MagicMock()
+        step.reduced_step.outcome_ref = ".loom/cache/file.txt"
+        step.reduced_step.observation = "Read 100 lines"
+
+        print_stream_step_complete(step)
+
+        captured = capsys.readouterr()
+        assert "offloaded" in captured.out.lower()
+        assert ".loom/cache/file.txt" in captured.out
+
+    def test_handles_error(self, capsys):
+        """Should display error."""
+        from loom.cli.chat import print_stream_step_complete
+
+        step = MagicMock()
+        step.step = 1
+        step.reasoning = "Trying something"
+        step.tool_call = MagicMock()
+        step.tool_call.name = "test:tool"
+        step.observation = MagicMock()
+        step.observation.success = False
+        step.observation.error = "Something went wrong"
+        step.reduced_step = None
+
+        print_stream_step_complete(step)
+
+        captured = capsys.readouterr()
+        assert "Error" in captured.out
+        assert "Something went wrong" in captured.out

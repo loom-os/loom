@@ -1,4 +1,4 @@
-"""Loom Chat CLI - Interactive chat with running agents.
+"""Loom Chat CLI - Interactive chat with cognitive agents.
 
 This module provides terminal UI for chatting with cognitive agents.
 It uses ChatClient from loom.streaming to connect to backend agents
@@ -12,14 +12,14 @@ The CLI is a lightweight client that:
 2. Sends user messages and receives streaming responses
 3. Renders output using Rich components
 
-For standalone mode (no backend required), use StandaloneChatSession
-which creates its own CognitiveAgent locally.
+Usage:
+    loom chat              # Connect to running backend (requires loom run)
+    loom chat --help       # Show help
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from .ui import (
     ReactStreamRenderer,
@@ -27,34 +27,26 @@ from .ui import (
     create_spinner,
     print_assistant_message,
     print_connection_status,
-    print_divider,
     print_error,
     print_header,
     print_help,
     print_history,
-    print_permission_request,
     print_stats,
     print_success,
-    print_thinking_step,
     print_warning,
     print_welcome,
 )
 
-if TYPE_CHECKING:
-    from ..cognitive import CognitiveAgent
-    from ..streaming import StreamContentType
-
-
 # ============================================================================
-# Chat Session Modes
+# Chat Session
 # ============================================================================
 
 
-class ConnectedChatSession:
+class ChatSession:
     """Chat session that connects to a backend agent via Bridge.
 
-    This is the recommended mode when a backend agent is already running.
-    The CLI acts as a thin client, sending messages and receiving streams.
+    This connects to a running backend agent (started via `loom run`)
+    and communicates via the event bus with streaming support.
     """
 
     def __init__(
@@ -102,12 +94,11 @@ class ConnectedChatSession:
             await self._client.disconnect()
         self._connected = False
 
-    async def chat(self, message: str, on_chunk=None) -> dict:
-        """Send a message and get response.
+    async def chat(self, message: str) -> dict:
+        """Send a message and get streaming response.
 
         Args:
             message: User message
-            on_chunk: Optional callback for streaming chunks
 
         Returns:
             Response dict with 'content', 'stats', etc.
@@ -117,15 +108,12 @@ class ConnectedChatSession:
 
         from ..streaming import StreamContentType
 
-        # Collect thinking steps for verbose mode
+        # Collect response parts
         thinking_steps = []
         tool_calls = []
         content_parts = []
 
-        async def chunk_handler(content: str, content_type: "StreamContentType"):
-            if on_chunk:
-                await on_chunk(content, content_type)
-
+        async def chunk_handler(content: str, content_type: StreamContentType):
             if content_type == StreamContentType.TEXT:
                 content_parts.append(content)
             elif content_type == StreamContentType.THINKING:
@@ -141,7 +129,7 @@ class ConnectedChatSession:
         )
 
         return {
-            "content": response.content,
+            "content": response.content or "".join(content_parts),
             "thinking": thinking_steps,
             "tool_calls": tool_calls,
             "stats": response.stats,
@@ -163,255 +151,6 @@ class ConnectedChatSession:
             self._client.clear_thread()
 
 
-class StandaloneChatSession:
-    """Standalone chat session with local CognitiveAgent.
-
-    This mode creates its own CognitiveAgent locally, without requiring
-    a separate backend agent process. Useful for development and testing.
-    """
-
-    def __init__(
-        self,
-        agent_id: str = "chat-assistant",
-        bridge_addr: Optional[str] = None,
-        verbose: bool = True,
-        streaming: bool = True,
-    ):
-        self.agent_id = agent_id
-        self.bridge_addr = bridge_addr
-        self.verbose = verbose
-        self.streaming = streaming
-
-        self._agent = None
-        self._cognitive: Optional[CognitiveAgent] = None
-        self._conversation_history: list[dict] = []
-        self._last_error: Optional[str] = None
-
-    @property
-    def connected(self) -> bool:
-        return self._agent is not None and self._cognitive is not None
-
-    async def connect(self) -> bool:
-        """Initialize local agent and cognitive loop."""
-        from .. import Agent, CognitiveAgent, CognitiveConfig, ThinkingStrategy
-        from ..llm import LLMProvider
-        from ..runtime.config import load_project_config
-
-        try:
-            # Load project config
-            project_config = load_project_config(Path.cwd())
-
-            # Use provided address or from config
-            addr = self.bridge_addr or project_config.bridge.address
-
-            # Create base agent
-            self._agent = Agent(
-                agent_id=self.agent_id,
-                topics=["chat.input", "chat.replies"],
-                address=addr,
-            )
-            await self._agent.start()
-
-            # Create LLM provider
-            llm = LLMProvider.from_config(
-                self._agent._ctx,
-                project_config.agents.get(self.agent_id, {}).get("llm_provider", "deepseek"),
-                project_config,
-            )
-
-            # Determine thinking strategy
-            strategy_name = project_config.agents.get(self.agent_id, {}).get(
-                "thinking_strategy", "react"
-            )
-            strategy = {
-                "react": ThinkingStrategy.REACT,
-                "single_shot": ThinkingStrategy.SINGLE_SHOT,
-                "chain_of_thought": ThinkingStrategy.CHAIN_OF_THOUGHT,
-            }.get(strategy_name, ThinkingStrategy.REACT)
-
-            max_iterations = project_config.agents.get(self.agent_id, {}).get("max_iterations", 10)
-
-            # Create cognitive agent
-            self._cognitive = CognitiveAgent(
-                ctx=self._agent._ctx,
-                llm=llm,
-                config=CognitiveConfig(
-                    system_prompt=self._get_system_prompt(),
-                    thinking_strategy=strategy,
-                    max_iterations=max_iterations,
-                    temperature=0.7,
-                ),
-                available_tools=[
-                    "weather:get",
-                    "system:shell",
-                    "fs:read_file",
-                    "fs:write_file",
-                    "fs:list_dir",
-                    "fs:delete",
-                    "web:search",
-                ],
-                permission_callback=self._request_permission,
-            )
-
-            return True
-        except Exception as e:
-            self._last_error = str(e)
-            return False
-
-    def _get_system_prompt(self) -> str:
-        return """You are a helpful AI assistant with access to tools.
-
-Available tools:
-- weather:get: Get current weather. Args: {"location": "city name"}
-- system:shell: Run shell commands. Args: {"command": "cmd"}
-- fs:read_file: Read file contents. Args: {"path": "relative/path"}
-- fs:write_file: Write content to file. Args: {"path": "relative/path", "content": "text"}
-- fs:list_dir: List directory. Args: {"path": "relative/path"}
-- fs:delete: Delete file or empty directory. Args: {"path": "relative/path"}
-- web:search: Search the web. Args: {"query": "search terms", "limit": 5}
-
-When you need information, use the appropriate tool.
-Think step by step and explain your reasoning.
-Be helpful, concise, and friendly."""
-
-    def _request_permission(self, tool_name: str, args: dict, error_msg: str) -> bool:
-        """Request user permission for a denied tool action."""
-        return print_permission_request(tool_name, args, error_msg)
-
-    async def disconnect(self):
-        """Stop the agent."""
-        if self._agent:
-            await self._agent.stop()
-            self._agent = None
-            self._cognitive = None
-
-    async def chat(self, message: str, on_chunk=None) -> dict:
-        """Process a chat message."""
-        from ..cognitive.types import CognitiveResult, ThoughtStep
-
-        if not self._cognitive:
-            raise RuntimeError("Not connected")
-
-        # Add to history
-        self._conversation_history.append({"role": "user", "content": message})
-
-        # Build context
-        context = []
-        if len(self._conversation_history) > 1:
-            for msg in self._conversation_history[-6:-1]:
-                context.append(f"{msg['role'].capitalize()}: {msg['content']}")
-
-        # Run cognitive loop
-        thinking_steps = []
-        tool_calls = []
-
-        if self.streaming and on_chunk:
-            # Streaming mode
-            final_result = None
-
-            async for item in self._cognitive.run_stream(
-                message, context=context if context else None
-            ):
-                if isinstance(item, str):
-                    # Import here to avoid circular
-                    from ..streaming import StreamContentType
-
-                    await on_chunk(item, StreamContentType.TEXT)
-                elif isinstance(item, ThoughtStep):
-                    thinking_steps.append(item)
-                    if item.tool_call:
-                        tool_calls.append(item.tool_call.name)
-                elif isinstance(item, CognitiveResult):
-                    final_result = item
-
-            if final_result:
-                self._conversation_history.append(
-                    {"role": "assistant", "content": final_result.answer}
-                )
-                return {
-                    "content": final_result.answer,
-                    "thinking": thinking_steps,
-                    "tool_calls": tool_calls,
-                    "iterations": final_result.iterations,
-                    "latency_ms": final_result.total_latency_ms,
-                    "success": final_result.success,
-                }
-        else:
-            # Non-streaming mode
-            result = await self._cognitive.run(message, context=context if context else None)
-            self._conversation_history.append({"role": "assistant", "content": result.answer})
-
-            return {
-                "content": result.answer,
-                "thinking": result.steps,
-                "tool_calls": [s.tool_call.name for s in result.steps if s.tool_call],
-                "iterations": result.iterations,
-                "latency_ms": result.total_latency_ms,
-                "success": result.success,
-            }
-
-        return {"content": "", "success": False}
-
-    def get_history(self) -> list[dict]:
-        return self._conversation_history
-
-    def clear_history(self):
-        self._conversation_history = []
-        if self._cognitive:
-            self._cognitive.memory.clear()
-
-
-# ============================================================================
-# Unified Chat Session Factory
-# ============================================================================
-
-
-def create_chat_session(
-    mode: str = "auto",
-    agent_id: str = "chat-assistant",
-    bridge_addr: Optional[str] = None,
-    verbose: bool = True,
-    streaming: bool = True,
-) -> ConnectedChatSession | StandaloneChatSession:
-    """Create a chat session based on mode.
-
-    Args:
-        mode: "connected" (use backend agent), "standalone" (local agent),
-              or "auto" (try connected first, fallback to standalone)
-        agent_id: Agent ID to connect to or create
-        bridge_addr: Bridge address
-        verbose: Show thinking steps
-        streaming: Enable streaming output
-
-    Returns:
-        ChatSession instance
-    """
-    if mode == "connected":
-        return ConnectedChatSession(
-            backend_agent_id=agent_id,
-            bridge_addr=bridge_addr,
-            verbose=verbose,
-            streaming=streaming,
-        )
-    elif mode == "standalone":
-        return StandaloneChatSession(
-            agent_id=agent_id,
-            bridge_addr=bridge_addr,
-            verbose=verbose,
-            streaming=streaming,
-        )
-    else:  # auto
-        # Try to detect if a backend is running by checking the bridge
-        # For now, default to standalone which is more reliable
-        # TODO: Probe bridge to detect running backend
-        return StandaloneChatSession(
-            agent_id=agent_id,
-            bridge_addr=bridge_addr,
-            verbose=verbose,
-            streaming=streaming,
-        )
-
-
 # ============================================================================
 # CLI Runner
 # ============================================================================
@@ -420,23 +159,20 @@ def create_chat_session(
 async def run_chat_cli(
     bridge_addr: Optional[str] = None,
     agent_id: str = "chat-assistant",
-    mode: str = "auto",
 ):
     """Run interactive CLI chat.
 
     Args:
         bridge_addr: Bridge address (default from config/env)
         agent_id: Agent ID to connect to
-        mode: "connected", "standalone", or "auto"
     """
     # Print header
     print_header()
     print_welcome()
 
     # Create session
-    session = create_chat_session(
-        mode=mode,
-        agent_id=agent_id,
+    session = ChatSession(
+        backend_agent_id=agent_id,
         bridge_addr=bridge_addr,
     )
 
@@ -447,17 +183,17 @@ async def run_chat_cli(
         progress.stop()
 
     if not connected:
-        # Show specific error if available
-        if hasattr(session, "_last_error") and session._last_error:
-            print_error(f"Connection failed: {session._last_error}")
+        error_msg = session._last_error or "Unknown error"
         print_error(
-            "Failed to connect to Loom runtime.\n"
-            "Make sure Loom runtime is running (loom run or loom up)"
+            f"Failed to connect to Loom runtime.\n\n"
+            f"Error: {error_msg}\n\n"
+            f"Make sure Loom runtime is running:\n"
+            f"  cd apps/chat-assistant && loom run"
         )
         return 1
 
-    print_success("Connected! Agent ready.")
-    print_divider()
+    print_success(f"Connected to backend agent '{agent_id}'")
+    console.print()
 
     try:
         while True:
@@ -522,69 +258,55 @@ async def run_chat_cli(
             try:
                 if session.streaming:
                     # Streaming mode with ReactStreamRenderer
-                    from ..cognitive.types import CognitiveResult, ThoughtStep
+                    from ..streaming import StreamContentType
 
                     with ReactStreamRenderer(show_thinking=session.verbose) as renderer:
-                        final_result = None
-                        thinking_steps = []
-                        tool_calls = []
+                        thinking_steps: list[str] = []
+                        tool_calls: list[str] = []
 
-                        async for item in session._cognitive.run_stream(
-                            user_input,
-                            context=(
-                                [
-                                    f"{m['role'].capitalize()}: {m['content']}"
-                                    for m in session._conversation_history[-6:-1]
-                                ]
-                                if len(session._conversation_history) > 1
-                                else None
-                            ),
+                        async def on_chunk(
+                            content: str,
+                            content_type: StreamContentType,
+                            _thinking_steps: list[str] = thinking_steps,
+                            _tool_calls: list[str] = tool_calls,
                         ):
-                            if isinstance(item, str):
-                                # Raw LLM chunk - parse and render
-                                renderer.feed(item)
+                            if content_type == StreamContentType.TEXT:
+                                renderer.feed(content)
+                            elif content_type == StreamContentType.THINKING:
+                                _thinking_steps.append(content)
+                                renderer.feed(f"\nThought: {content}\n")
+                            elif content_type == StreamContentType.TOOL_CALL:
+                                _tool_calls.append(content)
+                                # Parse tool call: "tool_name: {args}"
+                                if ": " in content:
+                                    tool_name, args = content.split(": ", 1)
+                                    renderer.current_action = {"tool": tool_name, "args": args}
+                            elif content_type == StreamContentType.TOOL_RESULT:
+                                # Tool result received
+                                if renderer.current_action:
+                                    renderer.add_observation(
+                                        tool_name=renderer.current_action.get("tool", "unknown"),
+                                        result=content,
+                                        success=True,
+                                    )
 
-                            elif isinstance(item, ThoughtStep):
-                                # Step completed (after tool execution)
-                                thinking_steps.append(item)
-                                if item.tool_call:
-                                    tool_calls.append(item.tool_call.name)
-                                    # Add observation to renderer
-                                    if item.observation:
-                                        renderer.add_observation(
-                                            tool_name=item.tool_call.name,
-                                            result=(
-                                                item.observation.output
-                                                if item.observation.success
-                                                else item.observation.error or "Error"
-                                            ),
-                                            success=item.observation.success,
-                                            offloaded=(
-                                                item.reduced_step.outcome_ref
-                                                if item.reduced_step
-                                                else None
-                                            ),
-                                        )
-
-                            elif isinstance(item, CognitiveResult):
-                                final_result = item
-
-                        # Flush any remaining content
-                        renderer.flush()
-
-                    # Update conversation history
-                    if final_result:
-                        session._conversation_history.append(
-                            {"role": "assistant", "content": final_result.answer}
+                        response = await session._client.chat(
+                            user_input,
+                            on_chunk=on_chunk,
+                            include_thinking=session.verbose,
+                            include_tool_calls=True,
                         )
 
+                        renderer.flush()
+
                     # Show stats
-                    print_stats(
-                        iterations=final_result.iterations if final_result else 0,
-                        latency_ms=final_result.total_latency_ms if final_result else 0,
-                        tool_calls=len(tool_calls),
-                        success=final_result.success if final_result else False,
-                    )
+                    if response.stats:
+                        print_stats(
+                            iterations=0,
+                            latency_ms=response.stats.duration_ms,
+                            tool_calls=len(tool_calls),
+                            success=response.status.value == "ok",
+                        )
                 else:
                     # Non-streaming mode
                     with create_spinner("Processing...") as progress:
@@ -592,38 +314,17 @@ async def run_chat_cli(
                         result = await session.chat(user_input)
                         progress.stop()
 
-                    # Show thinking steps if verbose
-                    if session.verbose and result.get("thinking"):
-                        for i, step in enumerate(result["thinking"], 1):
-                            if hasattr(step, "reasoning"):
-                                print_thinking_step(
-                                    step_num=i,
-                                    reasoning=step.reasoning,
-                                    tool_name=step.tool_call.name if step.tool_call else None,
-                                    tool_args=(
-                                        step.tool_call.arguments if step.tool_call else None
-                                    ),
-                                    result=(
-                                        step.observation.output
-                                        if step.observation and step.observation.success
-                                        else None
-                                    ),
-                                    error=(
-                                        step.observation.error
-                                        if step.observation and not step.observation.success
-                                        else None
-                                    ),
-                                )
-
                     # Show result
-                    print_assistant_message(result.get("content", ""))
+                    if result.get("content"):
+                        print_assistant_message(result["content"])
 
                     # Show stats
+                    stats = result.get("stats")
                     print_stats(
-                        iterations=result.get("iterations", 0),
-                        latency_ms=result.get("latency_ms", 0),
+                        iterations=0,
+                        latency_ms=stats.duration_ms if stats else 0,
                         tool_calls=len(result.get("tool_calls", [])),
-                        success=result.get("success", True),
+                        success=True,
                     )
 
                 console.print()
@@ -646,9 +347,6 @@ async def run_chat_cli(
 # Legacy Compatibility
 # ============================================================================
 
-# Keep old ChatSession name for backward compatibility
-ChatSession = StandaloneChatSession
-
 
 def print_stream_step_complete(step) -> None:
     """Print a completed thinking step with context engineering support.
@@ -659,7 +357,7 @@ def print_stream_step_complete(step) -> None:
     Args:
         step: ThoughtStep object with tool_call and observation
     """
-    from .ui import console
+    from .ui import console as ui_console
 
     if not step.tool_call:
         return
@@ -702,4 +400,4 @@ def print_stream_step_complete(step) -> None:
 
     # Print all parts
     for part in parts:
-        console.print(part)
+        ui_console.print(part)

@@ -153,45 +153,94 @@ async def main():
 
         This is the core backend logic:
         1. Receive user message from chat.input
-        2. Process with CognitiveAgent (ReAct loop)
-        3. Send response to chat.replies
+        2. Process with CognitiveAgent (ReAct loop) with streaming
+        3. Send streaming chunks back to client
         """
-        if topic == "chat.input" and event.type == "user.message":
+        from loom.cognitive.types import CognitiveResult, ThoughtStep
+        from loom.streaming import StreamingHandler, StreamContentType
+
+        # Handle stream requests (new streaming protocol)
+        if topic == "chat.input" and event.type == "stream.request":
+            handler = StreamingHandler(ctx, event)
+
             try:
                 # Decode user message
                 user_input = event.payload.decode("utf-8")
                 print(f"\n{'─' * 70}")
-                print(f"📨 Received message from {event.sender}")
+                print(f"📨 [Stream] Received from {event.sender}")
                 print(f"   Message: {user_input[:100]}{'...' if len(user_input) > 100 else ''}")
-                print(f"   Event ID: {event.id}")
 
-                print(f"\n🧠 Processing with CognitiveAgent...")
+                # Stream cognitive processing
+                print(f"🧠 Processing with streaming...")
 
-                # Run cognitive processing (ReAct loop with LLM)
-                result = await cognitive.run(user_input)
+                async for item in cognitive.run_stream(user_input):
+                    if isinstance(item, str):
+                        # Raw LLM text chunk
+                        await handler.send_chunk(item, StreamContentType.TEXT)
 
-                print(f"\n✅ Processing complete!")
-                print(f"   Response length: {len(result.response)} chars")
-                print(f"   Iterations: {result.iterations}")
-                print(f"   Tools used: {len(result.tool_calls)}")
-                if result.tool_calls:
-                    print(f"   Tool calls: {', '.join(tc.name for tc in result.tool_calls[:3])}")
+                    elif isinstance(item, ThoughtStep):
+                        # Completed step with tool call
+                        if item.reasoning:
+                            await handler.send_thinking(item.reasoning)
 
-                # Send response back via chat.replies
-                await ctx.reply(
-                    event,
-                    type="assistant.message",
-                    payload=result.response.encode("utf-8"),
-                )
-                print(f"📤 Response sent to {event.sender}")
+                        if item.tool_call:
+                            await handler.send_tool_call(
+                                item.tool_call.name,
+                                str(item.tool_call.arguments),
+                            )
+                            if item.observation:
+                                result_text = (
+                                    item.observation.output
+                                    if item.observation.success
+                                    else f"Error: {item.observation.error}"
+                                )
+                                await handler.send_tool_result(
+                                    item.tool_call.name,
+                                    result_text[:500],  # Truncate for streaming
+                                )
+
+                    elif isinstance(item, CognitiveResult):
+                        # Final result - send complete
+                        print(f"✅ Stream complete: {item.iterations} iterations")
+                        await handler.send_complete(
+                            final_content=item.answer,
+                            tokens=item.total_tokens,
+                        )
+                        break
+
                 print(f"{'─' * 70}\n")
 
             except Exception as e:
-                print(f"\n❌ Error processing event: {e}")
+                print(f"❌ Stream error: {e}")
                 import traceback
                 traceback.print_exc()
+                await handler.send_error(str(e))
 
-                # Send error response
+        # Handle legacy non-streaming requests
+        elif topic == "chat.input" and event.type == "user.message":
+            try:
+                user_input = event.payload.decode("utf-8")
+                print(f"\n{'─' * 70}")
+                print(f"📨 [Legacy] Received from {event.sender}")
+                print(f"   Message: {user_input[:100]}{'...' if len(user_input) > 100 else ''}")
+
+                # Run non-streaming cognitive processing
+                result = await cognitive.run(user_input)
+
+                print(f"✅ Complete: {result.iterations} iterations")
+
+                # Send response back
+                await ctx.reply(
+                    event,
+                    type="assistant.message",
+                    payload=result.answer.encode("utf-8"),
+                )
+                print(f"{'─' * 70}\n")
+
+            except Exception as e:
+                print(f"❌ Error: {e}")
+                import traceback
+                traceback.print_exc()
                 error_msg = f"Sorry, I encountered an error: {str(e)}"
                 try:
                     await ctx.reply(
@@ -199,11 +248,8 @@ async def main():
                         type="assistant.error",
                         payload=error_msg.encode("utf-8"),
                     )
-                except Exception as reply_error:
-                    print(f"❌ Failed to send error response: {reply_error}")
-        else:
-            # Ignore other event types
-            pass
+                except Exception:
+                    pass
 
     # Attach event handler to agent
     agent._on_event = on_event
