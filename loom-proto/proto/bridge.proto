@@ -4,6 +4,7 @@ package loom.v1;
 
 import "event.proto";
 import "action.proto";
+import "streaming.proto";
 
 // Bridge service for external agents (SDKs) to connect to Loom Core.
 // Provides registration, bidirectional event streaming, tool forwarding, and heartbeat.
@@ -41,6 +42,7 @@ message ClientEvent {
     Ack ack = 2;              // Acknowledge receipt (optional)
     HeartbeatRequest ping = 3; // Optional inline heartbeat
     ToolResult tool_result = 4; // Agent's result for a forwarded tool call
+    StreamCancel stream_cancel = 5; // Cancel an ongoing stream
   }
 }
 
@@ -60,6 +62,9 @@ message ServerEvent {
     HeartbeatResponse pong = 2;
     Error err = 3;
     ToolCall tool_call = 4;  // Tool call forwarded from Loom to the agent
+    StreamChunk stream_chunk = 5;  // Streaming content chunk
+    StreamComplete stream_complete = 6;  // Stream completion signal
+    StreamState stream_state = 7;  // Stream state notification (for monitoring)
   }
 }
 
