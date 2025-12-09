@@ -1,19 +1,31 @@
 #!/usr/bin/env python3
-"""Chat Agent - Cognitive agent with tool use.
+"""Chat Agent Backend - Cognitive AI service.
 
-This agent provides:
-- ReAct reasoning pattern (Thought -> Action -> Observation)
-- Tool calling (weather, shell, file reading)
-- Multi-turn conversation with memory
+This is the backend service that provides AI capabilities for chat interactions.
+
+Architecture:
+    - Backend Service: This file (runs continuously)
+    - Frontend Client: loom chat CLI (user interface)
+
+Communication Flow:
+    User (loom chat) → chat.input topic → This Agent → CognitiveAgent
+        → AI Processing (ReAct) → chat.replies topic → User sees response
+
+Features:
+    - Loads configuration from loom.toml
+    - Creates CognitiveAgent with LLM reasoning
+    - Listens for user messages on chat.input
+    - Processes with ReAct loop and tool calling
+    - Sends responses to chat.replies
 
 Run with:
-    loom run           # Start runtime + this agent
-    loom chat          # In another terminal, start chatting
+    loom run           # Start runtime + this backend agent
+    loom chat          # In another terminal, start client UI
 
 Or for development:
     loom up            # Start runtime in one terminal
-    python agents/chat.py   # Run agent directly
-    loom chat          # Chat in another terminal
+    python agents/chat.py   # Run this backend
+    loom chat          # Start client in another terminal
 """
 
 import asyncio
@@ -42,22 +54,174 @@ _load_dotenv()
 # Add loom-py to path for local development
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "loom-py" / "src"))
 
-from loom import Agent
+from loom import Agent, CognitiveAgent, CognitiveConfig, LLMProvider
+from loom.runtime.config import load_project_config
 
 
 async def main():
-    """Start the chat agent and wait for events."""
-    print("[chat-agent] Starting...")
+    """Start the chat backend agent."""
+    print("=" * 70)
+    print("🧠 Chat Backend Agent Starting...")
+    print("=" * 70)
 
-    # Create agent that listens for chat events
+    # Load project configuration
+    project_dir = Path(__file__).parent.parent
+    print(f"\n📁 Project Directory: {project_dir}")
+    print(f"📄 Config File: {project_dir / 'loom.toml'}")
+
+    try:
+        config = load_project_config(project_dir)
+        print(f"✅ Configuration loaded successfully")
+    except Exception as e:
+        print(f"❌ Failed to load configuration: {e}")
+        print(f"   Make sure {project_dir / 'loom.toml'} exists")
+        return
+
+    # Get agent-specific configuration
+    agent_config = config.agents.get("chat-assistant", {})
+    if not agent_config:
+        print("⚠️  No 'chat-assistant' config in loom.toml, using defaults")
+        agent_config = {
+            "llm_provider": "deepseek",
+            "thinking_strategy": "react",
+            "max_iterations": 20,
+            "tools": [],
+        }
+
+    print(f"\n📋 Agent Configuration:")
+    print(f"   LLM Provider: {agent_config.get('llm_provider', 'deepseek')}")
+    print(f"   Thinking Strategy: {agent_config.get('thinking_strategy', 'react')}")
+    print(f"   Max Iterations: {agent_config.get('max_iterations', 20)}")
+    tools = agent_config.get('tools', [])
+    print(f"   Tools: {len(tools)} configured")
+    if tools:
+        print(f"          {', '.join(tools[:5])}{'...' if len(tools) > 5 else ''}")
+
+    # Create base Agent for event bus communication
+    print(f"\n🔌 Connecting to Bridge...")
     agent = Agent(
         agent_id="chat-assistant",
-        topics=["chat.input", "chat.replies"],
+        topics=["chat.input"],  # Backend only listens to input
     )
 
-    await agent.start()
-    print(f"[chat-agent] Connected to Bridge at {agent._ctx.client.address}")
-    print("[chat-agent] Ready. Use 'loom chat' to start chatting.")
+    try:
+        await agent.start()
+        print(f"✅ Connected to Bridge at {agent._ctx.client.address}")
+    except Exception as e:
+        print(f"❌ Failed to connect to Bridge: {e}")
+        print(f"   Make sure runtime is running (loom up or loom run)")
+        return
+
+    # Create CognitiveAgent for LLM reasoning
+    print(f"\n🤖 Initializing CognitiveAgent...")
+    llm_provider = agent_config.get("llm_provider", "deepseek")
+
+    try:
+        llm = LLMProvider.from_config(agent.ctx, llm_provider, config)
+        print(f"✅ LLM Provider '{llm_provider}' initialized")
+    except Exception as e:
+        print(f"❌ Failed to initialize LLM: {e}")
+        print(f"   Check your loom.toml [llm.{llm_provider}] section")
+        print(f"   and ensure API keys are set in .env")
+        await agent.stop()
+        return
+
+    cognitive = CognitiveAgent(
+        ctx=agent.ctx,
+        llm=llm,
+        config=CognitiveConfig(
+            system_prompt=agent_config.get(
+                "system_prompt",
+                "You are a helpful AI assistant with access to tools. "
+                "Use ReAct reasoning to solve problems step by step. "
+                "Be helpful, concise, and friendly."
+            ),
+            thinking_strategy=agent_config.get("thinking_strategy", "react"),
+            max_iterations=agent_config.get("max_iterations", 20),
+        ),
+        available_tools=agent_config.get("tools", []),
+    )
+    print(f"✅ CognitiveAgent initialized")
+    print(f"   Strategy: {cognitive.config.thinking_strategy}")
+    print(f"   Max Iterations: {cognitive.config.max_iterations}")
+
+    # Set up event handler - this is where the magic happens!
+    print(f"\n📡 Setting up event handler...")
+
+    async def on_event(ctx, topic, event):
+        """Handle incoming events with cognitive processing.
+
+        This is the core backend logic:
+        1. Receive user message from chat.input
+        2. Process with CognitiveAgent (ReAct loop)
+        3. Send response to chat.replies
+        """
+        if topic == "chat.input" and event.type == "user.message":
+            try:
+                # Decode user message
+                user_input = event.payload.decode("utf-8")
+                print(f"\n{'─' * 70}")
+                print(f"📨 Received message from {event.sender}")
+                print(f"   Message: {user_input[:100]}{'...' if len(user_input) > 100 else ''}")
+                print(f"   Event ID: {event.id}")
+
+                print(f"\n🧠 Processing with CognitiveAgent...")
+
+                # Run cognitive processing (ReAct loop with LLM)
+                result = await cognitive.run(user_input)
+
+                print(f"\n✅ Processing complete!")
+                print(f"   Response length: {len(result.response)} chars")
+                print(f"   Iterations: {result.iterations}")
+                print(f"   Tools used: {len(result.tool_calls)}")
+                if result.tool_calls:
+                    print(f"   Tool calls: {', '.join(tc.name for tc in result.tool_calls[:3])}")
+
+                # Send response back via chat.replies
+                await ctx.reply(
+                    event,
+                    type="assistant.message",
+                    payload=result.response.encode("utf-8"),
+                )
+                print(f"📤 Response sent to {event.sender}")
+                print(f"{'─' * 70}\n")
+
+            except Exception as e:
+                print(f"\n❌ Error processing event: {e}")
+                import traceback
+                traceback.print_exc()
+
+                # Send error response
+                error_msg = f"Sorry, I encountered an error: {str(e)}"
+                try:
+                    await ctx.reply(
+                        event,
+                        type="assistant.error",
+                        payload=error_msg.encode("utf-8"),
+                    )
+                except Exception as reply_error:
+                    print(f"❌ Failed to send error response: {reply_error}")
+        else:
+            # Ignore other event types
+            pass
+
+    # Attach event handler to agent
+    agent._on_event = on_event
+    print(f"✅ Event handler attached")
+
+    # Ready!
+    print("\n" + "=" * 70)
+    print("✨ Chat Backend Agent Ready!")
+    print("=" * 70)
+    print(f"Backend ID: chat-assistant")
+    print(f"Listening on: chat.input")
+    print(f"Replying to: chat.replies (via correlation)")
+    print()
+    print("The backend is now waiting for messages from clients.")
+    print("Start a client with: loom chat")
+    print()
+    print("Press Ctrl+C to stop.")
+    print("=" * 70 + "\n")
 
     # Wait forever (agent handles events via gRPC streaming)
     try:
@@ -66,12 +230,13 @@ async def main():
     except asyncio.CancelledError:
         pass
     finally:
+        print("\n[Backend] Shutting down...")
         await agent.stop()
-        print("[chat-agent] Stopped.")
+        print("[Backend] Stopped.")
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n[chat-agent] Interrupted.")
+        print("\n[Backend] Interrupted by user.")

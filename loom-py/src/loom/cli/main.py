@@ -4,18 +4,9 @@ import argparse
 import os
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 from pathlib import Path
-
-
-def _pick_free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    addr, port = s.getsockname()
-    s.close()
-    return port
 
 
 def cmd_proto(args):
@@ -28,7 +19,7 @@ def cmd_proto(args):
 def cmd_dev(args):
     """Start the bridge server locally via cargo and export LOOM_BRIDGE_ADDR."""
     cargo = shutil.which("cargo")
-    port = args.port or _pick_free_port()
+    port = args.port or 50051
     addr = f"127.0.0.1:{port}"
     env = os.environ.copy()
     env["LOOM_BRIDGE_ADDR"] = addr
@@ -146,24 +137,6 @@ def cmd_run(args):
     asyncio.run(run_orchestrator(config))
 
 
-def _load_project_config(start: Path) -> dict:
-    """Load loom.toml using tomllib (py>=3.11) or tomli; return {} if missing/invalid."""
-    cfg_path = start / "loom.toml"
-    if not cfg_path.exists():
-        return {}
-    if sys.version_info >= (3, 11):
-        import tomllib as toml  # type: ignore
-    else:
-        try:
-            import tomli as toml  # type: ignore
-        except Exception:
-            return {}
-    try:
-        return toml.loads(cfg_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
 def _toml_format_value(v):
     """Minimal TOML value formatter for strings, numbers, bools, and simple lists."""
     if isinstance(v, bool):
@@ -178,91 +151,26 @@ def _toml_format_value(v):
     return f'"{str(v)}"'
 
 
-def _toml_dumps_minimal(cfg: dict) -> str:
-    """Dump a minimal TOML supporting top-level keys and one-level tables."""
-    lines: list[str] = []
-    # top-level keys
-    for k in sorted(cfg.keys()):
-        v = cfg[k]
-        if not isinstance(v, dict):
-            lines.append(f"{k} = {_toml_format_value(v)}")
-    if lines:
-        lines.append("")
-    # tables
-    for k in sorted(cfg.keys()):
-        v = cfg[k]
-        if isinstance(v, dict):
-            lines.append(f"[{k}]")
-            for sk in sorted(v.keys()):
-                sv = v[sk]
-                lines.append(f"{sk} = {_toml_format_value(sv)}")
-            lines.append("")
-    while lines and lines[-1] == "":
-        lines.pop()
-    return "\n".join(lines) + "\n"
-
-
-def _write_project_bridge(start: Path, address: str, mode: str, version: str):
-    """Merge bridge config while preserving existing keys."""
-    existing = _load_project_config(start)
-    bridge = existing.get("bridge") or {}
-    bridge.update({"address": address, "mode": mode, "version": version})
-    existing["bridge"] = bridge
-    (start / "loom.toml").write_text(_toml_dumps_minimal(existing), encoding="utf-8")
-
-
 def cmd_up(args):
-    """Start (or reuse) embedded runtime and export LOOM_BRIDGE_ADDR.
+    """Start embedded runtime using the orchestrator (no config file writes)."""
+    import asyncio
 
-    Modes:
-    - bridge-only: Start only the gRPC bridge server
-    - full: Start full Loom Core with Dashboard + Bridge
-    """
-    from . import embedded
+    from ..runtime.orchestrator import OrchestratorConfig, run_orchestrator
 
-    version = args.version
-    mode = args.mode
-    bridge_port = args.bridge_port or _pick_free_port()
-    bridge_addr = f"127.0.0.1:{bridge_port}"
+    project_dir = Path.cwd()
 
-    prefer_release = not args.use_debug
-    force_download = args.force_download
+    config = OrchestratorConfig(
+        project_dir=project_dir,
+        runtime_mode=args.mode,
+        runtime_version=args.version,
+        bridge_port=args.bridge_port,
+        dashboard_port=args.dashboard_port,
+        prefer_release=not args.use_debug,
+        force_download=args.force_download,
+        agent_scripts=[],  # up should only start the runtime
+    )
 
-    if mode == "bridge-only":
-        proc = embedded.start_bridge(
-            bridge_addr,
-            version=version,
-            prefer_release=prefer_release,
-            force_download=force_download,
-        )
-        print(f"[loom] Bridge server started PID={proc.pid} at {bridge_addr}")
-        print(f"[loom] Python agents can connect via LOOM_BRIDGE_ADDR={bridge_addr}")
-    else:  # full mode
-        dashboard_port = args.dashboard_port or 3030
-        proc = embedded.start_core(
-            bridge_addr=bridge_addr,
-            dashboard_port=dashboard_port,
-            version=version,
-            prefer_release=prefer_release,
-            force_download=force_download,
-        )
-        print(f"[loom] Loom Core started PID={proc.pid}")
-        print(f"[loom] Bridge: {bridge_addr}")
-        print(f"[loom] Dashboard: http://localhost:{dashboard_port}")
-
-    os.environ["LOOM_BRIDGE_ADDR"] = bridge_addr
-    _write_project_bridge(Path("."), bridge_addr, mode, version)
-
-    # Keep process alive
-    print("[loom] Press Ctrl+C to stop.")
-    try:
-        proc.wait()
-    except KeyboardInterrupt:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+    asyncio.run(run_orchestrator(config))
 
 
 def cmd_down(args):
@@ -322,16 +230,19 @@ def cmd_down(args):
 
 
 def cmd_chat(args):
-    """Start interactive chat with a cognitive agent."""
+    """Start interactive chat with a cognitive agent backend.
+
+    This is a lightweight client that connects to an existing backend agent.
+    """
     import asyncio
 
     from .chat import run_chat_cli
 
     bridge_addr = args.address
-    agent_id = args.agent_id
+    backend_id = args.agent_id  # Keep arg name for backward compatibility
 
     try:
-        exit_code = asyncio.run(run_chat_cli(bridge_addr=bridge_addr, agent_id=agent_id))
+        exit_code = asyncio.run(run_chat_cli(bridge_addr=bridge_addr, backend_id=backend_id))
         sys.exit(exit_code or 0)
     except KeyboardInterrupt:
         print("\nGoodbye! 👋")
@@ -418,7 +329,7 @@ def main():
     sdown = sub.add_parser("down", help="Shutdown all Loom processes (runtime + agents)")
     sdown.set_defaults(func=cmd_down)
 
-    schat = sub.add_parser("chat", help="Start interactive chat with a cognitive agent")
+    schat = sub.add_parser("chat", help="Start interactive chat client (connects to backend agent)")
     schat.add_argument(
         "--address",
         "-a",
@@ -429,7 +340,7 @@ def main():
         "--agent-id",
         "-i",
         default="chat-assistant",
-        help="Agent ID for the chat session (default: chat-assistant)",
+        help="Backend agent ID to connect to (default: chat-assistant)",
     )
     schat.set_defaults(func=cmd_chat)
 
