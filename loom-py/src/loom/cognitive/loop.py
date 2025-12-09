@@ -50,19 +50,38 @@ def build_react_system_prompt(
 
     return f"""{base}
 
-You follow the ReAct (Reasoning + Acting) pattern:
-1. Thought: Analyze the situation and decide what to do
-2. Action: If needed, call a tool using JSON format: {{"tool": "tool_name", "args": {{"key": "value"}}}}
-3. STOP and wait for the real Observation from the system
+## ReAct Protocol
+
+You operate in a Thought-Action-Observation loop:
+
+1. **Thought**: Analyze what you need to do next (1-2 sentences max)
+2. **Action**: Call ONE tool using JSON: {{"tool": "name", "args": {{...}}}}
+3. **STOP** - Wait for the system to provide the Observation
 4. Repeat until you have enough information
 
-IMPORTANT RULES:
-- After outputting an Action JSON, you MUST STOP immediately
-- Do NOT write "Observation:" yourself - the system will provide real results
-- Do NOT imagine or make up tool results
-- Only output ONE thought and ONE action per response
-- When you have gathered enough information, respond with:
-  FINAL ANSWER: <your complete answer here>
+## Output Format
+
+Each response must be ONE of these formats:
+
+### When you need to use a tool:
+```
+Thought: [brief reasoning]
+Action: {{"tool": "tool_name", "args": {{"key": "value"}}}}
+```
+Then STOP. Do not write anything after the Action JSON.
+
+### When you have the final answer:
+```
+FINAL ANSWER: [your complete response to the user]
+```
+
+## Critical Rules
+
+- Output ONLY ONE Thought + Action per turn
+- NEVER write "Observation:" - the system provides real results
+- NEVER continue after Action JSON - STOP immediately
+- NEVER repeat FINAL ANSWER - say it once and stop
+- Keep Thoughts concise (1-2 sentences)
 {tools_desc}"""
 
 
@@ -199,43 +218,59 @@ def parse_react_response(response: str) -> dict[str, Any]:
     """
     response = response.strip()
 
-    # Truncate at various hallucination markers
+    # Check for final answer FIRST (highest priority)
+    # Use a pattern that captures content until end or next section marker
+    final_match = re.search(
+        r"FINAL\s*ANSWER\s*:\s*(.+)",
+        response,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if final_match:
+        content = final_match.group(1).strip()
+        # Clean up: remove any trailing FINAL ANSWER repetitions or other markers
+        content = re.split(
+            r"\n(?:FINAL\s*ANSWER|Thought\s*\d*:|Action\s*:)",
+            content,
+            flags=re.IGNORECASE,
+        )[0].strip()
+        return {"type": "final_answer", "content": content}
+
+    # Truncate at hallucination markers (only if no final answer)
     # LLM often continues generating fake observations, thoughts, etc.
     truncation_patterns = [
-        r"\nObservation:",  # Fake observation
-        r"\nThought\s*\d+:",  # Next thought (should wait for real observation)
-        r"\nAction:\s*\n*Action:",  # Repeated action markers
-        r"\nAction:\s*[a-z_]+:",  # Format like "Action: fs:write_file(...)"
-        r"\nFINAL ANSWER:",  # Repeated final answer (keep only first)
+        (r"\nObservation\s*:", "fake observation"),
+        (r"\nThought\s*\d+:", "next thought before observation"),
+        (r"(\n\s*){2,}\{", "orphaned JSON"),  # JSON after blank lines
     ]
 
-    for pattern in truncation_patterns:
+    for pattern, _reason in truncation_patterns:
         match = re.search(pattern, response, re.IGNORECASE)
         if match:
-            # Only truncate if we have a tool call before the marker
+            # Truncate if we have a tool call before the marker
             before = response[: match.start()]
             if _has_tool_call(before):
                 response = before.strip()
                 break
 
-    # Check for final answer - find first occurrence and use only that
-    # This prevents LLM from repeating the same final answer multiple times
-    final_match = re.search(
-        r"FINAL ANSWER:\s*(.+?)(?=\nFINAL ANSWER:|\nThought|\nAction|$)",
-        response,
-        re.IGNORECASE | re.DOTALL,
-    )
-    if final_match:
-        return {"type": "final_answer", "content": final_match.group(1).strip()}
-
     # Try to extract tool call - supports multiple formats
     tool_call = extract_tool_call(response)
     if tool_call:
         # Extract thought before tool call
-        thought = response.split("{")[0].strip()
-        # Remove various prefixes
-        thought = re.sub(r"^(Thought\s*\d*:|Action:)\s*", "", thought, flags=re.IGNORECASE)
-        thought = thought.strip()
+        # Find where the JSON starts
+        json_start = response.find("{")
+        thought_part = response[:json_start].strip() if json_start > 0 else ""
+
+        # Clean thought: remove "Thought:" prefix and "Action:" if present
+        thought = re.sub(
+            r"^(?:Thought\s*\d*\s*:|Action\s*:)\s*",
+            "",
+            thought_part,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        # Also remove trailing "Action:" if thought ends with it
+        thought = re.sub(r"\s*Action\s*:\s*$", "", thought, flags=re.IGNORECASE).strip()
+
         return {
             "type": "tool_call",
             "thought": thought,
@@ -243,7 +278,7 @@ def parse_react_response(response: str) -> dict[str, Any]:
             "args": tool_call.get("args", {}),
         }
 
-    # Just reasoning
+    # Just reasoning - no tool call, no final answer
     content = re.sub(r"^Thought\s*\d*:\s*", "", response, flags=re.IGNORECASE)
     return {"type": "reasoning", "content": content}
 

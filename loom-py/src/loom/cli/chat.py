@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from .ui import (
+    ReactStreamRenderer,
     console,
     create_spinner,
     print_assistant_message,
@@ -34,7 +35,6 @@ from .ui import (
     print_permission_request,
     print_stats,
     print_success,
-    print_thinking_header,
     print_thinking_step,
     print_warning,
     print_welcome,
@@ -521,33 +521,69 @@ async def run_chat_cli(
             # Process message
             try:
                 if session.streaming:
-                    # Streaming mode with Rich Live display
-                    print_thinking_header()
+                    # Streaming mode with ReactStreamRenderer
+                    from ..cognitive.types import CognitiveResult, ThoughtStep
 
-                    async def on_chunk(content: str, content_type: "StreamContentType"):
-                        from ..streaming import StreamContentType as SCT
+                    with ReactStreamRenderer(show_thinking=session.verbose) as renderer:
+                        final_result = None
+                        thinking_steps = []
+                        tool_calls = []
 
-                        if content_type == SCT.TEXT:
-                            # Print inline for streaming effect
-                            console.print(content, end="", style="stream.text")
-                        elif content_type == SCT.THINKING:
-                            console.print(content, style="stream.thinking")
+                        async for item in session._cognitive.run_stream(
+                            user_input,
+                            context=(
+                                [
+                                    f"{m['role'].capitalize()}: {m['content']}"
+                                    for m in session._conversation_history[-6:-1]
+                                ]
+                                if len(session._conversation_history) > 1
+                                else None
+                            ),
+                        ):
+                            if isinstance(item, str):
+                                # Raw LLM chunk - parse and render
+                                renderer.feed(item)
 
-                    result = await session.chat(user_input, on_chunk=on_chunk)
+                            elif isinstance(item, ThoughtStep):
+                                # Step completed (after tool execution)
+                                thinking_steps.append(item)
+                                if item.tool_call:
+                                    tool_calls.append(item.tool_call.name)
+                                    # Add observation to renderer
+                                    if item.observation:
+                                        renderer.add_observation(
+                                            tool_name=item.tool_call.name,
+                                            result=(
+                                                item.observation.output
+                                                if item.observation.success
+                                                else item.observation.error or "Error"
+                                            ),
+                                            success=item.observation.success,
+                                            offloaded=(
+                                                item.reduced_step.outcome_ref
+                                                if item.reduced_step
+                                                else None
+                                            ),
+                                        )
 
-                    # Print newline after streaming
-                    console.print()
+                            elif isinstance(item, CognitiveResult):
+                                final_result = item
 
-                    # Show final formatted result
-                    if result.get("content"):
-                        print_assistant_message(result["content"])
+                        # Flush any remaining content
+                        renderer.flush()
+
+                    # Update conversation history
+                    if final_result:
+                        session._conversation_history.append(
+                            {"role": "assistant", "content": final_result.answer}
+                        )
 
                     # Show stats
                     print_stats(
-                        iterations=result.get("iterations", 0),
-                        latency_ms=result.get("latency_ms", 0),
-                        tool_calls=len(result.get("tool_calls", [])),
-                        success=result.get("success", True),
+                        iterations=final_result.iterations if final_result else 0,
+                        latency_ms=final_result.total_latency_ms if final_result else 0,
+                        tool_calls=len(tool_calls),
+                        success=final_result.success if final_result else False,
                     )
                 else:
                     # Non-streaming mode
@@ -612,3 +648,58 @@ async def run_chat_cli(
 
 # Keep old ChatSession name for backward compatibility
 ChatSession = StandaloneChatSession
+
+
+def print_stream_step_complete(step) -> None:
+    """Print a completed thinking step with context engineering support.
+
+    This function displays tool execution results, handling both normal
+    outputs and offloaded data references appropriately.
+
+    Args:
+        step: ThoughtStep object with tool_call and observation
+    """
+    from .ui import console
+
+    if not step.tool_call:
+        return
+
+    # Build output parts
+    parts = []
+
+    # Step header
+    parts.append(f"[bold magenta]Step {step.step}[/bold magenta]")
+
+    # Reasoning
+    if step.reasoning:
+        parts.append(f"  [dim]💭 {step.reasoning}[/dim]")
+
+    # Tool info
+    parts.append(f"  [cyan]🔧 Tool: {step.tool_call.name}[/cyan]")
+
+    # Observation/Result
+    if step.observation:
+        if step.observation.success:
+            # Check for offloaded data
+            if step.reduced_step and step.reduced_step.outcome_ref:
+                parts.append("  [green]✅ Data offloaded[/green]")
+                parts.append(f"     Offloaded to: {step.reduced_step.outcome_ref}")
+                # Show summary from reduced step
+                if step.reduced_step.observation:
+                    parts.append(f"     Summary: {step.reduced_step.observation}")
+                parts.append(f"     View with: cat {step.reduced_step.outcome_ref}")
+            else:
+                # Normal output
+                output = step.observation.output
+                if len(output) > 200:
+                    output = output[:197] + "..."
+                parts.append("  [green]✅ Result:[/green]")
+                for line in output.split("\n"):
+                    parts.append(f"     {line}")
+        else:
+            # Error
+            parts.append(f"  [red]❌ Error: {step.observation.error}[/red]")
+
+    # Print all parts
+    for part in parts:
+        console.print(part)

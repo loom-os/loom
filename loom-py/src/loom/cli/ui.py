@@ -520,3 +520,462 @@ def print_json(data: Any, title: Optional[str] = None):
 
     json_str = json.dumps(data, indent=2, ensure_ascii=False)
     print_code(json_str, "json", title)
+
+
+# ============================================================================
+# ReAct Streaming Parser & Renderer
+# ============================================================================
+
+
+class ReactStreamParser:
+    """Incrementally parse ReAct-style streaming output.
+
+    Detects and extracts:
+    - Thought: reasoning content
+    - Action: tool call JSON
+    - Observation: tool results (injected externally)
+    - FINAL ANSWER: final response
+
+    Usage:
+        parser = ReactStreamParser()
+        for chunk in stream:
+            events = parser.feed(chunk)
+            for event in events:
+                if event["type"] == "thought":
+                    render_thought(event["content"])
+                elif event["type"] == "action":
+                    render_action(event["tool"], event["args"])
+                elif event["type"] == "final_answer":
+                    render_final(event["content"])
+    """
+
+    def __init__(self):
+        self.buffer = ""
+        self.current_section: Optional[str] = None  # "thought", "action", "final"
+        self.section_content = ""
+        self._final_answer_seen = False
+        self._action_complete = False
+
+    def feed(self, chunk: str) -> list[dict]:
+        """Feed a chunk of text and return parsed events.
+
+        Args:
+            chunk: Incoming text chunk from LLM stream
+
+        Returns:
+            List of events: [{"type": "thought"|"action"|"final_answer"|"text", ...}]
+        """
+        # If we already got final answer, ignore further content
+        if self._final_answer_seen:
+            return []
+
+        events = []
+        self.buffer += chunk
+
+        while True:
+            event = self._try_extract_section()
+            if event:
+                events.append(event)
+                if event["type"] == "final_answer":
+                    self._final_answer_seen = True
+                    break
+            else:
+                break
+
+        return events
+
+    def _try_extract_section(self) -> Optional[dict]:
+        """Try to extract a complete section from buffer."""
+        import re
+
+        # Check for FINAL ANSWER (highest priority)
+        final_match = re.search(
+            r"FINAL\s*ANSWER\s*:\s*",
+            self.buffer,
+            re.IGNORECASE,
+        )
+        if final_match:
+            # Everything after "FINAL ANSWER:" is the answer
+            content = self.buffer[final_match.end() :].strip()
+            # Clean up any trailing markers that LLM might add
+            content = re.split(r"\n(?:Thought|Action|FINAL ANSWER)\s*:?", content)[0].strip()
+            self.buffer = ""
+            if content:
+                return {"type": "final_answer", "content": content}
+            return None
+
+        # Check for Thought section
+        thought_match = re.search(
+            r"(?:^|\n)Thought\s*(?:\d+)?\s*:\s*",
+            self.buffer,
+            re.IGNORECASE,
+        )
+        if thought_match:
+            # Look for where thought ends (Action or another Thought or FINAL)
+            rest = self.buffer[thought_match.end() :]
+            end_match = re.search(
+                r"\n(?:Action\s*:|Thought\s*\d*:|FINAL\s*ANSWER)",
+                rest,
+                re.IGNORECASE,
+            )
+            if end_match:
+                thought_content = rest[: end_match.start()].strip()
+                self.buffer = rest[end_match.start() :]
+                if thought_content:
+                    return {"type": "thought", "content": thought_content}
+            # If no end marker yet, keep buffering
+            return None
+
+        # Check for Action section with JSON
+        action_match = re.search(
+            r"(?:^|\n)Action\s*:\s*",
+            self.buffer,
+            re.IGNORECASE,
+        )
+        if action_match:
+            rest = self.buffer[action_match.end() :]
+            # Try to find complete JSON
+            json_result = self._extract_json(rest)
+            if json_result:
+                tool_name = (
+                    json_result.get("tool") or json_result.get("action") or json_result.get("name")
+                )
+                args = (
+                    json_result.get("args")
+                    or json_result.get("arguments")
+                    or json_result.get("input")
+                    or {}
+                )
+                # Clear buffer up to after the JSON
+                json_end = rest.find("}") + 1
+                self.buffer = rest[json_end:].lstrip()
+                if tool_name:
+                    return {"type": "action", "tool": tool_name, "args": args}
+
+            # Also try Python-style: tool_name({'arg': 'value'})
+            python_match = re.match(
+                r"([a-z_:]+)\s*\(\s*(\{.+?\})\s*\)",
+                rest,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if python_match:
+                tool_name = python_match.group(1)
+                try:
+                    import ast
+
+                    args = ast.literal_eval(python_match.group(2))
+                    self.buffer = rest[python_match.end() :].lstrip()
+                    return {"type": "action", "tool": tool_name, "args": args}
+                except (ValueError, SyntaxError):
+                    pass
+
+        # If no structured content, check if we have plain text to emit
+        # Only emit if buffer is getting long and no markers found
+        if len(self.buffer) > 200:
+            # Check if there's any marker coming
+            if not re.search(r"(?:Thought|Action|FINAL)", self.buffer, re.IGNORECASE):
+                text = self.buffer[:100]
+                self.buffer = self.buffer[100:]
+                return {"type": "text", "content": text}
+
+        return None
+
+    def _extract_json(self, text: str) -> Optional[dict]:
+        """Extract JSON object from text."""
+        import json
+
+        start = text.find("{")
+        if start == -1:
+            return None
+
+        # Find matching closing brace
+        depth = 0
+        for i, char in enumerate(text[start:], start):
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start : i + 1])
+                    except json.JSONDecodeError:
+                        return None
+        return None
+
+    def flush(self) -> list[dict]:
+        """Flush remaining buffer content as events."""
+        events = []
+        if self.buffer.strip():
+            # Check one more time for final answer
+            import re
+
+            final_match = re.search(
+                r"FINAL\s*ANSWER\s*:\s*(.+)", self.buffer, re.IGNORECASE | re.DOTALL
+            )
+            if final_match:
+                events.append({"type": "final_answer", "content": final_match.group(1).strip()})
+            elif not self._final_answer_seen:
+                # Emit as text
+                events.append({"type": "text", "content": self.buffer.strip()})
+        self.buffer = ""
+        return events
+
+
+class ReactStreamRenderer:
+    """Render ReAct streaming output with Rich Live display.
+
+    Provides a beautiful, structured display of:
+    - 💭 Thought bubbles (collapsible reasoning)
+    - 🔧 Action cards (tool calls with args)
+    - 📤 Observation panels (tool results)
+    - ✅ Final answer (highlighted response)
+
+    Usage:
+        async with ReactStreamRenderer() as renderer:
+            async for chunk in llm_stream:
+                renderer.feed(chunk)
+            # Handle tool execution
+            renderer.add_observation(tool_name, result)
+    """
+
+    def __init__(self, show_thinking: bool = True):
+        self.show_thinking = show_thinking
+        self.parser = ReactStreamParser()
+        self.live: Optional[Live] = None
+
+        # Current state for display
+        self.current_thought = ""
+        self.current_action: Optional[dict] = None
+        self.steps: list[dict] = []  # Completed steps
+        self.final_answer = ""
+        self.streaming_text = ""  # For plain text streaming
+
+    def __enter__(self) -> "ReactStreamRenderer":
+        """Start Live display."""
+        self.live = Live(
+            self._render(),
+            console=console,
+            refresh_per_second=12,
+            transient=True,  # Clear when done
+        )
+        self.live.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        """Stop Live display and print final content."""
+        if self.live:
+            self.live.__exit__(*args)
+        self._print_final()
+
+    def feed(self, chunk: str) -> list[dict]:
+        """Feed a chunk and update display.
+
+        Returns parsed events for external handling (e.g., tool execution).
+        """
+        events = self.parser.feed(chunk)
+
+        for event in events:
+            self._handle_event(event)
+
+        if self.live:
+            self.live.update(self._render())
+
+        return events
+
+    def flush(self) -> list[dict]:
+        """Flush parser and update display."""
+        events = self.parser.flush()
+        for event in events:
+            self._handle_event(event)
+        if self.live:
+            self.live.update(self._render())
+        return events
+
+    def _handle_event(self, event: dict):
+        """Handle a parsed event."""
+        if event["type"] == "thought":
+            # Save previous thought as a step if any
+            if self.current_thought and not self.current_action:
+                self.steps.append({"type": "thought", "content": self.current_thought})
+            self.current_thought = event["content"]
+            self.current_action = None
+
+        elif event["type"] == "action":
+            self.current_action = event
+            # Don't add to steps yet - wait for observation
+
+        elif event["type"] == "final_answer":
+            self.final_answer = event["content"]
+
+        elif event["type"] == "text":
+            self.streaming_text += event["content"]
+
+    def add_observation(
+        self, tool_name: str, result: str, success: bool = True, offloaded: Optional[str] = None
+    ):
+        """Add observation from tool execution.
+
+        Call this after executing a tool to complete the step.
+        """
+        step = {
+            "type": "step",
+            "thought": self.current_thought,
+            "action": self.current_action,
+            "observation": {
+                "tool": tool_name,
+                "result": result,
+                "success": success,
+                "offloaded": offloaded,
+            },
+        }
+        self.steps.append(step)
+        self.current_thought = ""
+        self.current_action = None
+
+        if self.live:
+            self.live.update(self._render())
+
+    def _render(self) -> Group:
+        """Render current state as Rich renderables."""
+        renderables = []
+
+        # Render completed steps (collapsed)
+        for i, step in enumerate(self.steps, 1):
+            if step["type"] == "thought":
+                # Standalone thought (rare)
+                if self.show_thinking:
+                    thought_text = Text()
+                    thought_text.append("💭 ", style="magenta")
+                    thought_text.append(step["content"][:100], style="dim")
+                    if len(step["content"]) > 100:
+                        thought_text.append("...", style="dim")
+                    renderables.append(thought_text)
+
+            elif step["type"] == "step":
+                # Complete thought + action + observation
+                step_panel = self._render_step(i, step)
+                renderables.append(step_panel)
+
+        # Render current state (in progress)
+        if self.current_thought and self.show_thinking:
+            thinking_text = Text()
+            thinking_text.append("💭 Thinking: ", style="bold magenta")
+            thinking_text.append(self.current_thought, style="magenta italic")
+            renderables.append(Panel(thinking_text, border_style="magenta", padding=(0, 1)))
+
+        if self.current_action:
+            action_text = Text()
+            action_text.append("🔧 Calling: ", style="bold cyan")
+            action_text.append(self.current_action["tool"], style="cyan bold")
+            args_str = str(self.current_action.get("args", {}))
+            if len(args_str) > 60:
+                args_str = args_str[:57] + "..."
+            action_text.append(f"\n   Args: {args_str}", style="dim")
+            action_text.append("\n   ⏳ Executing...", style="yellow")
+            renderables.append(Panel(action_text, border_style="cyan", padding=(0, 1)))
+
+        # Streaming text (for non-ReAct content)
+        if self.streaming_text:
+            renderables.append(Text(self.streaming_text, style="white"))
+
+        # Final answer preview
+        if self.final_answer:
+            answer_text = Text()
+            answer_text.append("✅ ", style="green")
+            answer_text.append(self.final_answer[:200], style="white")
+            if len(self.final_answer) > 200:
+                answer_text.append("...", style="dim")
+            renderables.append(
+                Panel(answer_text, border_style="green", title="[green]Answer[/green]")
+            )
+
+        if not renderables:
+            renderables.append(Text("💭 Thinking...", style="dim magenta"))
+
+        return Group(*renderables)
+
+    def _render_step(self, step_num: int, step: dict) -> Panel:
+        """Render a complete step as a panel."""
+        content_parts = []
+
+        # Thought
+        if step.get("thought") and self.show_thinking:
+            thought_text = Text()
+            thought_text.append("💭 ", style="magenta")
+            thought = step["thought"]
+            if len(thought) > 150:
+                thought = thought[:147] + "..."
+            thought_text.append(thought, style="dim italic")
+            content_parts.append(thought_text)
+
+        # Action
+        if step.get("action"):
+            action = step["action"]
+            action_text = Text()
+            action_text.append("🔧 ", style="cyan")
+            action_text.append(action["tool"], style="bold cyan")
+            content_parts.append(action_text)
+
+        # Observation
+        if step.get("observation"):
+            obs = step["observation"]
+            obs_text = Text()
+            if obs["success"]:
+                obs_text.append("✅ ", style="green")
+                if obs.get("offloaded"):
+                    obs_text.append(f"→ {obs['offloaded']}", style="dim")
+                else:
+                    result = obs["result"]
+                    if len(result) > 100:
+                        result = result[:97] + "..."
+                    obs_text.append(result, style="dim")
+            else:
+                obs_text.append("❌ ", style="red")
+                obs_text.append(obs["result"][:100], style="red dim")
+            content_parts.append(obs_text)
+
+        content = Group(*content_parts) if content_parts else Text("...")
+
+        return Panel(
+            content,
+            title=f"[dim]Step {step_num}[/dim]",
+            title_align="left",
+            border_style="dim",
+            padding=(0, 1),
+        )
+
+    def _print_final(self):
+        """Print final formatted output after Live closes."""
+        # Print completed steps summary
+        if self.steps and self.show_thinking:
+            console.print()
+            for i, step in enumerate(self.steps, 1):
+                if step["type"] == "step":
+                    print_thinking_step(
+                        step_num=i,
+                        reasoning=step.get("thought"),
+                        tool_name=step["action"]["tool"] if step.get("action") else None,
+                        tool_args=step["action"].get("args") if step.get("action") else None,
+                        result=(
+                            step["observation"]["result"]
+                            if step.get("observation", {}).get("success")
+                            else None
+                        ),
+                        error=(
+                            step["observation"]["result"]
+                            if step.get("observation") and not step["observation"]["success"]
+                            else None
+                        ),
+                        offloaded_path=step.get("observation", {}).get("offloaded"),
+                    )
+
+        # Print final answer
+        if self.final_answer:
+            print_assistant_message(self.final_answer)
+        elif self.streaming_text:
+            print_assistant_message(self.streaming_text)
+
+
+# ============================================================================
+# Exports
+# ============================================================================
