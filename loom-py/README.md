@@ -113,6 +113,38 @@ if __name__ == "__main__":
 python my_agent.py
 ```
 
+### 4. Interactive Chat
+
+Start an interactive chat session with your agent:
+
+```bash
+# Chat with a running backend agent
+loom chat
+
+# Connect to a specific agent
+loom chat --agent-id my-agent
+
+# Connect to a custom bridge address
+loom chat --address localhost:9999
+```
+
+**Chat Commands**:
+
+- `/help` - Show available commands
+- `/clear` - Clear conversation history
+- `/verbose` - Toggle thinking steps display
+- `/stream` - Toggle streaming mode
+- `/history` - Show conversation history
+- `/status` - Show connection status
+- `/quit` - Exit chat
+
+The chat interface uses [Rich](https://rich.readthedocs.io/) for beautiful terminal output with:
+
+- 🧠 Thinking steps visualization
+- 🔧 Tool call display
+- 📊 Performance statistics
+- 🎨 Syntax highlighting for code
+
 ## What's Included
 
 ✅ **Core Features** (v0.1.0a1):
@@ -123,16 +155,18 @@ python my_agent.py
 - Context API (emit, reply, tool invocation)
 - Envelope for correlation and threading
 - Request/reply with timeout
+- **Interactive Chat CLI** with Rich UI
+- **Streaming Protocol** for real-time LLM output
 
 🚧 **Coming Soon**:
 
 - Memory backends
 - Dynamic subscriptions
-- Streaming responses
 
 ## Documentation
 
 - [SDK Guide](docs/SDK_GUIDE.md) - Complete API reference and tutorials
+- [Streaming Protocol](docs/STREAMING.md) - Real-time output streaming
 - [Examples](examples/) - Working code samples
 - [DESIGN.md](docs/DESIGN.md) - Architecture and design decisions
 - [FUTURE.md](docs/FUTURE.md) - Roadmap and planned features

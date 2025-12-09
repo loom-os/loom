@@ -239,10 +239,10 @@ def cmd_chat(args):
     from .chat import run_chat_cli
 
     bridge_addr = args.address
-    backend_id = args.agent_id  # Keep arg name for backward compatibility
+    agent_id = args.agent_id
 
     try:
-        exit_code = asyncio.run(run_chat_cli(bridge_addr=bridge_addr, backend_id=backend_id))
+        exit_code = asyncio.run(run_chat_cli(bridge_addr=bridge_addr, agent_id=agent_id))
         sys.exit(exit_code or 0)
     except KeyboardInterrupt:
         print("\nGoodbye! 👋")
