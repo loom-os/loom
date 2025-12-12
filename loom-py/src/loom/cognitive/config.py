@@ -31,7 +31,7 @@ class CognitiveConfig:
 
     Attributes:
         system_prompt: Custom system prompt (optional, has defaults per strategy)
-        thinking_strategy: Which reasoning strategy to use
+        thinking_strategy: Which reasoning strategy to use (can be enum or string)
         max_iterations: Maximum ReAct iterations before giving up
         max_tools_per_step: Maximum tool calls per iteration
         temperature: LLM temperature setting
@@ -44,6 +44,28 @@ class CognitiveConfig:
     max_tools_per_step: int = 3
     temperature: float = 0.7
     stop_on_final_answer: bool = True
+
+    def __post_init__(self) -> None:
+        """Convert string thinking_strategy to enum if needed."""
+        if isinstance(self.thinking_strategy, str):
+            # Map common string values to enum
+            strategy_map = {
+                "react": ThinkingStrategy.REACT,
+                "single_shot": ThinkingStrategy.SINGLE_SHOT,
+                "single-shot": ThinkingStrategy.SINGLE_SHOT,
+                "singleshot": ThinkingStrategy.SINGLE_SHOT,
+                "cot": ThinkingStrategy.CHAIN_OF_THOUGHT,
+                "chain_of_thought": ThinkingStrategy.CHAIN_OF_THOUGHT,
+                "chain-of-thought": ThinkingStrategy.CHAIN_OF_THOUGHT,
+            }
+            strategy_str = self.thinking_strategy.lower()
+            if strategy_str in strategy_map:
+                self.thinking_strategy = strategy_map[strategy_str]
+            else:
+                raise ValueError(
+                    f"Unknown thinking_strategy: {self.thinking_strategy}. "
+                    f"Valid values: {list(strategy_map.keys())}"
+                )
 
 
 __all__ = [
