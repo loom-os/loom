@@ -148,6 +148,9 @@ async def main():
     # Set up event handler - this is where the magic happens!
     print(f"\n📡 Setting up event handler...")
 
+    # Track active streams for cancellation
+    active_streams: dict[str, "StreamingHandler"] = {}
+
     async def on_event(ctx, topic, event):
         """Handle incoming events with cognitive processing.
 
@@ -155,13 +158,27 @@ async def main():
         1. Receive user message from chat.input
         2. Process with CognitiveAgent (ReAct loop) with streaming
         3. Send streaming chunks back to client
+        4. Handle cancellation requests
         """
         from loom.cognitive.types import CognitiveResult, ThoughtStep
-        from loom.streaming import StreamingHandler, StreamContentType
+        from loom.streaming import StreamCancelledError, StreamContentType, StreamingHandler
+
+        # Handle stream cancellation
+        if topic == "chat.input" and event.type == "stream.cancel":
+            correlation_id = event.correlation_id
+            if correlation_id and correlation_id in active_streams:
+                handler = active_streams[correlation_id]
+                reason = event.payload.decode("utf-8") if event.payload else "User cancelled"
+                handler.cancel(reason)
+                print(f"⚠️  Stream {correlation_id[:8]}... cancelled: {reason}")
+            return
 
         # Handle stream requests (new streaming protocol)
         if topic == "chat.input" and event.type == "stream.request":
             handler = StreamingHandler(ctx, event)
+
+            # Register handler for cancellation
+            active_streams[handler.correlation_id] = handler
 
             try:
                 # Decode user message
@@ -210,11 +227,19 @@ async def main():
 
                 print(f"{'─' * 70}\n")
 
+            except StreamCancelledError as e:
+                print(f"⚠️  Stream cancelled: {e.reason}")
+                await handler.send_cancelled(e.reason)
+
             except Exception as e:
                 print(f"❌ Stream error: {e}")
                 import traceback
                 traceback.print_exc()
                 await handler.send_error(str(e))
+
+            finally:
+                # Cleanup handler registration
+                active_streams.pop(handler.correlation_id, None)
 
         # Handle legacy non-streaming requests
         elif topic == "chat.input" and event.type == "user.message":

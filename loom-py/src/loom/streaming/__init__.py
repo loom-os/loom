@@ -44,7 +44,7 @@ Example (Backend producing stream):
 
 from .chat_client import ChatClient, ChatMessage, ChatResponse, ChunkCallback
 from .client import StreamingClient, StreamingError
-from .handler import StreamingHandler
+from .handler import StreamCancelledError, StreamingHandler
 from .types import (
     StreamChunk,
     StreamComplete,
@@ -75,6 +75,7 @@ __all__ = [
     "StreamingError",
     # Handler
     "StreamingHandler",
+    "StreamCancelledError",
     # Chat Client
     "ChatClient",
     "ChatMessage",

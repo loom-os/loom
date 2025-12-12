@@ -39,6 +39,8 @@ import asyncio
 import uuid
 from typing import TYPE_CHECKING, AsyncIterator, Optional
 
+from opentelemetry import trace
+
 from .types import (
     StreamChunk,
     StreamComplete,
@@ -47,6 +49,9 @@ from .types import (
     StreamRequest,
     StreamStatus,
 )
+
+# Tracer for streaming client spans
+tracer = trace.get_tracer(__name__)
 
 if TYPE_CHECKING:
     from ..agent import Agent, EventContext
@@ -155,59 +160,96 @@ class StreamingClient:
         stream_queue: asyncio.Queue = asyncio.Queue()
         self._pending_streams[request.id] = stream_queue
 
-        try:
-            # Send request via event bus
-            from ..agent.envelope import Envelope
+        # Create tracing span for the entire stream
+        with tracer.start_as_current_span(
+            "streaming.client.stream",
+            attributes={
+                "streaming.client_id": self.agent_id,
+                "streaming.backend_topic": self.backend_topic,
+                "streaming.message_length": len(message),
+                "streaming.correlation_id": request.id,
+                "streaming.thread_id": thread_id or "",
+                "streaming.timeout_sec": timeout,
+            },
+        ) as span:
+            try:
+                # Send request via event bus
+                from ..agent.envelope import Envelope
 
-            env = Envelope.new(
-                type="stream.request",
-                payload=message.encode("utf-8"),
-                sender=self.agent_id,
-                correlation_id=request.id,
-                thread_id=request.thread_id,
-                reply_to=request.reply_to,
-                metadata={
-                    "stream.include_thinking": str(options.include_thinking if options else False),
-                    "stream.include_tool_calls": str(
-                        options.include_tool_calls if options else True
-                    ),
-                },
-            )
+                env = Envelope.new(
+                    type="stream.request",
+                    payload=message.encode("utf-8"),
+                    sender=self.agent_id,
+                    correlation_id=request.id,
+                    thread_id=request.thread_id,
+                    reply_to=request.reply_to,
+                    metadata={
+                        "stream.include_thinking": str(
+                            options.include_thinking if options else False
+                        ),
+                        "stream.include_tool_calls": str(
+                            options.include_tool_calls if options else True
+                        ),
+                    },
+                )
 
-            await self._agent.ctx.emit(
-                self.backend_topic,
-                type="stream.request",
-                payload=message.encode("utf-8"),
-                envelope=env,
-            )
+                # Inject trace context for distributed tracing
+                env.inject_trace_context()
 
-            # Receive chunks until complete
-            deadline = asyncio.get_event_loop().time() + timeout
+                await self._agent.ctx.emit(
+                    self.backend_topic,
+                    type="stream.request",
+                    payload=message.encode("utf-8"),
+                    envelope=env,
+                )
 
-            while True:
-                remaining = deadline - asyncio.get_event_loop().time()
-                if remaining <= 0:
-                    raise TimeoutError(f"Stream timed out after {timeout}s")
+                span.add_event("request_sent")
 
-                try:
-                    item = await asyncio.wait_for(stream_queue.get(), timeout=remaining)
-                except asyncio.TimeoutError as exc:
-                    raise TimeoutError(f"Stream timed out after {timeout}s") from exc
+                # Receive chunks until complete
+                deadline = asyncio.get_event_loop().time() + timeout
+                chunks_received = 0
+                first_chunk_received = False
 
-                if isinstance(item, StreamChunk):
-                    yield item
-                elif isinstance(item, StreamComplete):
-                    # Store result and break
-                    self._stream_results[request.id] = item
-                    if item.status == StreamStatus.ERROR and item.error:
+                while True:
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        span.set_attribute("streaming.timed_out", True)
+                        raise TimeoutError(f"Stream timed out after {timeout}s")
 
-                        raise StreamingError(item.error.code, item.error.message)
-                    break
-                elif isinstance(item, Exception):
-                    raise item
+                    try:
+                        item = await asyncio.wait_for(stream_queue.get(), timeout=remaining)
+                    except asyncio.TimeoutError as exc:
+                        span.set_attribute("streaming.timed_out", True)
+                        raise TimeoutError(f"Stream timed out after {timeout}s") from exc
 
-        finally:
-            self._pending_streams.pop(request.id, None)
+                    if isinstance(item, StreamChunk):
+                        if not first_chunk_received:
+                            span.add_event("first_chunk_received")
+                            first_chunk_received = True
+                        chunks_received += 1
+                        yield item
+                    elif isinstance(item, StreamComplete):
+                        # Store result and record stats
+                        self._stream_results[request.id] = item
+                        span.set_attribute("streaming.chunks_received", chunks_received)
+                        span.set_attribute("streaming.status", item.status.name)
+                        if item.stats:
+                            span.set_attribute("streaming.duration_ms", item.stats.duration_ms)
+                            span.set_attribute("streaming.total_tokens", item.stats.total_tokens)
+                            span.set_attribute("streaming.tool_calls", item.stats.tool_calls)
+                        if item.status == StreamStatus.ERROR and item.error:
+                            span.set_attribute("streaming.error_code", item.error.code)
+                            span.record_exception(
+                                StreamingError(item.error.code, item.error.message)
+                            )
+                            raise StreamingError(item.error.code, item.error.message)
+                        break
+                    elif isinstance(item, Exception):
+                        span.record_exception(item)
+                        raise item
+
+            finally:
+                self._pending_streams.pop(request.id, None)
 
     async def send_message(
         self,

@@ -46,9 +46,12 @@ Example:
 
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
+
+from opentelemetry import trace
 
 from .client import StreamingClient
 from .types import (
@@ -57,6 +60,9 @@ from .types import (
     StreamStats,
     StreamStatus,
 )
+
+# Tracer for chat client spans
+tracer = trace.get_tracer(__name__)
 
 
 @dataclass
@@ -211,71 +217,108 @@ class ChatClient:
         # Use provided thread or current
         tid = thread_id or self._current_thread or self.new_thread()
 
-        # Store user message in history
-        import time
-
-        user_msg = ChatMessage(
-            role="user",
-            content=message,
-            thread_id=tid,
-            timestamp_ms=int(time.time() * 1000),
-        )
-        if tid not in self._threads:
-            self._threads[tid] = []
-        self._threads[tid].append(user_msg)
-
-        # Build stream options
-        options = StreamOptions(
-            include_thinking=include_thinking,
-            include_tool_calls=include_tool_calls,
-        )
-
-        # Collect response
-        content_parts: List[str] = []
-        thinking_parts: List[str] = []
-        tool_calls: List[str] = []
-
-        async for chunk in self._streaming.stream(
-            message,
-            thread_id=tid,
-            options=options,
-            timeout=timeout,
-        ):
-            # Call user callback if provided
-            if on_chunk:
-                await on_chunk(chunk.content, chunk.content_type)
-
-            # Collect content by type
-            if chunk.content_type == StreamContentType.TEXT:
-                content_parts.append(chunk.content)
-            elif chunk.content_type == StreamContentType.THINKING:
-                thinking_parts.append(chunk.content)
-            elif chunk.content_type == StreamContentType.TOOL_CALL:
-                tool_calls.append(chunk.content)
-
-        # Build response
-        full_content = "".join(content_parts)
-
-        # Store assistant response in history
-        assistant_msg = ChatMessage(
-            role="assistant",
-            content=full_content,
-            thread_id=tid,
-            timestamp_ms=int(time.time() * 1000),
-            metadata={
-                "thinking": thinking_parts,
-                "tool_calls": tool_calls,
+        # Create tracing span for the chat request
+        with tracer.start_as_current_span(
+            "chat.request",
+            attributes={
+                "chat.client_id": self._client_id,
+                "chat.thread_id": tid,
+                "chat.message_length": len(message),
+                "chat.include_thinking": include_thinking,
+                "chat.include_tool_calls": include_tool_calls,
             },
-        )
-        self._threads[tid].append(assistant_msg)
+        ) as span:
+            start_time = time.time()
 
-        return ChatResponse(
-            content=full_content,
-            thread_id=tid,
-            thinking=thinking_parts,
-            tool_calls=tool_calls,
-            status=StreamStatus.OK,
-        )
+            # Store user message in history
+            user_msg = ChatMessage(
+                role="user",
+                content=message,
+                thread_id=tid,
+                timestamp_ms=int(time.time() * 1000),
+            )
+            if tid not in self._threads:
+                self._threads[tid] = []
+            self._threads[tid].append(user_msg)
+
+            # Build stream options
+            options = StreamOptions(
+                include_thinking=include_thinking,
+                include_tool_calls=include_tool_calls,
+            )
+
+            # Collect response
+            content_parts: List[str] = []
+            thinking_parts: List[str] = []
+            tool_calls: List[str] = []
+            chunks_received = 0
+
+            try:
+                async for chunk in self._streaming.stream(
+                    message,
+                    thread_id=tid,
+                    options=options,
+                    timeout=timeout,
+                ):
+                    chunks_received += 1
+
+                    # Call user callback if provided
+                    if on_chunk:
+                        await on_chunk(chunk.content, chunk.content_type)
+
+                    # Collect content by type
+                    if chunk.content_type == StreamContentType.TEXT:
+                        content_parts.append(chunk.content)
+                    elif chunk.content_type == StreamContentType.THINKING:
+                        thinking_parts.append(chunk.content)
+                    elif chunk.content_type == StreamContentType.TOOL_CALL:
+                        tool_calls.append(chunk.content)
+
+            except Exception as e:
+                span.record_exception(e)
+                span.set_attribute("chat.error", str(e))
+                raise
+
+            # Build response
+            full_content = "".join(content_parts)
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            # Record metrics on span
+            span.set_attribute("chat.response_length", len(full_content))
+            span.set_attribute("chat.chunks_received", chunks_received)
+            span.set_attribute("chat.thinking_steps", len(thinking_parts))
+            span.set_attribute("chat.tool_calls", len(tool_calls))
+            span.set_attribute("chat.duration_ms", duration_ms)
+
+            # Store assistant response in history
+            assistant_msg = ChatMessage(
+                role="assistant",
+                content=full_content,
+                thread_id=tid,
+                timestamp_ms=int(time.time() * 1000),
+                metadata={
+                    "thinking": thinking_parts,
+                    "tool_calls": tool_calls,
+                },
+            )
+            self._threads[tid].append(assistant_msg)
+
+            # Get stats from streaming result if available
+            stream_result = self._streaming.get_stream_result(
+                list(self._streaming._pending_streams.keys())[-1]
+                if self._streaming._pending_streams
+                else ""
+            )
+            stats = stream_result.stats if stream_result else StreamStats(duration_ms=duration_ms)
+
+            return ChatResponse(
+                content=full_content,
+                thread_id=tid,
+                thinking=thinking_parts,
+                tool_calls=tool_calls,
+                status=StreamStatus.OK,
+                stats=stats,
+            )
 
     async def chat_sync(
         self,

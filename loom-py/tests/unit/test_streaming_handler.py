@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from loom.streaming.handler import StreamingHandler
+from loom.streaming.handler import StreamCancelledError, StreamingHandler
 from loom.streaming.types import (
     StreamContentType,
     StreamStateKind,
@@ -264,3 +264,121 @@ class TestStreamingHandler:
         call_args = mock_ctx.emit.call_args
         # Check that envelope was passed
         assert "envelope" in call_args[1]
+
+
+class TestStreamingHandlerCancellation:
+    """Tests for cancellation support in StreamingHandler."""
+
+    def test_is_cancelled_default(self, mock_ctx, mock_event):
+        """Test that is_cancelled is False by default."""
+        handler = StreamingHandler(mock_ctx, mock_event)
+        assert not handler.is_cancelled
+
+    def test_cancel_sets_flag(self, mock_ctx, mock_event):
+        """Test that cancel() sets the cancelled flag."""
+        handler = StreamingHandler(mock_ctx, mock_event)
+
+        handler.cancel("User requested")
+        assert handler.is_cancelled
+        assert handler._cancel_reason == "User requested"
+
+    def test_check_cancelled_does_not_raise_when_not_cancelled(self, mock_ctx, mock_event):
+        """Test check_cancelled() doesn't raise when not cancelled."""
+        handler = StreamingHandler(mock_ctx, mock_event)
+        # Should not raise
+        handler.check_cancelled()
+
+    def test_check_cancelled_raises_when_cancelled(self, mock_ctx, mock_event):
+        """Test check_cancelled() raises StreamCancelledError when cancelled."""
+        handler = StreamingHandler(mock_ctx, mock_event)
+
+        handler.cancel("Stop now")
+
+        with pytest.raises(StreamCancelledError) as exc_info:
+            handler.check_cancelled()
+
+        assert "Stop now" in str(exc_info.value)
+        assert exc_info.value.reason == "Stop now"
+
+    @pytest.mark.asyncio
+    async def test_send_chunk_raises_when_cancelled(self, mock_ctx, mock_event):
+        """Test send_chunk() raises when stream is cancelled."""
+        handler = StreamingHandler(mock_ctx, mock_event)
+
+        # First chunk succeeds
+        await handler.send_chunk("Hello")
+
+        # Cancel
+        handler.cancel("Cancelled")
+
+        # Next chunk should raise
+        with pytest.raises(StreamCancelledError):
+            await handler.send_chunk("World")
+
+    @pytest.mark.asyncio
+    async def test_send_cancelled_sends_completion(self, mock_ctx, mock_event):
+        """Test send_cancelled() sends proper completion."""
+        handler = StreamingHandler(mock_ctx, mock_event)
+
+        await handler.send_cancelled("User interrupted")
+
+        mock_ctx.emit.assert_called_once()
+        call_args = mock_ctx.emit.call_args
+        assert call_args[1]["type"] == "stream.complete"
+
+
+class TestStreamingHandlerTracing:
+    """Tests for tracing in StreamingHandler."""
+
+    def test_span_not_created_initially(self, mock_ctx, mock_event):
+        """Test that span is not created until first chunk."""
+        handler = StreamingHandler(mock_ctx, mock_event)
+        assert handler._span is None
+
+    @pytest.mark.asyncio
+    async def test_span_created_on_first_chunk(self, mock_ctx, mock_event):
+        """Test that span is created on first send_chunk."""
+        handler = StreamingHandler(mock_ctx, mock_event)
+
+        await handler.send_chunk("Hello")
+
+        assert handler._span is not None
+
+    @pytest.mark.asyncio
+    async def test_span_reused_for_subsequent_chunks(self, mock_ctx, mock_event):
+        """Test that same span is reused for all chunks."""
+        handler = StreamingHandler(mock_ctx, mock_event)
+
+        await handler.send_chunk("First")
+        first_span = handler._span
+
+        await handler.send_chunk("Second")
+        second_span = handler._span
+
+        assert first_span is second_span
+
+    def test_parent_context_extracted(self, mock_ctx):
+        """Test that parent trace context is extracted from event."""
+        mock_event = MagicMock()
+        mock_event.id = "event-123"
+        mock_event.correlation_id = "corr-456"
+        mock_event.sender = "client-789"
+        mock_event.reply_to = None
+        mock_event.thread_id = None
+
+        # Mock a valid trace context
+        from opentelemetry.trace import SpanContext, TraceFlags, TraceState
+
+        mock_context = SpanContext(
+            trace_id=0x123456789ABCDEF0123456789ABCDEF0,
+            span_id=0x123456789ABCDEF0,
+            is_remote=True,
+            trace_flags=TraceFlags(1),
+            trace_state=TraceState(),
+        )
+        mock_event.extract_trace_context = MagicMock(return_value=mock_context)
+
+        handler = StreamingHandler(mock_ctx, mock_event)
+
+        assert handler._parent_context is not None
+        assert handler._parent_context.trace_id == mock_context.trace_id

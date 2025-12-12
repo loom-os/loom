@@ -19,7 +19,10 @@ Usage:
 
 from __future__ import annotations
 
+import time
 from typing import Optional
+
+from opentelemetry import trace
 
 from .ui import (
     ReactStreamRenderer,
@@ -36,6 +39,9 @@ from .ui import (
     print_warning,
     print_welcome,
 )
+
+# Tracer for CLI spans
+tracer = trace.get_tracer(__name__)
 
 # ============================================================================
 # Chat Session
@@ -108,33 +114,59 @@ class ChatSession:
 
         from ..streaming import StreamContentType
 
-        # Collect response parts
-        thinking_steps = []
-        tool_calls = []
-        content_parts = []
+        # Create tracing span for CLI chat interaction
+        with tracer.start_as_current_span(
+            "cli.chat",
+            attributes={
+                "cli.backend_agent_id": self.backend_agent_id,
+                "cli.message_length": len(message),
+                "cli.streaming": self.streaming,
+                "cli.verbose": self.verbose,
+            },
+        ) as span:
+            start_time = time.time()
 
-        async def chunk_handler(content: str, content_type: StreamContentType):
-            if content_type == StreamContentType.TEXT:
-                content_parts.append(content)
-            elif content_type == StreamContentType.THINKING:
-                thinking_steps.append(content)
-            elif content_type == StreamContentType.TOOL_CALL:
-                tool_calls.append(content)
+            # Collect response parts
+            thinking_steps: list[str] = []
+            tool_calls: list[str] = []
+            content_parts: list[str] = []
 
-        response = await self._client.chat(
-            message,
-            on_chunk=chunk_handler if self.streaming else None,
-            include_thinking=self.verbose,
-            include_tool_calls=True,
-        )
+            async def chunk_handler(content: str, content_type: StreamContentType):
+                if content_type == StreamContentType.TEXT:
+                    content_parts.append(content)
+                elif content_type == StreamContentType.THINKING:
+                    thinking_steps.append(content)
+                elif content_type == StreamContentType.TOOL_CALL:
+                    tool_calls.append(content)
 
-        return {
-            "content": response.content or "".join(content_parts),
-            "thinking": thinking_steps,
-            "tool_calls": tool_calls,
-            "stats": response.stats,
-            "status": response.status,
-        }
+            try:
+                response = await self._client.chat(
+                    message,
+                    on_chunk=chunk_handler if self.streaming else None,
+                    include_thinking=self.verbose,
+                    include_tool_calls=True,
+                )
+
+                # Record metrics
+                duration_ms = int((time.time() - start_time) * 1000)
+                span.set_attribute("cli.response_length", len(response.content or ""))
+                span.set_attribute("cli.thinking_steps", len(thinking_steps))
+                span.set_attribute("cli.tool_calls", len(tool_calls))
+                span.set_attribute("cli.duration_ms", duration_ms)
+                if response.stats:
+                    span.set_attribute("cli.total_tokens", response.stats.total_tokens)
+
+            except Exception as e:
+                span.record_exception(e)
+                raise
+
+            return {
+                "content": response.content or "".join(content_parts),
+                "thinking": thinking_steps,
+                "tool_calls": tool_calls,
+                "stats": response.stats,
+                "status": response.status,
+            }
 
     def get_history(self) -> list[dict]:
         """Get conversation history."""

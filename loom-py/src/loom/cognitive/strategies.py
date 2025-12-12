@@ -222,6 +222,11 @@ class StrategyExecutor:
         """ReAct pattern with streaming: yield chunks and steps as they happen."""
         result = CognitiveResult(answer="", iterations=0)
 
+        # Track token usage across iterations
+        prompt_tokens_list: list[int] = []
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+
         system = build_react_system_prompt(
             self.config.system_prompt,
             self.available_tools,
@@ -239,13 +244,16 @@ class StrategyExecutor:
                     "steps_so_far": len(result.steps),
                 },
             ) as iter_span:
-                # Build prompt with history
+                # Build prompt with history (uses context engineering / compaction)
                 prompt = build_react_prompt(
                     goal,
                     result.steps,
                     compactor=self.step_compactor,
                     use_compaction=True,
                 )
+
+                # Record prompt length for context engineering metrics
+                iter_span.set_attribute("prompt.length", len(prompt))
 
                 # Stream the LLM response
                 full_response = ""
@@ -261,6 +269,16 @@ class StrategyExecutor:
                         full_response += chunk
                         yield chunk  # Stream each chunk to caller
                     think_span.set_attribute("response.length", len(full_response))
+
+                    # Collect token usage from this LLM call
+                    usage = getattr(self.llm, "_last_usage", {})
+                    prompt_tokens = usage.get("prompt_tokens", 0)
+                    completion_tokens = usage.get("completion_tokens", 0)
+                    prompt_tokens_list.append(prompt_tokens)
+                    total_prompt_tokens += prompt_tokens
+                    total_completion_tokens += completion_tokens
+                    think_span.set_attribute("tokens.prompt", prompt_tokens)
+                    think_span.set_attribute("tokens.completion", completion_tokens)
 
                 # Parse the complete response
                 parsed = parse_react_response(full_response)
@@ -320,6 +338,15 @@ class StrategyExecutor:
         if not result.answer:
             result.answer = synthesize_answer(result.steps)
             result.success = bool(result.answer)
+
+        # Set token usage metrics
+        result.total_tokens = total_prompt_tokens + total_completion_tokens
+        result.prompt_tokens = total_prompt_tokens
+        result.completion_tokens = total_completion_tokens
+        result.avg_prompt_tokens = (
+            int(total_prompt_tokens / len(prompt_tokens_list)) if prompt_tokens_list else 0
+        )
+        result.peak_prompt_tokens = max(prompt_tokens_list) if prompt_tokens_list else 0
 
         # Yield final result
         yield result

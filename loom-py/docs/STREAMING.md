@@ -259,7 +259,172 @@ Run the streaming tests:
 ```bash
 cd loom-py
 pytest tests/unit/test_streaming_*.py -v
+pytest tests/integration/test_streaming_e2e.py -v  # E2E integration tests
 ```
+
+## Distributed Tracing
+
+The streaming module provides comprehensive OpenTelemetry tracing for debugging and observability.
+
+### Configuration
+
+Enable distributed tracing by configuring OpenTelemetry:
+
+```python
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
+# Configure tracer provider
+trace.set_tracer_provider(TracerProvider())
+trace.get_tracer_provider().add_span_processor(
+    BatchSpanProcessor(OTLPSpanExporter(endpoint="http://localhost:4317"))
+)
+```
+
+### Traced Components
+
+| Component          | Span Name                    | Key Attributes                                   |
+| ------------------ | ---------------------------- | ------------------------------------------------ |
+| `StreamingClient`  | `streaming.client.stream`    | client_id, backend_topic, message_length         |
+| `StreamingHandler` | `streaming.handler.response` | chunks_sent, content_bytes, tool_calls           |
+| `ChatClient`       | `streaming.chat_client.chat` | thread_id, include_thinking, conversation_length |
+| `ChatSession`      | `cli.chat.send`              | session_id, message_length, stream_enabled       |
+
+### Trace Context Propagation
+
+Traces flow automatically through the event bus via envelope metadata:
+
+```python
+# Trace context is injected by sender
+envelope.inject_trace_context()
+
+# And extracted by receiver to maintain trace continuity
+handler._ensure_span(envelope.extract_trace_context())
+```
+
+### Recorded Metrics
+
+Each streaming span records these metrics:
+
+- `chunks_received` / `chunks_sent` - Number of chunks processed
+- `total_tokens` - Token count from LLM response
+- `duration_ms` - Total stream duration
+- `first_chunk_latency_ms` - Time to first chunk
+- `tool_calls` - Number of tool invocations
+
+## Stream Cancellation
+
+Clients can cancel in-progress streams to save resources.
+
+### Client-Side Cancellation
+
+```python
+from loom.streaming import ChatClient
+
+async with ChatClient() as client:
+    task = asyncio.create_task(client.chat("Long running query..."))
+
+    # Cancel after timeout
+    await asyncio.sleep(5)
+    task.cancel()
+```
+
+### Backend-Side Cancellation Handling
+
+The `StreamingHandler` supports graceful cancellation:
+
+```python
+from loom.streaming import StreamingHandler, StreamCancelledError
+
+async def handle_stream(ctx, event):
+    handler = StreamingHandler(ctx, event)
+
+    try:
+        async for chunk in llm.stream(prompt):
+            # Check for cancellation before sending each chunk
+            handler.check_cancelled()
+            await handler.send_chunk(chunk)
+
+        await handler.send_complete()
+
+    except StreamCancelledError:
+        # Client cancelled - cleanup and notify
+        await handler.send_cancelled()
+
+    except Exception as e:
+        await handler.send_error(str(e))
+```
+
+### Cancellation Protocol
+
+| Event Type        | Direction        | Description          |
+| ----------------- | ---------------- | -------------------- |
+| `stream.cancel`   | Client → Backend | Request cancellation |
+| `stream.complete` | Backend → Client | Status: CANCELLED    |
+
+### Active Stream Tracking
+
+Backend agents should track active streams for cancellation:
+
+```python
+class StreamingAgent:
+    def __init__(self):
+        self.active_streams: dict[str, StreamingHandler] = {}
+
+    async def on_cancel(self, ctx, topic, envelope):
+        correlation_id = envelope.get("correlation_id")
+        if handler := self.active_streams.get(correlation_id):
+            handler.cancel()
+```
+
+## Context Engineering in Streaming
+
+The streaming module integrates with Loom's context engineering to prevent token overflow during long conversations.
+
+### StepCompactor Integration
+
+When using `run_react_stream()`, context compaction happens automatically:
+
+```python
+from loom.cognitive.context_engineering import StepCompactor, DataOffloader
+
+compactor = StepCompactor(
+    target_ratio=0.75,     # Keep 75% of token budget
+    preserve_last_n=2,     # Never compact last 2 steps
+)
+offloader = DataOffloader(max_inline_bytes=4096)
+
+async for chunk in cognitive.run_react_stream(
+    prompt,
+    compactor=compactor,
+    offloader=offloader,
+):
+    await handler.send_chunk(chunk)
+```
+
+### Token Tracking
+
+Streaming mode tracks token usage for compaction decisions:
+
+```python
+# run_react_stream() aggregates tokens across iterations
+result = StreamComplete(
+    status=StreamStatus.OK,
+    stats=StreamStats(
+        total_tokens=total_tokens,        # Aggregated from all LLM calls
+        prompt_tokens=total_prompt_tokens,
+        completion_tokens=total_completion_tokens,
+    )
+)
+```
+
+### Best Practices
+
+1. **Always use compaction for multi-turn conversations** - Prevents context overflow
+2. **Offload large tool outputs** - Use `DataOffloader` for API responses, file contents
+3. **Monitor token metrics** - Use tracing to track token growth over conversation
 
 ## See Also
 

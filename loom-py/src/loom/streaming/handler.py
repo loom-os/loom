@@ -39,6 +39,9 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Dict, Optional
 
+from opentelemetry import trace
+from opentelemetry.trace import set_span_in_context
+
 from .types import (
     StreamChunk,
     StreamComplete,
@@ -49,6 +52,18 @@ from .types import (
     StreamStats,
     StreamStatus,
 )
+
+# Tracer for streaming handler spans
+tracer = trace.get_tracer(__name__)
+
+
+class StreamCancelledError(Exception):
+    """Raised when a stream is cancelled by the client."""
+
+    def __init__(self, reason: str = ""):
+        self.reason = reason
+        super().__init__(f"Stream cancelled: {reason}" if reason else "Stream cancelled")
+
 
 if TYPE_CHECKING:
     from ..agent import EventContext
@@ -90,14 +105,74 @@ class StreamingHandler:
         self.thread_id = original_event.thread_id or ""
         self.include_state_updates = include_state_updates
 
+        # Cancellation support
+        self._cancelled = False
+        self._cancel_reason = ""
+
+        # Extract trace context from incoming request for distributed tracing
+        self._parent_context = original_event.extract_trace_context()
+        self._span: Optional[trace.Span] = None
+
         # Tracking
         self._sequence = 0
         self._start_time = time.time()
         self._first_chunk_time: Optional[float] = None
         self._chunks_sent = 0
         self._tool_calls = 0
-        self._total_content = []
+        self._total_content: list[str] = []
         self._total_tokens = 0
+
+    def _ensure_span(self) -> trace.Span:
+        """Ensure we have an active span for this stream."""
+        if self._span is None:
+            # Create span with parent context from incoming request
+            ctx = None
+            if self._parent_context:
+                parent_span = trace.NonRecordingSpan(self._parent_context)
+                ctx = set_span_in_context(parent_span)
+
+            self._span = tracer.start_span(
+                "streaming.handler.process",
+                context=ctx,
+                attributes={
+                    "streaming.correlation_id": self.correlation_id,
+                    "streaming.reply_to": self.reply_to,
+                    "streaming.thread_id": self.thread_id,
+                    "streaming.agent_id": self.ctx.agent_id,
+                },
+            )
+        return self._span
+
+    @property
+    def is_cancelled(self) -> bool:
+        """Check if the stream has been cancelled."""
+        return self._cancelled
+
+    def cancel(self, reason: str = "") -> None:
+        """Mark the stream as cancelled.
+
+        This should be called when a stream.cancel event is received.
+
+        Args:
+            reason: Cancellation reason
+        """
+        self._cancelled = True
+        self._cancel_reason = reason
+
+    def check_cancelled(self) -> None:
+        """Check if cancelled and raise CancelledError if so.
+
+        Use this in loops to allow graceful cancellation:
+
+            for chunk in generate_response():
+                handler.check_cancelled()
+                await handler.send_chunk(chunk)
+
+        Raises:
+            StreamCancelledError: If the stream was cancelled
+        """
+        if self._cancelled:
+            raise StreamCancelledError(self._cancel_reason)
 
     async def send_chunk(
         self,
@@ -111,10 +186,20 @@ class StreamingHandler:
             content: The content to send
             content_type: Type of content (TEXT, THINKING, TOOL_CALL, etc.)
             metadata: Optional metadata for this chunk
+
+        Raises:
+            StreamCancelledError: If the stream was cancelled
         """
+        # Check for cancellation before sending
+        self.check_cancelled()
+
+        # Ensure span is started
+        span = self._ensure_span()
+
         # Track first chunk latency
         if self._first_chunk_time is None:
             self._first_chunk_time = time.time()
+            span.add_event("first_chunk", {"content_type": content_type.name})
 
         chunk = StreamChunk(
             correlation_id=self.correlation_id,
@@ -230,6 +315,17 @@ class StreamingHandler:
         )
         await self._emit_complete(complete)
 
+        # End span with success metrics
+        if self._span:
+            self._span.set_attribute("streaming.chunks_sent", self._chunks_sent)
+            self._span.set_attribute("streaming.tool_calls", self._tool_calls)
+            self._span.set_attribute("streaming.duration_ms", duration_ms)
+            self._span.set_attribute("streaming.total_tokens", tokens or self._total_tokens)
+            self._span.set_attribute("streaming.iterations", iterations)
+            self._span.set_attribute("streaming.first_chunk_latency_ms", first_chunk_latency)
+            self._span.set_attribute("streaming.status", "ok")
+            self._span.end()
+
     async def send_error(
         self,
         message: str,
@@ -243,6 +339,12 @@ class StreamingHandler:
             code: Error code
             retryable: Whether the error is retryable
         """
+        # Record error in span
+        if self._span:
+            self._span.set_attribute("streaming.status", "error")
+            self._span.set_attribute("streaming.error_code", code)
+            self._span.set_attribute("streaming.error_message", message)
+            self._span.set_attribute("streaming.error_retryable", retryable)
         duration_ms = int((time.time() - self._start_time) * 1000)
 
         complete = StreamComplete(
@@ -261,12 +363,25 @@ class StreamingHandler:
         )
         await self._emit_complete(complete)
 
+        # End span with error status
+        if self._span:
+            self._span.set_attribute("streaming.duration_ms", duration_ms)
+            from opentelemetry.trace import Status, StatusCode
+
+            self._span.set_status(Status(StatusCode.ERROR, message))
+            self._span.end()
+
     async def send_cancelled(self, reason: str = "") -> None:
         """Send cancellation completion.
 
         Args:
             reason: Cancellation reason
         """
+        # Record cancellation in span
+        if self._span:
+            self._span.set_attribute("streaming.status", "cancelled")
+            self._span.set_attribute("streaming.cancel_reason", reason)
+
         complete = StreamComplete(
             correlation_id=self.correlation_id,
             total_chunks=self._chunks_sent,
@@ -278,6 +393,13 @@ class StreamingHandler:
             ),
         )
         await self._emit_complete(complete)
+
+        # End span with cancelled status
+        if self._span:
+            self._span.set_attribute(
+                "streaming.duration_ms", int((time.time() - self._start_time) * 1000)
+            )
+            self._span.end()
 
     # Private methods for emitting proto messages
     async def _emit_chunk(self, chunk: StreamChunk) -> None:
