@@ -327,14 +327,15 @@ class BackendAgent:
             await self._handle_permission_response(event)
             return
 
-        # Handle stream requests
+        # Handle stream requests - run in background task so it doesn't block
+        # other events (especially permission responses)
         if topic == self.input_topic and event.type == "stream.request":
-            await self._handle_stream_request(ctx, event)
+            asyncio.create_task(self._handle_stream_request(ctx, event))
             return
 
         # Handle legacy non-streaming requests
         if topic == self.input_topic and event.type == "user.message":
-            await self._handle_legacy_request(ctx, event)
+            asyncio.create_task(self._handle_legacy_request(ctx, event))
 
     async def _handle_cancel(self, event: "Envelope") -> None:
         """Handle stream cancellation request."""
@@ -359,7 +360,7 @@ class BackendAgent:
 
             if self.verbose:
                 status = "✅ Approved" if response.approved else "❌ Denied"
-                print(f"   {status} (request: {response.request_id[:8]}...)")
+                print(f"   Permission {status} (request: {response.request_id[:8]}...)")
 
             self.permission_manager.handle_response(response.request_id, response.approved)
         except Exception as e:

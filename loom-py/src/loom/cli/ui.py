@@ -721,6 +721,164 @@ class ReactStreamParser:
         return events
 
 
+class SimpleStreamRenderer:
+    """Simple streaming renderer that appends output (no Live display).
+
+    This renderer prints content as it arrives without using Rich Live,
+    so output is never overwritten or cleared. Better for debugging
+    and simpler user experience.
+
+    Output format:
+    ╭─ Step 1 ─────────────────────────────────────────────────────────────────────╮
+    │ 💭 I need to check if the workspace directory exists...                       │
+    │ 🔧 fs:list_dir                                                                │
+    │    {"path": "workspace"}                                                      │
+    │ ✅ Found 2 entries                                                            │
+    ╰──────────────────────────────────────────────────────────────────────────────╯
+    """
+
+    def __init__(self, show_thinking: bool = True):
+        self.show_thinking = show_thinking
+        self.current_thought = ""
+        self.current_action: Optional[dict] = None
+        self.step_count = 0
+        self.final_answer = ""
+        self._in_step = False
+        self._width = 80  # Fixed width for consistent box drawing
+
+    def __enter__(self) -> "SimpleStreamRenderer":
+        return self
+
+    def __exit__(self, *args):
+        # Close any open step
+        self._close_step()
+        # Print final answer if any
+        if self.final_answer:
+            self._print_final_answer()
+
+    def _close_step(self):
+        """Close the current step box if open."""
+        if self._in_step:
+            console.print(f"╰{'─' * (self._width - 2)}╯")
+            self._in_step = False
+
+    def _start_step(self):
+        """Start a new step box."""
+        self._close_step()
+        self.step_count += 1
+        header = f"─ Step {self.step_count} "
+        padding = self._width - 2 - len(header)
+        console.print(f"╭{header}{'─' * padding}╮")
+        self._in_step = True
+
+    def _print_line(self, content: str, prefix: str = ""):
+        """Print a line within the step box."""
+        # Calculate available width for content
+        max_content = self._width - 4 - len(prefix)  # 4 = "│ " + " │" padding
+
+        if len(content) > max_content:
+            content = content[: max_content - 3] + "..."
+
+        line = f"│ {prefix}{content}"
+        padding = self._width - len(line) - 1
+        console.print(f"{line}{' ' * max(0, padding)}│")
+
+    def _print_final_answer(self):
+        """Print the final answer in a clean format."""
+        # Clean up the answer - remove any raw Thought/Action/FINAL ANSWER markers
+        answer = self.final_answer
+
+        # Extract just the actual final answer if it contains markers
+        if "FINAL ANSWER:" in answer:
+            parts = answer.split("FINAL ANSWER:")
+            answer = parts[-1].strip()
+
+        # Remove any trailing Thought/Action patterns
+        lines = []
+        skip_rest = False
+        for line in answer.split("\n"):
+            if skip_rest:
+                continue
+            if line.strip().startswith("Thought:") or line.strip().startswith("Action:"):
+                continue
+            lines.append(line)
+
+        answer = "\n".join(lines).strip()
+
+        if answer:
+            console.print()
+            print_assistant_message(answer)
+
+    def pause_for_input(self):
+        """No-op for simple renderer - no Live to pause."""
+
+        class NoPause:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+        return NoPause()
+
+    def feed(self, chunk: str) -> list[dict]:
+        """Feed text chunk - for plain streaming text."""
+        return []
+
+    def flush(self) -> list[dict]:
+        """Flush - close any open step."""
+        self._close_step()
+        return []
+
+    def add_thought(self, thought: str):
+        """Add a thinking step."""
+        if not self.show_thinking:
+            return
+
+        self.current_thought = thought
+        self._start_step()
+
+        # Truncate thought for preview
+        thought_preview = thought[:120] + "..." if len(thought) > 120 else thought
+        thought_preview = thought_preview.replace("\n", " ")
+        self._print_line(thought_preview, "💭 ")
+
+    def add_action(self, tool_name: str, args: str):
+        """Add a tool call action."""
+        self.current_action = {"tool": tool_name, "args": args}
+
+        if not self._in_step:
+            self._start_step()
+
+        self._print_line(tool_name, "🔧 ")
+
+        # Format args nicely
+        args_preview = args[:55] + "..." if len(args) > 55 else args
+        self._print_line(args_preview, "   ")
+
+    def add_observation(
+        self, tool_name: str, result: str, success: bool = True, offloaded: Optional[str] = None
+    ):
+        """Add observation from tool execution."""
+        if success:
+            result_preview = result[:90] + "..." if len(result) > 90 else result
+            result_preview = result_preview.replace("\n", " ")
+            self._print_line(result_preview, "✅ ")
+        else:
+            error_preview = result[:90] if len(result) <= 90 else result[:87] + "..."
+            self._print_line(error_preview, "❌ ")
+
+        # Close step after observation
+        self._close_step()
+
+        self.current_action = None
+        self.current_thought = ""
+
+    def set_final_answer(self, answer: str):
+        """Set the final answer."""
+        self.final_answer = answer
+
+
 class ReactStreamRenderer:
     """Render ReAct streaming output with Rich Live display.
 

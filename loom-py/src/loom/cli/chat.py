@@ -26,7 +26,7 @@ from opentelemetry import trace
 
 from ..streaming.types import StreamStatus
 from .ui import (
-    ReactStreamRenderer,
+    SimpleStreamRenderer,
     console,
     create_spinner,
     print_assistant_message,
@@ -296,10 +296,10 @@ async def run_chat_cli(
             # Process message
             try:
                 if session.streaming:
-                    # Streaming mode with ReactStreamRenderer
+                    # Streaming mode with SimpleStreamRenderer (append-only, no overwrite)
                     from ..streaming import StreamContentType
 
-                    with ReactStreamRenderer(show_thinking=session.verbose) as renderer:
+                    with SimpleStreamRenderer(show_thinking=session.verbose) as renderer:
                         thinking_steps: list[str] = []
                         tool_calls: list[str] = []
 
@@ -310,34 +310,32 @@ async def run_chat_cli(
                             _tool_calls: list[str] = tool_calls,
                         ):
                             if content_type == StreamContentType.TEXT:
-                                renderer.feed(content)
+                                # Accumulate for final answer
+                                pass
                             elif content_type == StreamContentType.THINKING:
                                 _thinking_steps.append(content)
-                                renderer.feed(f"\nThought: {content}\n")
+                                renderer.add_thought(content)
                             elif content_type == StreamContentType.TOOL_CALL:
                                 _tool_calls.append(content)
                                 # Parse tool call: "tool_name: {args}"
                                 if ": " in content:
                                     tool_name, args = content.split(": ", 1)
-                                    renderer.current_action = {"tool": tool_name, "args": args}
+                                    renderer.add_action(tool_name, args)
                             elif content_type == StreamContentType.TOOL_RESULT:
                                 # Tool result received
                                 if renderer.current_action:
                                     renderer.add_observation(
                                         tool_name=renderer.current_action.get("tool", "unknown"),
                                         result=content,
-                                        success=True,
+                                        success="Error:" not in content,
                                     )
 
                         async def on_permission(
                             tool_name: str, tool_args: dict, reason: str
                         ) -> bool:
-                            """Handle permission request from backend.
-
-                            Pauses the Live renderer, shows dialog, then resumes.
-                            """
-                            with renderer.pause_for_input():
-                                return print_permission_request(tool_name, tool_args, reason)
+                            """Handle permission request from backend."""
+                            # Simple renderer doesn't need pause
+                            return print_permission_request(tool_name, tool_args, reason)
 
                         response = await session._client.chat(
                             user_input,
@@ -348,6 +346,10 @@ async def run_chat_cli(
                         )
 
                         renderer.flush()
+
+                        # Set final answer if we got one
+                        if response.content:
+                            renderer.set_final_answer(response.content)
 
                     # Show stats
                     if response.stats:
