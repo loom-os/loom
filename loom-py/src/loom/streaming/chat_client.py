@@ -91,6 +91,9 @@ class ChatResponse:
 # Callback type for streaming chunks
 ChunkCallback = Callable[[str, StreamContentType], Awaitable[None]]
 
+# Callback type for permission requests: (tool_name, args, reason) -> approved
+PermissionCallback = Callable[[str, Dict[str, Any], str], Awaitable[bool]]
+
 
 class ChatClient:
     """High-level client for conversational AI interactions.
@@ -190,6 +193,7 @@ class ChatClient:
         message: str,
         thread_id: Optional[str] = None,
         on_chunk: Optional[ChunkCallback] = None,
+        on_permission_request: Optional[PermissionCallback] = None,
         include_thinking: bool = False,
         include_tool_calls: bool = True,
         timeout: float = 120.0,
@@ -200,6 +204,9 @@ class ChatClient:
             message: The message to send
             thread_id: Thread ID (uses current if not provided)
             on_chunk: Async callback for streaming chunks
+            on_permission_request: Async callback for permission requests.
+                                   Called with (tool_name, args, reason) -> bool.
+                                   If not provided, permissions are auto-denied.
             include_thinking: Include thinking content in stream
             include_tool_calls: Include tool calls in stream
             timeout: Request timeout in seconds
@@ -262,6 +269,14 @@ class ChatClient:
                 ):
                     chunks_received += 1
 
+                    # Handle permission requests specially
+                    if chunk.content_type == StreamContentType.PERMISSION_REQUEST:
+                        await self._handle_permission_request(
+                            chunk.content,
+                            on_permission_request,
+                        )
+                        continue
+
                     # Call user callback if provided
                     if on_chunk:
                         await on_chunk(chunk.content, chunk.content_type)
@@ -319,6 +334,53 @@ class ChatClient:
                 status=StreamStatus.OK,
                 stats=stats,
             )
+
+    async def _handle_permission_request(
+        self,
+        request_json: str,
+        callback: Optional[PermissionCallback],
+    ) -> None:
+        """Handle a permission request from the backend.
+
+        Args:
+            request_json: JSON-encoded PermissionRequest
+            callback: User's permission callback (or None to auto-deny)
+        """
+        from .types import PermissionRequest, PermissionResponse
+
+        try:
+            request = PermissionRequest.from_json(request_json)
+
+            # Ask user for permission
+            if callback:
+                approved = await callback(
+                    request.tool_name,
+                    request.tool_args,
+                    request.reason,
+                )
+            else:
+                # Auto-deny if no callback provided
+                approved = False
+
+            # Send response back through the streaming client
+            response = PermissionResponse(
+                request_id=request.request_id,
+                approved=approved,
+            )
+            await self._streaming.send_permission_response(response)
+
+        except Exception:
+            # On error, send denial
+            import json
+
+            try:
+                data = json.loads(request_json)
+                request_id = data.get("request_id", "")
+                if request_id:
+                    response = PermissionResponse(request_id=request_id, approved=False)
+                    await self._streaming.send_permission_response(response)
+            except Exception:
+                pass
 
     async def chat_sync(
         self,

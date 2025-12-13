@@ -92,7 +92,7 @@ class ToolExecutor:
                         tool_name=tool_call.name,
                         success=False,
                         output="",
-                        error="Action denied by user",
+                        error="PERMISSION DENIED: User refused this action. Do NOT retry this operation. Ask the user for alternative instructions or report that you cannot complete the task.",
                         latency_ms=latency_ms,
                     )
 

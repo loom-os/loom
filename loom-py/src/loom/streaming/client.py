@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, AsyncIterator, Optional
 from opentelemetry import trace
 
 from .types import (
+    PermissionResponse,
     StreamChunk,
     StreamComplete,
     StreamContentType,
@@ -276,6 +277,31 @@ class StreamingClient:
             if chunk.content_type == StreamContentType.TEXT:
                 chunks.append(chunk.content)
         return "".join(chunks)
+
+    async def send_permission_response(self, response: "PermissionResponse") -> None:
+        """Send a permission response back to the backend.
+
+        Args:
+            response: The permission response to send
+        """
+        if not self.connected:
+            return
+
+        from ..agent.envelope import Envelope
+
+        env = Envelope.new(
+            type="permission.response",
+            payload=response.to_json().encode("utf-8"),
+            sender=self.agent_id,
+            metadata={"request_id": response.request_id},
+        )
+
+        await self._agent.ctx.emit(
+            self.backend_topic,
+            type="permission.response",
+            payload=response.to_json().encode("utf-8"),
+            envelope=env,
+        )
 
     async def cancel_stream(self, correlation_id: str, reason: str = "") -> None:
         """Cancel an ongoing stream.

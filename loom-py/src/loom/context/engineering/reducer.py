@@ -281,6 +281,101 @@ class SearchReducer(ToolReducer):
         )
 
 
+class WebSearchReducer(ToolReducer):
+    """Reducer for web search operations (DuckDuckGo, Google, etc.)."""
+
+    MAX_SNIPPET_LENGTH = 150
+    MAX_RESULTS_SHOWN = 3
+
+    def reduce(
+        self,
+        step_id: str,
+        tool_name: str,
+        args: dict[str, Any],
+        result: Any,
+        success: bool,
+        error: Optional[str] = None,
+    ) -> Step:
+        query = args.get("query", "")
+
+        if not success:
+            return Step(
+                id=step_id,
+                tool_name=tool_name,
+                minimal_args={"query": query},
+                observation=f"Search '{query}' failed: {error}",
+                success=False,
+                error=error,
+            )
+
+        # Parse search results
+        results = []
+        result_count = 0
+
+        if isinstance(result, dict):
+            # Format: {"results": [...], "count": N}
+            results = result.get("results", [])
+            result_count = result.get("count", len(results))
+        elif isinstance(result, list):
+            results = result
+            result_count = len(results)
+        elif isinstance(result, str):
+            # JSON string - try to parse
+            import json
+
+            try:
+                parsed = json.loads(result)
+                if isinstance(parsed, dict):
+                    results = parsed.get("results", [])
+                    result_count = parsed.get("count", len(results))
+                elif isinstance(parsed, list):
+                    results = parsed
+                    result_count = len(results)
+            except json.JSONDecodeError:
+                # Plain text result
+                return Step(
+                    id=step_id,
+                    tool_name=tool_name,
+                    minimal_args={"query": query},
+                    observation=f"Search '{query}' → text result",
+                    success=True,
+                )
+
+        # Build compact observation
+        if not results:
+            observation = f"Search '{query}' → no results"
+        else:
+            # Show top N results with truncated snippets
+            top_results = []
+            for r in results[: self.MAX_RESULTS_SHOWN]:
+                title = r.get("title", "")[:60]
+                # Handle different field names for snippet content
+                snippet = (
+                    r.get("snippet", "")
+                    or r.get("body", "")
+                    or r.get("description", "")
+                    or r.get("content", "")
+                )
+                # Truncate and clean snippet
+                if len(snippet) > self.MAX_SNIPPET_LENGTH:
+                    snippet = snippet[: self.MAX_SNIPPET_LENGTH] + "..."
+                if snippet:
+                    top_results.append(f"• {title}: {snippet}")
+                else:
+                    top_results.append(f"• {title}")
+
+            observation = f"Search '{query}' → {result_count} results:\n" + "\n".join(top_results)
+
+        return Step(
+            id=step_id,
+            tool_name=tool_name,
+            minimal_args={"query": query},
+            observation=observation,
+            success=True,
+            metadata={"count": result_count},
+        )
+
+
 class WebFetchReducer(ToolReducer):
     """Reducer for web/HTTP operations."""
 
@@ -405,11 +500,16 @@ class StepReducer:
             "fs:grep": SearchReducer(),
             "search": SearchReducer(),
             "grep": SearchReducer(),
-            # Web
+            # Web fetch
             "web:fetch": WebFetchReducer(),
             "web:get": WebFetchReducer(),
             "http:get": WebFetchReducer(),
             "fetch_url": WebFetchReducer(),
+            # Web search
+            "web:search": WebSearchReducer(),
+            "web:duckduckgo": WebSearchReducer(),
+            "duckduckgo_search": WebSearchReducer(),
+            "search_web": WebSearchReducer(),
         }
 
     def register(self, tool_name: str, reducer: ToolReducer) -> None:

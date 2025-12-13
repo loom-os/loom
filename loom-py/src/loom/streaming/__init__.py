@@ -42,10 +42,12 @@ Example (Backend producing stream):
     ```
 """
 
-from .chat_client import ChatClient, ChatMessage, ChatResponse, ChunkCallback
+from .chat_client import ChatClient, ChatMessage, ChatResponse, ChunkCallback, PermissionCallback
 from .client import StreamingClient, StreamingError
 from .handler import StreamCancelledError, StreamingHandler
 from .types import (
+    PermissionRequest,
+    PermissionResponse,
     StreamChunk,
     StreamComplete,
     StreamContentType,
@@ -70,6 +72,8 @@ __all__ = [
     "StreamStateKind",
     "StreamStats",
     "StreamStatus",
+    "PermissionRequest",
+    "PermissionResponse",
     # Client
     "StreamingClient",
     "StreamingError",
@@ -81,4 +85,5 @@ __all__ = [
     "ChatMessage",
     "ChatResponse",
     "ChunkCallback",
+    "PermissionCallback",
 ]

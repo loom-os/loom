@@ -262,6 +262,35 @@ class StreamingHandler:
         """
         await self.send_chunk(message, StreamContentType.STATUS)
 
+    async def send_permission_request(
+        self,
+        request_id: str,
+        tool_name: str,
+        tool_args: dict,
+        reason: str,
+    ) -> None:
+        """Send a permission request to the client.
+
+        Args:
+            request_id: Unique ID for this permission request
+            tool_name: Name of the tool requesting permission
+            tool_args: Arguments the tool will be called with
+            reason: Human-readable reason for the request
+        """
+        from .types import PermissionRequest
+
+        request = PermissionRequest(
+            request_id=request_id,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            reason=reason,
+        )
+        await self.send_chunk(
+            request.to_json(),
+            StreamContentType.PERMISSION_REQUEST,
+            metadata={"request_id": request_id, "tool_name": tool_name},
+        )
+
     async def send_state(self, state: StreamStateKind, message: str = "") -> None:
         """Send a state notification (for monitoring).
 

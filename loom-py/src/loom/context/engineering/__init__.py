@@ -19,6 +19,7 @@ from .reducer import (
     StepReducer,
     ToolReducer,
     WebFetchReducer,
+    WebSearchReducer,
 )
 from .step import CompactStep, Step, compute_content_hash, generate_step_id
 
@@ -37,6 +38,7 @@ __all__ = [
     "ShellReducer",
     "SearchReducer",
     "WebFetchReducer",
+    "WebSearchReducer",
     "DefaultReducer",
     # Compactor
     "StepCompactor",

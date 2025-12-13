@@ -24,6 +24,8 @@ class StreamContentType(IntEnum):
     STATUS = 5  # Status/progress update
     MARKDOWN = 6  # Markdown formatted content
     CODE = 7  # Code block content
+    PERMISSION_REQUEST = 8  # Permission request from backend
+    PERMISSION_RESPONSE = 9  # Permission response from client
 
 
 class StreamStatus(IntEnum):
@@ -106,6 +108,72 @@ class StreamStats:
             tool_calls=proto.tool_calls,
             iterations=proto.iterations,
             first_chunk_latency_ms=proto.first_chunk_latency_ms,
+        )
+
+
+@dataclass
+class PermissionRequest:
+    """Request for user permission before executing a tool."""
+
+    request_id: str  # Unique ID for this permission request
+    tool_name: str  # Tool requesting permission
+    tool_args: Dict[str, Any]  # Arguments the tool will be called with
+    reason: str  # Human-readable reason for the request
+
+    def to_json(self) -> str:
+        """Serialize to JSON string."""
+        import json
+
+        return json.dumps(
+            {
+                "request_id": self.request_id,
+                "tool_name": self.tool_name,
+                "tool_args": self.tool_args,
+                "reason": self.reason,
+            }
+        )
+
+    @classmethod
+    def from_json(cls, data: str) -> "PermissionRequest":
+        """Deserialize from JSON string."""
+        import json
+
+        d = json.loads(data)
+        return cls(
+            request_id=d["request_id"],
+            tool_name=d["tool_name"],
+            tool_args=d.get("tool_args", {}),
+            reason=d.get("reason", ""),
+        )
+
+
+@dataclass
+class PermissionResponse:
+    """Response to a permission request."""
+
+    request_id: str  # Must match the request_id from PermissionRequest
+    approved: bool  # True if user approved, False if denied
+
+    def to_json(self) -> str:
+        """Serialize to JSON string."""
+        import json
+
+        return json.dumps(
+            {
+                "request_id": self.request_id,
+                "approved": self.approved,
+            }
+        )
+
+    @classmethod
+    def from_json(cls, data: str) -> "PermissionResponse":
+        """Deserialize from JSON string."""
+        import json
+
+        d = json.loads(data)
+        return cls(
+            request_id=d["request_id"],
+            approved=d.get("approved", False),
         )
 
 

@@ -70,6 +70,9 @@ Then STOP and wait for the Observation."""
 For simple questions or greetings: Respond directly and naturally. No tools needed.
 
 For tasks requiring information or actions: Use tools when helpful.
+
+IMPORTANT: If a tool action is DENIED or rejected by the user, do NOT retry that same action.
+Instead, inform the user you cannot complete that specific task or ask for alternatives.
 {tools_section}
 
 ## Final Answer

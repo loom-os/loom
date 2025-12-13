@@ -750,6 +750,64 @@ class ReactStreamRenderer:
         self.final_answer = ""
         self.streaming_text = ""  # For plain text streaming
 
+    def _format_tool_result(self, tool_name: str, result: str) -> str:
+        """Format tool result for better display.
+
+        Handles special formatting for certain tools:
+        - web:search, web:ddg, duckduckgo: Format search results nicely
+        - weather:get: Format weather data
+        """
+        import json
+
+        # Check for web search tools
+        if any(name in tool_name.lower() for name in ["search", "ddg", "duckduckgo"]):
+            try:
+                data = json.loads(result)
+                if isinstance(data, list):
+                    # DuckDuckGo format: [{"title": ..., "body": ..., "href": ...}, ...]
+                    if not data:
+                        return "No results found"
+
+                    lines = [f"Found {len(data)} results:"]
+                    for r in data[:3]:  # Show top 3
+                        title = r.get("title", "")
+                        body = r.get("body", r.get("snippet", r.get("description", "")))
+                        if body and len(body) > 150:
+                            body = body[:147] + "..."
+                        if title and body:
+                            lines.append(f"• {title}\n  {body}")
+                        elif title:
+                            lines.append(f"• {title}")
+                    if len(data) > 3:
+                        lines.append(f"  ... and {len(data) - 3} more results")
+                    return "\n".join(lines)
+                elif isinstance(data, dict):
+                    results = data.get("results", [])
+                    if results:
+                        return self._format_tool_result(tool_name, json.dumps(results))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Check for weather
+        if "weather" in tool_name.lower():
+            try:
+                data = json.loads(result)
+                if isinstance(data, dict):
+                    # Format weather data
+                    parts = []
+                    if "temp" in data or "temperature" in data:
+                        parts.append(f"🌡️ {data.get('temp', data.get('temperature'))}")
+                    if "condition" in data:
+                        parts.append(f"{data['condition']}")
+                    if "humidity" in data:
+                        parts.append(f"💧 {data['humidity']}")
+                    if parts:
+                        return " | ".join(parts)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return result
+
     def __enter__(self) -> "ReactStreamRenderer":
         """Start Live display."""
         self.live = Live(
@@ -766,6 +824,32 @@ class ReactStreamRenderer:
         if self.live:
             self.live.__exit__(*args)
         self._print_final()
+
+    def pause_for_input(self):
+        """Temporarily stop Live display for user input.
+
+        Use this before showing dialogs that require user interaction.
+        Returns a context that will resume the display on exit.
+        """
+
+        class LivePauser:
+            def __init__(self, renderer: "ReactStreamRenderer"):
+                self.renderer = renderer
+                self.was_running = False
+
+            def __enter__(self):
+                if self.renderer.live:
+                    self.was_running = True
+                    # Update one last time with current state
+                    self.renderer.live.update(self.renderer._render())
+                    self.renderer.live.stop()
+                return self
+
+            def __exit__(self, *args):
+                if self.was_running and self.renderer.live:
+                    self.renderer.live.start()
+
+        return LivePauser(self)
 
     def feed(self, chunk: str) -> list[dict]:
         """Feed a chunk and update display.
@@ -817,13 +901,16 @@ class ReactStreamRenderer:
 
         Call this after executing a tool to complete the step.
         """
+        # Format result for better display
+        formatted_result = self._format_tool_result(tool_name, result)
+
         step = {
             "type": "step",
             "thought": self.current_thought,
             "action": self.current_action,
             "observation": {
                 "tool": tool_name,
-                "result": result,
+                "result": formatted_result,
                 "success": success,
                 "offloaded": offloaded,
             },

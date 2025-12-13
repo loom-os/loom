@@ -35,6 +35,7 @@ from .ui import (
     print_header,
     print_help,
     print_history,
+    print_permission_request,
     print_stats,
     print_success,
     print_warning,
@@ -140,10 +141,15 @@ class ChatSession:
                 elif content_type == StreamContentType.TOOL_CALL:
                     tool_calls.append(content)
 
+            async def permission_handler(tool_name: str, tool_args: dict, reason: str) -> bool:
+                """Handle permission request from backend - ask user."""
+                return print_permission_request(tool_name, tool_args, reason)
+
             try:
                 response = await self._client.chat(
                     message,
                     on_chunk=chunk_handler if self.streaming else None,
+                    on_permission_request=permission_handler,
                     include_thinking=self.verbose,
                     include_tool_calls=True,
                 )
@@ -323,9 +329,20 @@ async def run_chat_cli(
                                         success=True,
                                     )
 
+                        async def on_permission(
+                            tool_name: str, tool_args: dict, reason: str
+                        ) -> bool:
+                            """Handle permission request from backend.
+
+                            Pauses the Live renderer, shows dialog, then resumes.
+                            """
+                            with renderer.pause_for_input():
+                                return print_permission_request(tool_name, tool_args, reason)
+
                         response = await session._client.chat(
                             user_input,
                             on_chunk=on_chunk,
+                            on_permission_request=on_permission,
                             include_thinking=session.verbose,
                             include_tool_calls=True,
                         )
