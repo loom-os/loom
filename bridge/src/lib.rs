@@ -363,6 +363,10 @@ impl Bridge for BridgeService {
                             .or_insert_with(Vec::new)
                             .push(tr.id);
                     }
+                    Some(client_event::Msg::StreamCancel(sc)) => {
+                        info!(correlation_id=%sc.correlation_id, reason=%sc.reason, "Received stream cancel from agent");
+                        // Stream cancellation is handled by the streaming layer
+                    }
                     Some(client_event::Msg::Ack(_)) => { /* ignore */ }
                     None => {}
                 }

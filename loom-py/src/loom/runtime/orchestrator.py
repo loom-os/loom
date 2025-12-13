@@ -178,7 +178,8 @@ class Orchestrator:
                 if decoded:
                     prefix = "[ERR] " if is_stderr else ""
                     proc_info.log_lines.append(f"{prefix}{decoded}")
-        except Exception:
+        except (OSError, ValueError):
+            # Stream closed or process terminated - normal during shutdown
             pass
 
     async def start_runtime(self) -> ProcessInfo:

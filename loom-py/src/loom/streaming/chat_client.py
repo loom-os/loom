@@ -379,7 +379,9 @@ class ChatClient:
                 if request_id:
                     response = PermissionResponse(request_id=request_id, approved=False)
                     await self._streaming.send_permission_response(response)
-            except Exception:
+            except (json.JSONDecodeError, KeyError, TypeError):
+                # If we can't parse the request at all, we can't send a response
+                # The backend will timeout and treat it as denied
                 pass
 
     async def chat_sync(

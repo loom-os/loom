@@ -297,6 +297,7 @@ class BackendAgent:
             while True:
                 await asyncio.sleep(3600)
         except asyncio.CancelledError:
+            # Normal shutdown via task cancellation
             pass
         finally:
             await self.stop()
@@ -468,6 +469,7 @@ class BackendAgent:
                     payload=error_msg.encode("utf-8"),
                 )
             except Exception:
+                # Failed to send error reply - client may have disconnected
                 pass
 
 

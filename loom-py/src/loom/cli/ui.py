@@ -667,6 +667,8 @@ class ReactStreamParser:
                     self.buffer = rest[python_match.end() :].lstrip()
                     return {"type": "action", "tool": tool_name, "args": args}
                 except (ValueError, SyntaxError):
+                    # Python-style parsing failed, continue to try other formats
+                    # or wait for more input in the buffer
                     pass
 
         # If no structured content, check if we have plain text to emit
@@ -793,12 +795,9 @@ class SimpleStreamRenderer:
             parts = answer.split("FINAL ANSWER:")
             answer = parts[-1].strip()
 
-        # Remove any trailing Thought/Action patterns
+        # Remove any Thought/Action pattern lines
         lines = []
-        skip_rest = False
         for line in answer.split("\n"):
-            if skip_rest:
-                continue
             if line.strip().startswith("Thought:") or line.strip().startswith("Action:"):
                 continue
             lines.append(line)
@@ -944,6 +943,7 @@ class ReactStreamRenderer:
                     if results:
                         return self._format_tool_result(tool_name, json.dumps(results))
             except (json.JSONDecodeError, TypeError):
+                # JSON parsing failed, fall through to return raw result
                 pass
 
         # Check for weather
@@ -962,6 +962,7 @@ class ReactStreamRenderer:
                     if parts:
                         return " | ".join(parts)
             except (json.JSONDecodeError, TypeError):
+                # JSON parsing failed, fall through to return raw result
                 pass
 
         return result
