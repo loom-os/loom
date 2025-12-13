@@ -29,6 +29,8 @@ def mock_event():
     event.sender = "client-789"
     event.reply_to = "agent.client-789.replies"
     event.thread_id = "thread-abc"
+    # Return None for trace context to avoid SpanContext type errors
+    event.extract_trace_context.return_value = None
     return event
 
 
