@@ -178,10 +178,13 @@ class ToolRegistry:
 
 
 def create_default_registry() -> ToolRegistry:
-    """Create a registry with common tool descriptors."""
+    """Create a registry with common tool descriptors.
+
+    These match the native tools registered in Rust Core (core/src/tools/native/).
+    """
     registry = ToolRegistry()
 
-    # Filesystem tools
+    # Filesystem tools (matches core/src/tools/native/fs.rs)
     registry.register(
         ToolDescriptor(
             name="fs:read_file",
@@ -193,16 +196,11 @@ def create_default_registry() -> ToolRegistry:
                     "string",
                     "Path to the file",
                     required=True,
-                    examples=["/home/user/data.txt"],
-                ),
-                ToolParameter("start_line", "number", "Starting line number", default=1),
-                ToolParameter(
-                    "end_line", "number", "Ending line number (or -1 for EOF)", default=-1
+                    examples=["README.md", "/home/user/data.txt"],
                 ),
             ],
             examples=[
-                '{"tool": "fs:read_file", "args": {"path": "/etc/config.json"}}',
-                '{"tool": "fs:read_file", "args": {"path": "README.md", "start_line": 1, "end_line": 50}}',
+                '{"tool": "fs:read_file", "args": {"path": "README.md"}}',
             ],
         )
     )
@@ -210,41 +208,33 @@ def create_default_registry() -> ToolRegistry:
     registry.register(
         ToolDescriptor(
             name="fs:write_file",
-            description="Write content to a file",
+            description="Write content to a file (requires approval)",
             category="filesystem",
             parameters=[
                 ToolParameter("path", "string", "Path to the file", required=True),
                 ToolParameter("content", "string", "Content to write", required=True),
-                ToolParameter("append", "boolean", "Append instead of overwrite", default=False),
             ],
             examples=[
-                '{"tool": "fs:write_file", "args": {"path": "/tmp/result.txt", "content": "Hello World"}}',
+                '{"tool": "fs:write_file", "args": {"path": "output.txt", "content": "Hello"}}',
             ],
         )
     )
 
     registry.register(
         ToolDescriptor(
-            name="fs:search",
-            description="Search for text patterns in files",
+            name="fs:list_dir",
+            description="List contents of a directory",
             category="filesystem",
             parameters=[
-                ToolParameter("query", "string", "Text pattern to search", required=True),
-                ToolParameter("path", "string", "Directory or file to search in", default="."),
-                ToolParameter(
-                    "include",
-                    "string",
-                    "File pattern to include (glob)",
-                    examples=["*.py", "**/*.js"],
-                ),
+                ToolParameter("path", "string", "Directory path", required=True),
             ],
             examples=[
-                '{"tool": "fs:search", "args": {"query": "TODO", "path": "src/"}}',
+                '{"tool": "fs:list_dir", "args": {"path": "."}}',
             ],
         )
     )
 
-    # Shell tools
+    # Shell tool (matches core/src/tools/native/shell.rs)
     registry.register(
         ToolDescriptor(
             name="shell:run",
@@ -256,50 +246,41 @@ def create_default_registry() -> ToolRegistry:
                     "string",
                     "Command to execute",
                     required=True,
-                    examples=["ls -la", "npm install"],
+                    examples=["ls -la", "git status"],
                 ),
-                ToolParameter("cwd", "string", "Working directory", default="."),
-                ToolParameter("timeout", "number", "Timeout in seconds", default=30),
             ],
             examples=[
-                '{"tool": "shell:run", "args": {"command": "git status"}}',
-                '{"tool": "shell:run", "args": {"command": "pytest tests/", "cwd": "/project"}}',
+                '{"tool": "shell:run", "args": {"command": "ls -la"}}',
             ],
         )
     )
 
-    # Web tools
+    # Weather tool (matches core/src/tools/native/weather.rs)
     registry.register(
         ToolDescriptor(
-            name="web:fetch",
-            description="Fetch content from a URL",
+            name="weather:get",
+            description="Get current weather for a location",
             category="web",
             parameters=[
                 ToolParameter(
-                    "url",
+                    "location",
                     "string",
-                    "URL to fetch",
+                    "City name or location",
                     required=True,
-                    examples=["https://api.github.com/repos/..."],
-                ),
-                ToolParameter("method", "string", "HTTP method", default="GET"),
-                ToolParameter(
-                    "headers",
-                    "object",
-                    "HTTP headers",
-                    examples=[{"Authorization": "Bearer token"}],
+                    examples=["Beijing", "New York", "London"],
                 ),
             ],
             examples=[
-                '{"tool": "web:fetch", "args": {"url": "https://docs.python.org/3/"}}',
+                '{"tool": "weather:get", "args": {"location": "Beijing"}}',
             ],
         )
     )
 
+    # Web search tool (matches core/src/tools/native/web.rs)
     registry.register(
         ToolDescriptor(
             name="web:search",
-            description="Search the web for information",
+            description="Search the web using DuckDuckGo",
             category="web",
             parameters=[
                 ToolParameter(
@@ -307,12 +288,40 @@ def create_default_registry() -> ToolRegistry:
                     "string",
                     "Search query",
                     required=True,
-                    examples=["Python asyncio tutorial"],
+                    examples=["Python tutorial"],
                 ),
-                ToolParameter("max_results", "number", "Maximum results to return", default=5),
             ],
             examples=[
-                '{"tool": "web:search", "args": {"query": "OpenAI GPT-4 API documentation"}}',
+                '{"tool": "web:search", "args": {"query": "Python asyncio"}}',
+            ],
+        )
+    )
+
+    # Git tool (matches core/src/tools/native/git.rs)
+    registry.register(
+        ToolDescriptor(
+            name="git:status",
+            description="Get git repository status",
+            category="git",
+            parameters=[
+                ToolParameter("path", "string", "Repository path", default="."),
+            ],
+            examples=[
+                '{"tool": "git:status", "args": {}}',
+            ],
+        )
+    )
+
+    registry.register(
+        ToolDescriptor(
+            name="git:diff",
+            description="Get git diff of changes",
+            category="git",
+            parameters=[
+                ToolParameter("path", "string", "Repository path", default="."),
+            ],
+            examples=[
+                '{"tool": "git:diff", "args": {}}',
             ],
         )
     )

@@ -34,55 +34,52 @@ def build_react_system_prompt(
     """
     base = base_prompt or "You are a helpful AI assistant."
 
-    tools_desc = ""
+    # Build tools section only if tools are available
+    tools_section = ""
     if available_tools:
         if tool_registry:
             # Use detailed tool descriptions from registry
-            tools_desc = "\n\nAvailable tools:\n" + tool_registry.format_for_prompt(
+            tools_desc = tool_registry.format_for_prompt(
                 tool_names=available_tools,
-                detailed=False,  # Compact format to save tokens
+                detailed=False,
                 group_by_category=True,
             )
         else:
             # Fallback to simple list
-            tools_list = ", ".join(available_tools)
-            tools_desc = f"\n\nAvailable tools: {tools_list}"
+            tools_desc = "\n".join(f"• {tool}" for tool in available_tools)
+
+        tools_section = f"""
+
+## Available Tools
+
+{tools_desc}
+
+## Tool Usage Format
+
+When you need to use a tool, respond with:
+```
+Thought: [1-2 sentence reasoning]
+Action: {{"tool": "tool_name", "args": {{"param": "value"}}}}
+```
+Then STOP and wait for the Observation."""
 
     return f"""{base}
 
-## ReAct Protocol
+## Response Guidelines
 
-You operate in a Thought-Action-Observation loop:
+For simple questions or greetings: Respond directly and naturally. No tools needed.
 
-1. **Thought**: Analyze what you need to do next (1-2 sentences max)
-2. **Action**: Call ONE tool using JSON: {{"tool": "name", "args": {{...}}}}
-3. **STOP** - Wait for the system to provide the Observation
-4. Repeat until you have enough information
+For tasks requiring information or actions: Use tools when helpful.
+{tools_section}
 
-## Output Format
+## Final Answer
 
-Each response must be ONE of these formats:
-
-### When you need to use a tool:
+When you have enough information, provide your answer:
 ```
-Thought: [brief reasoning]
-Action: {{"tool": "tool_name", "args": {{"key": "value"}}}}
-```
-Then STOP. Do not write anything after the Action JSON.
-
-### When you have the final answer:
-```
-FINAL ANSWER: [your complete response to the user]
+FINAL ANSWER: [your response]
 ```
 
-## Critical Rules
-
-- Output ONLY ONE Thought + Action per turn
-- NEVER write "Observation:" - the system provides real results
-- NEVER continue after Action JSON - STOP immediately
-- NEVER repeat FINAL ANSWER - say it once and stop
-- Keep Thoughts concise (1-2 sentences)
-{tools_desc}"""
+Keep responses concise and helpful."""
 
 
 def build_react_prompt(

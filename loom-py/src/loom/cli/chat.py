@@ -24,6 +24,7 @@ from typing import Optional
 
 from opentelemetry import trace
 
+from ..streaming.types import StreamStatus
 from .ui import (
     ReactStreamRenderer,
     console,
@@ -337,7 +338,7 @@ async def run_chat_cli(
                             iterations=0,
                             latency_ms=response.stats.duration_ms,
                             tool_calls=len(tool_calls),
-                            success=response.status.value == "ok",
+                            success=response.status == StreamStatus.OK,
                         )
                 else:
                     # Non-streaming mode
