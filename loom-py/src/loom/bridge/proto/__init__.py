@@ -21,6 +21,7 @@ _NAMES = [
     "plugin_pb2",
     "memory_pb2",
     "memory_pb2_grpc",
+    "streaming_pb2",
 ]
 
 for _name in _NAMES:

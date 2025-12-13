@@ -1,0 +1,231 @@
+syntax = "proto3";
+
+package loom.v1;
+
+import "event.proto";
+
+// Streaming Protocol for real-time LLM output and agent communication.
+//
+// This protocol enables streaming responses from cognitive agents,
+// allowing clients to receive partial outputs as they are generated.
+//
+// Architecture:
+//   Client (CLI/Dashboard) → Bridge → Backend Agent (Cognitive)
+//                          ←  StreamChunk (multiple)  ←
+//                          ←  StreamComplete (final)  ←
+//
+// Message Flow:
+//   1. Client sends StreamRequest via event bus
+//   2. Backend agent processes with LLM streaming
+//   3. Backend sends multiple StreamChunk messages
+//   4. Backend sends StreamComplete when finished
+
+// A chunk of streaming content from an LLM or agent response
+message StreamChunk {
+  // Correlation ID to match with original request
+  string correlation_id = 1;
+
+  // The content chunk (typically text)
+  string content = 2;
+
+  // Sequence number for ordering (0-indexed)
+  uint32 sequence = 3;
+
+  // Content type hint
+  StreamContentType content_type = 4;
+
+  // Optional metadata for this chunk
+  map<string, string> metadata = 5;
+
+  // Timestamp when this chunk was generated
+  int64 timestamp_ms = 6;
+}
+
+// Content type for stream chunks
+enum StreamContentType {
+  // Default text content (LLM response)
+  STREAM_CONTENT_TEXT = 0;
+
+  // Thinking/reasoning content (for CoT display)
+  STREAM_CONTENT_THINKING = 1;
+
+  // Tool call being made
+  STREAM_CONTENT_TOOL_CALL = 2;
+
+  // Tool result returned
+  STREAM_CONTENT_TOOL_RESULT = 3;
+
+  // Error content
+  STREAM_CONTENT_ERROR = 4;
+
+  // Status/progress update
+  STREAM_CONTENT_STATUS = 5;
+
+  // Markdown formatted content
+  STREAM_CONTENT_MARKDOWN = 6;
+
+  // Code block content
+  STREAM_CONTENT_CODE = 7;
+}
+
+// Signals completion of a streaming response
+message StreamComplete {
+  // Correlation ID to match with original request
+  string correlation_id = 1;
+
+  // Final aggregated response (optional, for convenience)
+  string final_content = 2;
+
+  // Total number of chunks sent
+  uint32 total_chunks = 3;
+
+  // Completion status
+  StreamStatus status = 4;
+
+  // Error details if status is not OK
+  StreamError error = 5;
+
+  // Execution statistics
+  StreamStats stats = 6;
+}
+
+// Stream completion status
+enum StreamStatus {
+  // Successfully completed
+  STREAM_STATUS_OK = 0;
+
+  // Cancelled by client
+  STREAM_STATUS_CANCELLED = 1;
+
+  // Timed out
+  STREAM_STATUS_TIMEOUT = 2;
+
+  // Error occurred
+  STREAM_STATUS_ERROR = 3;
+
+  // Completed but truncated (hit token limit)
+  STREAM_STATUS_TRUNCATED = 4;
+}
+
+// Error details for streaming
+message StreamError {
+  // Error code
+  string code = 1;
+
+  // Human-readable message
+  string message = 2;
+
+  // Whether the error is retryable
+  bool retryable = 3;
+
+  // Additional details
+  map<string, string> details = 4;
+}
+
+// Execution statistics for completed streams
+message StreamStats {
+  // Total tokens generated (if applicable)
+  uint32 total_tokens = 1;
+
+  // Total time in milliseconds
+  int64 duration_ms = 2;
+
+  // Number of tool calls made
+  uint32 tool_calls = 3;
+
+  // Number of thinking iterations
+  uint32 iterations = 4;
+
+  // First chunk latency in milliseconds (time to first token)
+  int64 first_chunk_latency_ms = 5;
+}
+
+// Request to start a streaming conversation
+message StreamRequest {
+  // Unique request ID
+  string id = 1;
+
+  // The message/prompt to process
+  string message = 2;
+
+  // Thread ID for conversation continuity
+  string thread_id = 3;
+
+  // Requesting agent/client ID
+  string sender = 4;
+
+  // Topic to send stream chunks to
+  string reply_to = 5;
+
+  // Optional context from previous messages
+  repeated string context = 6;
+
+  // Request options
+  StreamOptions options = 7;
+}
+
+// Options for streaming requests
+message StreamOptions {
+  // Maximum tokens to generate
+  uint32 max_tokens = 1;
+
+  // Include thinking/reasoning content
+  bool include_thinking = 2;
+
+  // Include tool call details
+  bool include_tool_calls = 3;
+
+  // Timeout in milliseconds (0 = default)
+  int64 timeout_ms = 4;
+
+  // Preferred content types to receive
+  repeated StreamContentType content_types = 5;
+}
+
+// Cancel an ongoing stream
+message StreamCancel {
+  // Correlation ID of the stream to cancel
+  string correlation_id = 1;
+
+  // Reason for cancellation (optional)
+  string reason = 2;
+}
+
+// Stream state notification (for monitoring)
+message StreamState {
+  // Correlation ID
+  string correlation_id = 1;
+
+  // Current state
+  StreamStateKind state = 2;
+
+  // State message
+  string message = 3;
+
+  // Timestamp
+  int64 timestamp_ms = 4;
+}
+
+// Stream state kinds for monitoring
+enum StreamStateKind {
+  // Stream started
+  STREAM_STATE_STARTED = 0;
+
+  // Processing input
+  STREAM_STATE_PROCESSING = 1;
+
+  // Generating response
+  STREAM_STATE_GENERATING = 2;
+
+  // Executing tool
+  STREAM_STATE_TOOL_EXECUTING = 3;
+
+  // Waiting for input (e.g., permission)
+  STREAM_STATE_WAITING = 4;
+
+  // Completed
+  STREAM_STATE_COMPLETED = 5;
+
+  // Failed
+  STREAM_STATE_FAILED = 6;
+}

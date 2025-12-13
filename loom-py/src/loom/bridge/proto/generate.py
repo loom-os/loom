@@ -29,12 +29,13 @@ OUT_DIR = Path(__file__).resolve().parent / "generated"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 FILES = [
-    "bridge.proto",
     "event.proto",
     "action.proto",
     "agent.proto",
     "plugin.proto",
     "memory.proto",
+    "streaming.proto",
+    "bridge.proto",  # Must come after streaming.proto (imports it)
 ]
 
 

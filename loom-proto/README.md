@@ -8,14 +8,15 @@ This crate provides the protobuf message types and service definitions used acro
 
 ## Proto Files
 
-| File           | Description                                                                          |
-| -------------- | ------------------------------------------------------------------------------------ |
-| `event.proto`  | Core event types and QoS levels for the event bus                                    |
-| `action.proto` | Tool invocation types (`ToolCall`, `ToolResult`, `ToolDescriptor`) and `ToolService` |
-| `agent.proto`  | Agent metadata and status types                                                      |
-| `bridge.proto` | Bridge gRPC service for external SDK agents                                          |
-| `memory.proto` | Memory/planning service for trading and execution tracking                           |
-| `plugin.proto` | Plugin lifecycle and control messages                                                |
+| File              | Description                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| `event.proto`     | Core event types and QoS levels for the event bus                                    |
+| `action.proto`    | Tool invocation types (`ToolCall`, `ToolResult`, `ToolDescriptor`) and `ToolService` |
+| `agent.proto`     | Agent metadata and status types                                                      |
+| `streaming.proto` | Streaming protocol for real-time LLM output and agent responses                      |
+| `bridge.proto`    | Bridge gRPC service for external SDK agents                                          |
+| `memory.proto`    | Memory/planning service for trading and execution tracking                           |
+| `plugin.proto`    | Plugin lifecycle and control messages                                                |
 
 ## Key Types
 
@@ -55,7 +56,7 @@ service Bridge {
   // Register an agent with subscriptions and tools
   rpc RegisterAgent(AgentRegisterRequest) returns (AgentRegisterResponse);
 
-  // Bidirectional event stream
+  // Bidirectional event stream (supports streaming chunks)
   rpc EventStream(stream ClientEvent) returns (stream ServerEvent);
 
   // Forward a tool call to ToolRegistry
@@ -64,6 +65,83 @@ service Bridge {
   // Health check
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 }
+
+// Server-to-client messages include streaming support
+message ServerEvent {
+  oneof msg {
+    Delivery delivery = 1;
+    HeartbeatResponse pong = 2;
+    Error err = 3;
+    ToolCall tool_call = 4;
+    StreamChunk stream_chunk = 5;      // Real-time content chunks
+    StreamComplete stream_complete = 6; // Stream completion signal
+    StreamState stream_state = 7;       // State notifications
+  }
+}
+```
+
+### Streaming Protocol (streaming.proto)
+
+The streaming protocol enables real-time output from cognitive agents:
+
+```protobuf
+// A chunk of streaming content from an LLM or agent response
+message StreamChunk {
+  string correlation_id = 1;  // Match with original request
+  string content = 2;         // The content chunk
+  uint32 sequence = 3;        // Sequence number for ordering
+  StreamContentType content_type = 4;  // TEXT, THINKING, TOOL_CALL, etc.
+  map<string, string> metadata = 5;
+  int64 timestamp_ms = 6;
+}
+
+// Content types for differentiated rendering
+enum StreamContentType {
+  STREAM_CONTENT_TEXT = 0;        // LLM response text
+  STREAM_CONTENT_THINKING = 1;    // Reasoning/CoT content
+  STREAM_CONTENT_TOOL_CALL = 2;   // Tool invocation
+  STREAM_CONTENT_TOOL_RESULT = 3; // Tool response
+  STREAM_CONTENT_ERROR = 4;       // Error message
+  STREAM_CONTENT_STATUS = 5;      // Progress update
+  STREAM_CONTENT_MARKDOWN = 6;    // Markdown formatted
+  STREAM_CONTENT_CODE = 7;        // Code block
+}
+
+// Signals completion of a streaming response
+message StreamComplete {
+  string correlation_id = 1;
+  string final_content = 2;   // Aggregated response
+  uint32 total_chunks = 3;
+  StreamStatus status = 4;    // OK, CANCELLED, TIMEOUT, ERROR, TRUNCATED
+  StreamError error = 5;
+  StreamStats stats = 6;      // Execution statistics
+}
+
+// Execution statistics
+message StreamStats {
+  uint32 total_tokens = 1;
+  int64 duration_ms = 2;
+  uint32 tool_calls = 3;
+  uint32 iterations = 4;
+  int64 first_chunk_latency_ms = 5;  // Time to first token
+}
+```
+
+#### Streaming Flow
+
+```
+Client                    Bridge                   Backend Agent
+  │                         │                           │
+  │──── StreamRequest ─────►│────── Delivery ──────────►│
+  │                         │                           │
+  │                         │◄──── StreamChunk[0] ──────│
+  │◄─── StreamChunk[0] ─────│                           │
+  │                         │◄──── StreamChunk[1] ──────│
+  │◄─── StreamChunk[1] ─────│                           │
+  │           ...           │           ...             │
+  │                         │◄──── StreamComplete ──────│
+  │◄─── StreamComplete ─────│                           │
+  │                         │                           │
 ```
 
 ## Usage
@@ -115,6 +193,7 @@ tonic_build::configure()
         "proto/event.proto",
         "proto/action.proto",
         "proto/agent.proto",
+        "proto/streaming.proto",
         "proto/bridge.proto",
         "proto/memory.proto",
         "proto/plugin.proto",

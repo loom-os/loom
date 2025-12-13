@@ -1,286 +1,49 @@
-"""Loom Chat CLI - Interactive chat with running agents.
+"""Loom Chat CLI - Interactive chat with cognitive agents.
 
 This module provides terminal UI for chatting with cognitive agents.
+It uses ChatClient from loom.streaming to connect to backend agents
+and Rich for beautiful terminal output.
+
+Architecture:
+    CLI (this module) → ChatClient → Bridge → Backend Agent (CognitiveAgent)
+
+The CLI is a lightweight client that:
+1. Connects to a running backend agent via Bridge
+2. Sends user messages and receives streaming responses
+3. Renders output using Rich components
+
+Usage:
+    loom chat              # Connect to running backend (requires loom run)
+    loom chat --help       # Show help
 """
 
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+import time
+from typing import Optional
 
-if TYPE_CHECKING:
-    from ..cognitive import CognitiveAgent
+from opentelemetry import trace
 
+from ..streaming.types import StreamStatus
+from .ui import (
+    SimpleStreamRenderer,
+    console,
+    create_spinner,
+    print_assistant_message,
+    print_connection_status,
+    print_error,
+    print_header,
+    print_help,
+    print_history,
+    print_permission_request,
+    print_stats,
+    print_success,
+    print_warning,
+    print_welcome,
+)
 
-# ============================================================================
-# Terminal UI Helpers
-# ============================================================================
-
-
-class Colors:
-    """ANSI color codes for terminal output."""
-
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
-    ITALIC = "\033[3m"
-    UNDERLINE = "\033[4m"
-
-    # Colors
-    RED = "\033[31m"
-    GREEN = "\033[32m"
-    YELLOW = "\033[33m"
-    BLUE = "\033[34m"
-    MAGENTA = "\033[35m"
-    CYAN = "\033[36m"
-    WHITE = "\033[37m"
-    GRAY = "\033[90m"
-
-    # Bright colors
-    BRIGHT_GREEN = "\033[92m"
-    BRIGHT_YELLOW = "\033[93m"
-    BRIGHT_BLUE = "\033[94m"
-    BRIGHT_MAGENTA = "\033[95m"
-    BRIGHT_CYAN = "\033[96m"
-
-
-def get_terminal_width() -> int:
-    """Get terminal width, default to 80."""
-    return shutil.get_terminal_size((80, 24)).columns
-
-
-def print_header():
-    """Print the application header."""
-    width = min(get_terminal_width(), 70)
-
-    print(f"\n{Colors.BRIGHT_CYAN}{Colors.BOLD}")
-    print("╔" + "═" * (width - 2) + "╗")
-    print("║" + "🧠 Loom Chat".center(width - 2) + "║")
-    print("║" + "Interactive AI with Cognitive Loop".center(width - 2) + "║")
-    print("╚" + "═" * (width - 2) + "╝")
-    print(f"{Colors.RESET}")
-
-
-def print_divider(char="─", color=Colors.GRAY):
-    """Print a divider line."""
-    width = min(get_terminal_width(), 70)
-    print(f"{color}{char * width}{Colors.RESET}")
-
-
-def wrap_text(text: str, width: int, indent: str = "") -> str:
-    """Wrap text to fit within width with optional indent."""
-    words = text.split()
-    lines = []
-    current_line = indent
-
-    for word in words:
-        if len(current_line) + len(word) + 1 <= width:
-            if current_line == indent:
-                current_line += word
-            else:
-                current_line += " " + word
-        else:
-            if current_line != indent:
-                lines.append(current_line)
-            current_line = indent + word
-
-    if current_line != indent:
-        lines.append(current_line)
-
-    return "\n".join(lines) if lines else indent
-
-
-def print_thinking_step(step: dict, step_num: int):
-    """Print a thinking step with nice formatting."""
-    width = min(get_terminal_width(), 70)
-
-    # Step header
-    print(f"\n{Colors.BRIGHT_MAGENTA}  ┌─ Step {step_num} {'─' * (width - 15)}┐{Colors.RESET}")
-
-    # Reasoning (Thought)
-    if step.get("reasoning"):
-        reasoning = step["reasoning"]
-        print(f"{Colors.BRIGHT_MAGENTA}  │{Colors.RESET}")
-        print(f"{Colors.BRIGHT_MAGENTA}  │{Colors.RESET} {Colors.YELLOW}💭 Thought:{Colors.RESET}")
-        wrapped = wrap_text(reasoning, width - 8, "     ")
-        for line in wrapped.split("\n"):
-            print(f"{Colors.BRIGHT_MAGENTA}  │{Colors.RESET}{Colors.DIM}{line}{Colors.RESET}")
-
-    # Tool Call (Action)
-    if step.get("tool_call"):
-        tc = step["tool_call"]
-        print(f"{Colors.BRIGHT_MAGENTA}  │{Colors.RESET}")
-        print(
-            f"{Colors.BRIGHT_MAGENTA}  │{Colors.RESET} {Colors.CYAN}🔧 Action:{Colors.RESET} "
-            f"{Colors.BOLD}{tc.get('tool', 'unknown')}{Colors.RESET}"
-        )
-        args_str = str(tc.get("args", {}))
-        if len(args_str) > width - 15:
-            args_str = args_str[: width - 18] + "..."
-        print(
-            f"{Colors.BRIGHT_MAGENTA}  │{Colors.RESET}    {Colors.DIM}Args: {args_str}{Colors.RESET}"
-        )
-
-    # Observation (Result)
-    if step.get("observation"):
-        obs = step["observation"]
-        print(f"{Colors.BRIGHT_MAGENTA}  │{Colors.RESET}")
-        if obs.get("success"):
-            output = obs.get("output", "")
-            if len(output) > 200:
-                output = output[:200] + "..."
-            print(
-                f"{Colors.BRIGHT_MAGENTA}  │{Colors.RESET} {Colors.GREEN}✅ Observation:{Colors.RESET}"
-            )
-            for line in output.split("\n")[:5]:
-                print(
-                    f"{Colors.BRIGHT_MAGENTA}  │{Colors.RESET}    "
-                    f"{Colors.DIM}{line[:width-8]}{Colors.RESET}"
-                )
-        else:
-            error = obs.get("error", "Unknown error")
-            print(
-                f"{Colors.BRIGHT_MAGENTA}  │{Colors.RESET} "
-                f"{Colors.RED}❌ Error: {error[:width-15]}{Colors.RESET}"
-            )
-
-    print(f"{Colors.BRIGHT_MAGENTA}  └{'─' * (width - 4)}┘{Colors.RESET}")
-
-
-def print_result(result: dict):
-    """Print the final result."""
-    width = min(get_terminal_width(), 70)
-
-    print(f"\n{Colors.BRIGHT_GREEN}{'═' * width}{Colors.RESET}")
-    print(f"{Colors.BRIGHT_GREEN}{Colors.BOLD}🤖 Assistant:{Colors.RESET}")
-    print()
-
-    answer = result["answer"]
-    wrapped = wrap_text(answer, width - 2, "")
-    print(f"{wrapped}")
-
-    print()
-    print(f"{Colors.BRIGHT_GREEN}{'─' * width}{Colors.RESET}")
-
-    # Stats
-    stats = []
-    if result.get("iterations", 0) > 0:
-        stats.append(f"⚡ {result['iterations']} iterations")
-    if result.get("latency_ms"):
-        stats.append(f"⏱️  {result['latency_ms']}ms")
-    if result.get("success") is not None:
-        status = "✅" if result["success"] else "❌"
-        stats.append(f"{status} {'Success' if result['success'] else 'Failed'}")
-
-    if stats:
-        print(f"{Colors.DIM}{' │ '.join(stats)}{Colors.RESET}")
-
-    # Context engineering metrics
-    steps = result.get("steps", [])
-    if steps:
-        offloaded_count = sum(
-            1
-            for s in steps
-            if s.get("observation")
-            and hasattr(s.get("observation"), "reduced_step")
-            and s["observation"].get("reduced_step", {}).get("outcome_ref")
-        )
-        if offloaded_count > 0:
-            print(f"{Colors.DIM}📊 Context: {offloaded_count} offloaded outputs{Colors.RESET}")
-
-
-def print_help():
-    """Print help message."""
-    width = min(get_terminal_width(), 70)
-
-    print(f"\n{Colors.CYAN}{'─' * width}{Colors.RESET}")
-    print(f"{Colors.CYAN}{Colors.BOLD}Available Commands:{Colors.RESET}")
-    print(f"  {Colors.YELLOW}/help{Colors.RESET}      - Show this help message")
-    print(f"  {Colors.YELLOW}/clear{Colors.RESET}     - Clear conversation history")
-    print(f"  {Colors.YELLOW}/history{Colors.RESET}   - Show conversation history")
-    print(f"  {Colors.YELLOW}/verbose{Colors.RESET}   - Toggle verbose mode (show thinking)")
-    print(f"  {Colors.YELLOW}/stream{Colors.RESET}    - Toggle streaming mode")
-    print(
-        f"  {Colors.YELLOW}/research{Colors.RESET}  - Deep research mode (e.g., /research AI frameworks)"
-    )
-    print(f"  {Colors.YELLOW}/quit{Colors.RESET}      - Exit the chat")
-    print(f"\n{Colors.DIM}Available Tools:{Colors.RESET}")
-    print(f"  {Colors.DIM}• weather:get    - Get weather for a location{Colors.RESET}")
-    print(
-        f"  {Colors.DIM}• system:shell   - Run shell commands (ls, echo, cat, grep){Colors.RESET}"
-    )
-    print(f"  {Colors.DIM}• fs:read_file   - Read file contents{Colors.RESET}")
-    print(
-        f"  {Colors.DIM}• fs:write_file  - Write content to a file (requires approval){Colors.RESET}"
-    )
-    print(f"  {Colors.DIM}• fs:list_dir    - List directory contents{Colors.RESET}")
-    print(
-        f"  {Colors.DIM}• fs:delete      - Delete a file or directory (requires approval){Colors.RESET}"
-    )
-    print(f"  {Colors.DIM}• web:search     - Search the web (Brave Search){Colors.RESET}")
-    print(f"{Colors.CYAN}{'─' * width}{Colors.RESET}\n")
-
-
-def print_streaming_header():
-    """Print streaming header."""
-    print(f"\n{Colors.BRIGHT_MAGENTA}{Colors.BOLD}💭 Thinking...{Colors.RESET}")
-    print(f"{Colors.DIM}─" * 50 + f"{Colors.RESET}")
-
-
-def print_stream_step_complete(step):
-    """Print a brief note when a thinking step completes."""
-    width = min(get_terminal_width(), 70)
-    print()  # Newline after streamed content
-
-    if step.tool_call:
-        tool_name = step.tool_call.name
-        print(f"\n{Colors.CYAN}🔧 Calling tool: {Colors.BOLD}{tool_name}{Colors.RESET}")
-
-        # Show observation
-        if step.observation:
-            if step.observation.success:
-                output = step.observation.output
-
-                # Check if data was offloaded
-                if step.reduced_step and step.reduced_step.outcome_ref:
-                    print(f"{Colors.GREEN}   ✅ Result:{Colors.RESET}")
-                    # Show workspace-relative path and how to view it
-                    ref_path = step.reduced_step.outcome_ref
-                    print(
-                        f"{Colors.DIM}      📄 Offloaded to: {Colors.CYAN}{ref_path}{Colors.RESET}"
-                    )
-                    print(
-                        f"{Colors.DIM}      💡 Summary: {step.reduced_step.observation[:100]}{Colors.RESET}"
-                    )
-                    print(
-                        f"{Colors.DIM}      📖 View with: {Colors.YELLOW}cat {ref_path}{Colors.RESET}"
-                    )
-                    print(
-                        f"{Colors.DIM}      💡 Summary: {step.reduced_step.observation[:100]}{Colors.RESET}"
-                    )
-                else:
-                    # Show output with smart truncation
-                    max_lines = 8
-                    lines = output.split("\n")
-                    print(f"{Colors.GREEN}   ✅ Result:{Colors.RESET}")
-
-                    if len(lines) > max_lines:
-                        # Show first few and last few lines
-                        for line in lines[: max_lines - 2]:
-                            print(f"{Colors.DIM}      {line[:width-10]}{Colors.RESET}")
-                        print(
-                            f"{Colors.DIM}      ... ({len(lines) - max_lines} more lines) ...{Colors.RESET}"
-                        )
-                        for line in lines[-2:]:
-                            print(f"{Colors.DIM}      {line[:width-10]}{Colors.RESET}")
-                    else:
-                        for line in lines:
-                            print(f"{Colors.DIM}      {line[:width-10]}{Colors.RESET}")
-            else:
-                print(f"{Colors.RED}   ❌ Error: {step.observation.error}{Colors.RESET}")
-        print()
-
+# Tracer for CLI spans
+tracer = trace.get_tracer(__name__)
 
 # ============================================================================
 # Chat Session
@@ -288,384 +51,143 @@ def print_stream_step_complete(step):
 
 
 class ChatSession:
-    """Interactive chat session with a cognitive agent."""
+    """Chat session that connects to a backend agent via Bridge.
+
+    This connects to a running backend agent (started via `loom run`)
+    and communicates via the event bus with streaming support.
+    """
 
     def __init__(
         self,
-        agent_id: str = "chat-assistant",
+        backend_agent_id: str = "chat-assistant",
+        backend_topic: str = "chat.input",
         bridge_addr: Optional[str] = None,
         verbose: bool = True,
         streaming: bool = True,
     ):
-        self.agent_id = agent_id
+        self.backend_agent_id = backend_agent_id
+        self.backend_topic = backend_topic
         self.bridge_addr = bridge_addr
         self.verbose = verbose
         self.streaming = streaming
-        self.agent = None
-        self.cognitive: Optional[CognitiveAgent] = None
-        self.conversation_history: list[dict] = []
 
-    async def start(self):
-        """Initialize and start the chat session."""
-        from .. import Agent, CognitiveAgent, CognitiveConfig, ThinkingStrategy
-        from ..llm import LLMProvider
-        from ..runtime.config import load_project_config
+        self._client = None
+        self._connected = False
+        self._last_error: Optional[str] = None
 
-        # Load project config
-        project_config = load_project_config(Path.cwd())
+    @property
+    def connected(self) -> bool:
+        return self._connected and self._client is not None
 
-        # Use provided address or from config
-        addr = self.bridge_addr or project_config.bridge.address
-
-        # Create base agent
-        self.agent = Agent(
-            agent_id=self.agent_id,
-            topics=["chat.input", "chat.replies"],
-            address=addr,
-        )
-        await self.agent.start()
-
-        # Create LLM provider from config
-        llm = LLMProvider.from_config(
-            self.agent._ctx,
-            project_config.agents.get(self.agent_id, {}).get("llm_provider", "deepseek"),
-            project_config,
-        )
-
-        # Determine thinking strategy
-        strategy_name = project_config.agents.get(self.agent_id, {}).get(
-            "thinking_strategy", "react"
-        )
-        strategy = {
-            "react": ThinkingStrategy.REACT,
-            "single_shot": ThinkingStrategy.SINGLE_SHOT,
-            "chain_of_thought": ThinkingStrategy.CHAIN_OF_THOUGHT,
-        }.get(strategy_name, ThinkingStrategy.REACT)
-
-        max_iterations = project_config.agents.get(self.agent_id, {}).get("max_iterations", 10)
-
-        # Create cognitive agent with permission callback for human-in-the-loop
-        self.cognitive = CognitiveAgent(
-            ctx=self.agent._ctx,
-            llm=llm,
-            config=CognitiveConfig(
-                system_prompt="""You are a helpful AI assistant with access to tools.
-
-Available tools:
-- weather:get: Get current weather. Args: {"location": "city name"}
-- system:shell: Run shell commands. Args: {"command": "cmd"} (some commands may require user approval)
-- fs:read_file: Read file contents. Args: {"path": "relative/path"}
-- fs:write_file: Write content to file. Args: {"path": "relative/path", "content": "text"} (requires approval)
-- fs:list_dir: List directory. Args: {"path": "relative/path"} (optional, defaults to workspace root)
-- fs:delete: Delete file or empty directory. Args: {"path": "relative/path"} (requires approval)
-- web:search: Search the web for information. Args: {"query": "search terms", "limit": 5}
-
-When you need information, use the appropriate tool.
-Think step by step and explain your reasoning.
-Be helpful, concise, and friendly.""",
-                thinking_strategy=strategy,
-                max_iterations=max_iterations,
-                temperature=0.7,
-            ),
-            available_tools=[
-                "weather:get",
-                "system:shell",
-                "fs:read_file",
-                "fs:write_file",
-                "fs:list_dir",
-                "fs:delete",
-                "web:search",
-            ],
-            permission_callback=self._request_permission,
-        )
-
-        return self
-
-    def _request_permission(self, tool_name: str, args: dict, error_msg: str) -> bool:
-        """Request user permission for a denied tool action.
-
-        This is called when a tool (e.g., shell command) is denied by the sandbox.
-        Returns True if user approves, False otherwise.
-        """
-        print()
-        print(f"{Colors.YELLOW}{'─' * 50}{Colors.RESET}")
-        print(f"{Colors.YELLOW}⚠️  Permission Required{Colors.RESET}")
-        print(f"{Colors.DIM}Tool: {tool_name}{Colors.RESET}")
-        print(f"{Colors.DIM}Args: {args}{Colors.RESET}")
-        print(f"{Colors.DIM}Reason: {error_msg}{Colors.RESET}")
-        print(f"{Colors.YELLOW}{'─' * 50}{Colors.RESET}")
+    async def connect(self) -> bool:
+        """Connect to the backend agent via Bridge."""
+        from ..streaming import ChatClient
 
         try:
-            response = (
-                input(f"{Colors.BRIGHT_YELLOW}Allow this action? [y/N]: {Colors.RESET}")
-                .strip()
-                .lower()
+            self._client = ChatClient(
+                backend_topic=self.backend_topic,
+                bridge_addr=self.bridge_addr,
             )
-            approved = response in ("y", "yes")
-
-            if approved:
-                print(f"{Colors.GREEN}✅ Approved by user{Colors.RESET}")
-            else:
-                print(f"{Colors.RED}❌ Denied by user{Colors.RESET}")
-
-            return approved
-        except (EOFError, KeyboardInterrupt):
-            print(f"\n{Colors.RED}❌ Denied (interrupted){Colors.RESET}")
+            await self._client.connect()
+            self._connected = True
+            return True
+        except Exception as e:
+            self._last_error = str(e)
+            self._connected = False
             return False
 
+    async def disconnect(self):
+        """Disconnect from Bridge."""
+        if self._client:
+            await self._client.disconnect()
+        self._connected = False
+
     async def chat(self, message: str) -> dict:
-        """Process a chat message and return response with reasoning steps."""
-        if not self.cognitive:
-            raise RuntimeError("Chat session not started")
-
-        # Add to conversation history
-        self.conversation_history.append({"role": "user", "content": message})
-
-        # Build context from history
-        context = []
-        if len(self.conversation_history) > 1:
-            for msg in self.conversation_history[-6:-1]:
-                context.append(f"{msg['role'].capitalize()}: {msg['content']}")
-
-        # Run cognitive loop
-        result = await self.cognitive.run(message, context=context if context else None)
-
-        # Add response to history
-        self.conversation_history.append({"role": "assistant", "content": result.answer})
-
-        return {
-            "answer": result.answer,
-            "steps": [
-                {
-                    "step": s.step,
-                    "reasoning": s.reasoning,
-                    "tool_call": s.tool_call.to_dict() if s.tool_call else None,
-                    "observation": (
-                        {
-                            "success": s.observation.success,
-                            "output": s.observation.output,
-                            "error": s.observation.error,
-                        }
-                        if s.observation
-                        else None
-                    ),
-                }
-                for s in result.steps
-            ],
-            "iterations": result.iterations,
-            "success": result.success,
-            "latency_ms": result.total_latency_ms,
-        }
-
-    async def chat_stream(self, message: str, on_chunk=None, on_step=None):
-        """Process a chat message with streaming output.
+        """Send a message and get streaming response.
 
         Args:
-            message: User input message
-            on_chunk: Callback for LLM text chunks (str)
-            on_step: Callback for complete thinking steps (ThoughtStep)
+            message: User message
 
         Returns:
-            Final result dict
+            Response dict with 'content', 'stats', etc.
         """
-        from ..cognitive.types import CognitiveResult, ThoughtStep
+        if not self._client:
+            raise RuntimeError("Not connected")
 
-        if not self.cognitive:
-            raise RuntimeError("Chat session not started")
+        from ..streaming import StreamContentType
 
-        # Add to conversation history
-        self.conversation_history.append({"role": "user", "content": message})
+        # Create tracing span for CLI chat interaction
+        with tracer.start_as_current_span(
+            "cli.chat",
+            attributes={
+                "cli.backend_agent_id": self.backend_agent_id,
+                "cli.message_length": len(message),
+                "cli.streaming": self.streaming,
+                "cli.verbose": self.verbose,
+            },
+        ) as span:
+            start_time = time.time()
 
-        # Build context from history
-        context = []
-        if len(self.conversation_history) > 1:
-            for msg in self.conversation_history[-6:-1]:
-                context.append(f"{msg['role'].capitalize()}: {msg['content']}")
+            # Collect response parts
+            thinking_steps: list[str] = []
+            tool_calls: list[str] = []
+            content_parts: list[str] = []
 
-        # Stream cognitive loop
-        final_result = None
-        steps = []
+            async def chunk_handler(content: str, content_type: StreamContentType):
+                if content_type == StreamContentType.TEXT:
+                    content_parts.append(content)
+                elif content_type == StreamContentType.THINKING:
+                    thinking_steps.append(content)
+                elif content_type == StreamContentType.TOOL_CALL:
+                    tool_calls.append(content)
 
-        async for item in self.cognitive.run_stream(message, context=context if context else None):
-            if isinstance(item, str):
-                # LLM text chunk
-                if on_chunk:
-                    on_chunk(item)
-            elif isinstance(item, ThoughtStep):
-                # Complete thinking step
-                steps.append(item)
-                if on_step:
-                    on_step(item)
-            elif isinstance(item, CognitiveResult):
-                # Final result
-                final_result = item
+            async def permission_handler(tool_name: str, tool_args: dict, reason: str) -> bool:
+                """Handle permission request from backend - ask user."""
+                return print_permission_request(tool_name, tool_args, reason)
 
-        if final_result:
-            # Add response to history
-            self.conversation_history.append({"role": "assistant", "content": final_result.answer})
+            try:
+                response = await self._client.chat(
+                    message,
+                    on_chunk=chunk_handler if self.streaming else None,
+                    on_permission_request=permission_handler,
+                    include_thinking=self.verbose,
+                    include_tool_calls=True,
+                )
+
+                # Record metrics
+                duration_ms = int((time.time() - start_time) * 1000)
+                span.set_attribute("cli.response_length", len(response.content or ""))
+                span.set_attribute("cli.thinking_steps", len(thinking_steps))
+                span.set_attribute("cli.tool_calls", len(tool_calls))
+                span.set_attribute("cli.duration_ms", duration_ms)
+                if response.stats:
+                    span.set_attribute("cli.total_tokens", response.stats.total_tokens)
+
+            except Exception as e:
+                span.record_exception(e)
+                raise
 
             return {
-                "answer": final_result.answer,
-                "steps": [
-                    {
-                        "step": s.step,
-                        "reasoning": s.reasoning,
-                        "tool_call": s.tool_call.to_dict() if s.tool_call else None,
-                        "observation": (
-                            {
-                                "success": s.observation.success,
-                                "output": s.observation.output,
-                                "error": s.observation.error,
-                            }
-                            if s.observation
-                            else None
-                        ),
-                    }
-                    for s in final_result.steps
-                ],
-                "iterations": final_result.iterations,
-                "success": final_result.success,
-                "latency_ms": final_result.total_latency_ms,
+                "content": response.content or "".join(content_parts),
+                "thinking": thinking_steps,
+                "tool_calls": tool_calls,
+                "stats": response.stats,
+                "status": response.status,
             }
 
-        return {"answer": "", "steps": [], "iterations": 0, "success": False}
-
-    async def stop(self):
-        """Stop the chat session."""
-        if self.agent:
-            await self.agent.stop()
+    def get_history(self) -> list[dict]:
+        """Get conversation history."""
+        if self._client:
+            return [
+                {"role": msg.role, "content": msg.content}
+                for msg in self._client.get_thread_history()
+            ]
+        return []
 
     def clear_history(self):
         """Clear conversation history."""
-        self.conversation_history = []
-        if self.cognitive:
-            self.cognitive.memory.clear()
-
-    async def research(self, topic: str, on_progress=None) -> dict:
-        """Deep research mode: multi-step investigation on a topic.
-
-        This method:
-        1. Plans research approach
-        2. Gathers information using tools
-        3. Synthesizes findings
-        4. Saves report to workspace/reports/
-
-        Args:
-            topic: Research topic/question
-            on_progress: Callback for progress updates (str)
-
-        Returns:
-            Dict with report path and summary
-        """
-        from datetime import datetime
-
-        if not self.cognitive:
-            raise RuntimeError("Chat session not started")
-
-        def log(msg: str):
-            if on_progress:
-                on_progress(msg)
-
-        log(f"📚 Starting deep research on: {topic}")
-
-        # Phase 1: Plan research
-        log("📋 Phase 1: Planning research approach...")
-        plan_prompt = f"""Plan a research approach for: {topic}
-
-Create a brief research plan with 3-5 specific questions to investigate.
-Format as a numbered list."""
-
-        plan_result = await self.cognitive.run(plan_prompt)
-        research_plan = plan_result.answer
-        log("   ✅ Research plan created")
-
-        # Phase 2: Investigate each question
-        log("🔍 Phase 2: Investigating questions...")
-        findings = []
-
-        # Extract questions from plan and investigate
-        investigate_prompt = f"""Based on this research plan:
-{research_plan}
-
-Now investigate the topic: {topic}
-
-Use available tools (web search, file reading) to gather information.
-Provide detailed findings with sources where possible."""
-
-        investigate_result = await self.cognitive.run(investigate_prompt)
-        findings.append(investigate_result.answer)
-        log(f"   ✅ Investigation complete ({investigate_result.iterations} iterations)")
-
-        # Phase 3: Synthesize findings
-        log("📝 Phase 3: Synthesizing report...")
-        synthesis_prompt = f"""Synthesize these research findings into a comprehensive report:
-
-Topic: {topic}
-
-Plan:
-{research_plan}
-
-Findings:
-{chr(10).join(findings)}
-
-Create a well-structured markdown report with:
-1. Executive Summary
-2. Key Findings
-3. Detailed Analysis
-4. Conclusions
-5. References (if any)"""
-
-        synthesis_result = await self.cognitive.run(synthesis_prompt)
-        report_content = synthesis_result.answer
-
-        # Phase 4: Save report
-        log("💾 Phase 4: Saving report...")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_topic = "".join(c if c.isalnum() or c in "-_ " else "_" for c in topic)[:50]
-        report_filename = f"workspace/reports/{timestamp}_{safe_topic}.md"
-
-        # Create full report with metadata
-        full_report = f"""# Research Report: {topic}
-
-**Generated**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-**Agent**: {self.agent_id}
-
----
-
-{report_content}
-
----
-
-## Research Metadata
-
-- **Topic**: {topic}
-- **Total Iterations**: {plan_result.iterations + investigate_result.iterations + synthesis_result.iterations}
-- **Research Plan**: {len(research_plan)} chars
-- **Findings**: {len(chr(10).join(findings))} chars
-"""
-
-        # Save using fs:write_file tool
-        try:
-            await self.cognitive.ctx.tool(
-                "fs:write_file",
-                payload={"path": report_filename, "content": full_report},
-            )
-            log(f"   ✅ Report saved to: {report_filename}")
-        except Exception as e:
-            log(f"   ⚠️ Could not save report: {e}")
-            report_filename = None
-
-        return {
-            "topic": topic,
-            "report_path": report_filename,
-            "summary": (
-                report_content[:500] + "..." if len(report_content) > 500 else report_content
-            ),
-            "full_report": full_report,
-            "iterations": plan_result.iterations
-            + investigate_result.iterations
-            + synthesis_result.iterations,
-        }
+        if self._client:
+            self._client.clear_thread()
 
 
 # ============================================================================
@@ -673,32 +195,54 @@ Create a well-structured markdown report with:
 # ============================================================================
 
 
-async def run_chat_cli(bridge_addr: Optional[str] = None, agent_id: str = "chat-assistant"):
-    """Run interactive CLI chat."""
+async def run_chat_cli(
+    bridge_addr: Optional[str] = None,
+    agent_id: str = "chat-assistant",
+):
+    """Run interactive CLI chat.
+
+    Args:
+        bridge_addr: Bridge address (default from config/env)
+        agent_id: Agent ID to connect to
+    """
+    # Print header
     print_header()
+    print_welcome()
 
-    print(f"{Colors.DIM}Type {Colors.YELLOW}/help{Colors.DIM} for available commands{Colors.RESET}")
-    print_divider()
+    # Create session
+    session = ChatSession(
+        backend_agent_id=agent_id,
+        bridge_addr=bridge_addr,
+    )
 
-    session = ChatSession(agent_id=agent_id, bridge_addr=bridge_addr)
+    # Connect
+    with create_spinner("Connecting to Loom...") as progress:
+        progress.add_task("Connecting...", total=None)
+        connected = await session.connect()
+        progress.stop()
 
-    try:
-        print(f"\n{Colors.YELLOW}⏳ Connecting to Loom Bridge...{Colors.RESET}")
-        await session.start()
-        print(f"{Colors.GREEN}✅ Connected! Agent ready.{Colors.RESET}\n")
-    except Exception as e:
-        print(f"{Colors.RED}❌ Failed to connect: {e}{Colors.RESET}")
-        print(f"{Colors.DIM}Make sure Loom runtime is running (loom run or loom up){Colors.RESET}")
+    if not connected:
+        error_msg = session._last_error or "Unknown error"
+        print_error(
+            f"Failed to connect to Loom runtime.\n\n"
+            f"Error: {error_msg}\n\n"
+            f"Make sure Loom runtime is running:\n"
+            f"  cd apps/chat-assistant && loom run"
+        )
         return 1
+
+    print_success(f"Connected to backend agent '{agent_id}'")
+    console.print()
 
     try:
         while True:
+            # Get user input
             try:
-                user_input = input(f"{Colors.BRIGHT_BLUE}{Colors.BOLD}You ▶{Colors.RESET} ").strip()
+                user_input = console.input("[user]You ▶[/user] ").strip()
             except EOFError:
                 break
             except KeyboardInterrupt:
-                print(f"\n{Colors.YELLOW}Use /quit to exit{Colors.RESET}")
+                print_warning("Use /quit to exit")
                 continue
 
             if not user_input:
@@ -706,15 +250,16 @@ async def run_chat_cli(bridge_addr: Optional[str] = None, agent_id: str = "chat-
 
             # Handle commands
             if user_input.startswith("/"):
-                cmd = user_input.lower().split()[0]
+                cmd_parts = user_input.lower().split()
+                cmd = cmd_parts[0]
 
                 if cmd in ["/quit", "/exit", "/q"]:
-                    print(f"\n{Colors.CYAN}Goodbye! 👋{Colors.RESET}\n")
+                    console.print("\n[cyan]Goodbye! 👋[/cyan]\n")
                     break
 
                 if cmd == "/clear":
                     session.clear_history()
-                    print(f"{Colors.GREEN}✅ Conversation cleared.{Colors.RESET}\n")
+                    print_success("Conversation cleared.")
                     continue
 
                 if cmd == "/help":
@@ -724,136 +269,187 @@ async def run_chat_cli(bridge_addr: Optional[str] = None, agent_id: str = "chat-
                 if cmd == "/verbose":
                     session.verbose = not session.verbose
                     state = "ON" if session.verbose else "OFF"
-                    print(f"{Colors.GREEN}Verbose mode: {state}{Colors.RESET}\n")
+                    print_success(f"Verbose mode: {state}")
                     continue
 
                 if cmd == "/history":
-                    if not session.conversation_history:
-                        print(f"{Colors.DIM}No conversation history yet.{Colors.RESET}\n")
-                    else:
-                        print(f"\n{Colors.CYAN}📜 Conversation History:{Colors.RESET}")
-                        for i, msg in enumerate(session.conversation_history):
-                            role_color = (
-                                Colors.BRIGHT_BLUE if msg["role"] == "user" else Colors.BRIGHT_GREEN
-                            )
-                            role = "You" if msg["role"] == "user" else "AI"
-                            content = (
-                                msg["content"][:60] + "..."
-                                if len(msg["content"]) > 60
-                                else msg["content"]
-                            )
-                            print(
-                                f"  {Colors.DIM}[{i+1}]{Colors.RESET} "
-                                f"{role_color}{role}:{Colors.RESET} {content}"
-                            )
-                        print()
+                    print_history(session.get_history())
                     continue
 
                 if cmd == "/stream":
                     session.streaming = not session.streaming
                     state = "ON" if session.streaming else "OFF"
-                    print(f"{Colors.GREEN}Streaming mode: {state}{Colors.RESET}\n")
+                    print_success(f"Streaming mode: {state}")
                     continue
 
-                if cmd == "/research":
-                    # Extract topic from command
-                    parts = user_input.split(maxsplit=1)
-                    if len(parts) < 2:
-                        print(f"{Colors.RED}Usage: /research <topic>{Colors.RESET}")
-                        print(f"{Colors.DIM}Example: /research AI agent frameworks{Colors.RESET}\n")
-                        continue
-
-                    topic = parts[1].strip()
-                    print(
-                        f"\n{Colors.BRIGHT_MAGENTA}{Colors.BOLD}🔬 Deep Research Mode{Colors.RESET}"
+                if cmd == "/status":
+                    print_connection_status(
+                        connected=session.connected,
+                        agent_id=agent_id,
+                        bridge_addr=bridge_addr or "default",
                     )
-                    print(f"{Colors.DIM}Topic: {topic}{Colors.RESET}")
-                    print_divider()
-
-                    def progress_callback(msg: str):
-                        print(f"{Colors.CYAN}{msg}{Colors.RESET}")
-
-                    try:
-                        result = await session.research(topic, on_progress=progress_callback)
-                        print()
-                        print(f"{Colors.BRIGHT_GREEN}{'═' * 50}{Colors.RESET}")
-                        print(
-                            f"{Colors.BRIGHT_GREEN}{Colors.BOLD}📊 Research Complete{Colors.RESET}"
-                        )
-                        print()
-                        if result.get("report_path"):
-                            print(
-                                f"{Colors.GREEN}📄 Report saved: {result['report_path']}{Colors.RESET}"
-                            )
-                        print(f"{Colors.DIM}Total iterations: {result['iterations']}{Colors.RESET}")
-                        print()
-                        print(f"{Colors.BOLD}Summary:{Colors.RESET}")
-                        print(result["summary"])
-                        print(f"{Colors.BRIGHT_GREEN}{'═' * 50}{Colors.RESET}\n")
-                    except Exception as e:
-                        print(f"{Colors.RED}❌ Research failed: {e}{Colors.RESET}\n")
-                        import traceback
-
-                        traceback.print_exc()
                     continue
 
-                print(
-                    f"{Colors.RED}Unknown command: {cmd}. "
-                    f"Type /help for available commands.{Colors.RESET}\n"
-                )
+                print_error(f"Unknown command: {cmd}. Type /help for available commands.")
                 continue
 
             # Process message
             try:
                 if session.streaming:
-                    # Streaming mode - show LLM output in real-time
-                    print_streaming_header()
+                    # Streaming mode with SimpleStreamRenderer (append-only, no overwrite)
+                    from ..streaming import StreamContentType
 
-                    # Callback to print chunks directly
-                    def on_chunk(chunk: str):
-                        print(f"{Colors.DIM}{chunk}{Colors.RESET}", end="", flush=True)
+                    with SimpleStreamRenderer(show_thinking=session.verbose) as renderer:
+                        thinking_steps: list[str] = []
+                        tool_calls: list[str] = []
 
-                    # Callback when a step completes
-                    def on_step(step):
-                        print_stream_step_complete(step)
+                        async def on_chunk(
+                            content: str,
+                            content_type: StreamContentType,
+                            _thinking_steps: list[str] = thinking_steps,
+                            _tool_calls: list[str] = tool_calls,
+                        ):
+                            if content_type == StreamContentType.TEXT:
+                                # Accumulate for final answer
+                                pass
+                            elif content_type == StreamContentType.THINKING:
+                                _thinking_steps.append(content)
+                                renderer.add_thought(content)
+                            elif content_type == StreamContentType.TOOL_CALL:
+                                _tool_calls.append(content)
+                                # Parse tool call: "tool_name: {args}"
+                                if ": " in content:
+                                    tool_name, args = content.split(": ", 1)
+                                    renderer.add_action(tool_name, args)
+                            elif content_type == StreamContentType.TOOL_RESULT:
+                                # Tool result received
+                                if renderer.current_action:
+                                    renderer.add_observation(
+                                        tool_name=renderer.current_action.get("tool", "unknown"),
+                                        result=content,
+                                        success="Error:" not in content,
+                                    )
 
-                    result = await session.chat_stream(
-                        user_input,
-                        on_chunk=on_chunk,
-                        on_step=on_step,
+                        async def on_permission(
+                            tool_name: str, tool_args: dict, reason: str
+                        ) -> bool:
+                            """Handle permission request from backend."""
+                            # Simple renderer doesn't need pause
+                            return print_permission_request(tool_name, tool_args, reason)
+
+                        response = await session._client.chat(
+                            user_input,
+                            on_chunk=on_chunk,
+                            on_permission_request=on_permission,
+                            include_thinking=session.verbose,
+                            include_tool_calls=True,
+                        )
+
+                        renderer.flush()
+
+                        # Set final answer if we got one
+                        if response.content:
+                            renderer.set_final_answer(response.content)
+
+                    # Show stats
+                    if response.stats:
+                        print_stats(
+                            iterations=0,
+                            latency_ms=response.stats.duration_ms,
+                            tool_calls=len(tool_calls),
+                            success=response.status == StreamStatus.OK,
+                        )
+                else:
+                    # Non-streaming mode
+                    with create_spinner("Processing...") as progress:
+                        progress.add_task("Thinking...", total=None)
+                        result = await session.chat(user_input)
+                        progress.stop()
+
+                    # Show result
+                    if result.get("content"):
+                        print_assistant_message(result["content"])
+
+                    # Show stats
+                    stats = result.get("stats")
+                    print_stats(
+                        iterations=0,
+                        latency_ms=stats.duration_ms if stats else 0,
+                        tool_calls=len(result.get("tool_calls", [])),
+                        success=True,
                     )
 
-                    # Show final result (without repeating thinking if shown during streaming)
-                    print()  # Newline after streaming content
-                    print_result(result)
-                    print()
-                else:
-                    # Non-streaming mode - wait for complete response
-                    print(f"\n{Colors.MAGENTA}🧠 Processing...{Colors.RESET}")
-                    result = await session.chat(user_input)
-
-                    # Show reasoning steps if verbose mode
-                    if session.verbose and result.get("steps"):
-                        print(
-                            f"\n{Colors.BRIGHT_MAGENTA}{Colors.BOLD}💭 Thinking Process:{Colors.RESET}"
-                        )
-                        for i, step in enumerate(result["steps"], 1):
-                            print_thinking_step(step, i)
-
-                    # Show final result
-                    print_result(result)
-                    print()
+                console.print()
 
             except Exception as e:
-                print(f"{Colors.RED}❌ Error: {e}{Colors.RESET}")
+                print_error(str(e))
                 import traceback
 
-                traceback.print_exc()
-                print()
+                console.print(f"[dim]{traceback.format_exc()}[/dim]")
 
     except KeyboardInterrupt:
-        print(f"\n{Colors.CYAN}Goodbye! 👋{Colors.RESET}\n")
+        console.print("\n[cyan]Goodbye! 👋[/cyan]\n")
     finally:
-        await session.stop()
+        await session.disconnect()
 
     return 0
+
+
+# ============================================================================
+# Legacy Compatibility
+# ============================================================================
+
+
+def print_stream_step_complete(step) -> None:
+    """Print a completed thinking step with context engineering support.
+
+    This function displays tool execution results, handling both normal
+    outputs and offloaded data references appropriately.
+
+    Args:
+        step: ThoughtStep object with tool_call and observation
+    """
+    from .ui import console as ui_console
+
+    if not step.tool_call:
+        return
+
+    # Build output parts
+    parts = []
+
+    # Step header
+    parts.append(f"[bold magenta]Step {step.step}[/bold magenta]")
+
+    # Reasoning
+    if step.reasoning:
+        parts.append(f"  [dim]💭 {step.reasoning}[/dim]")
+
+    # Tool info
+    parts.append(f"  [cyan]🔧 Tool: {step.tool_call.name}[/cyan]")
+
+    # Observation/Result
+    if step.observation:
+        if step.observation.success:
+            # Check for offloaded data
+            if step.reduced_step and step.reduced_step.outcome_ref:
+                parts.append("  [green]✅ Data offloaded[/green]")
+                parts.append(f"     Offloaded to: {step.reduced_step.outcome_ref}")
+                # Show summary from reduced step
+                if step.reduced_step.observation:
+                    parts.append(f"     Summary: {step.reduced_step.observation}")
+                parts.append(f"     View with: cat {step.reduced_step.outcome_ref}")
+            else:
+                # Normal output
+                output = step.observation.output
+                if len(output) > 200:
+                    output = output[:197] + "..."
+                parts.append("  [green]✅ Result:[/green]")
+                for line in output.split("\n"):
+                    parts.append(f"     {line}")
+        else:
+            # Error
+            parts.append(f"  [red]❌ Error: {step.observation.error}[/red]")
+
+    # Print all parts
+    for part in parts:
+        ui_console.print(part)

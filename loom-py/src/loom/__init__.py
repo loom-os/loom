@@ -76,6 +76,21 @@ from .llm import LLMConfig, LLMProvider
 # Config
 from .runtime.config import ProjectConfig, load_project_config
 
+# Streaming
+from .streaming import (
+    ChatClient,
+    ChatMessage,
+    ChatResponse,
+    StreamChunk,
+    StreamComplete,
+    StreamContentType,
+    StreamingClient,
+    StreamingError,
+    StreamingHandler,
+    StreamOptions,
+    StreamStatus,
+)
+
 # Telemetry
 from .telemetry import init_telemetry, shutdown_telemetry
 
@@ -108,6 +123,18 @@ __all__ = [
     # Telemetry
     "init_telemetry",
     "shutdown_telemetry",
+    # Streaming
+    "StreamingClient",
+    "StreamingHandler",
+    "StreamingError",
+    "ChatClient",
+    "ChatMessage",
+    "ChatResponse",
+    "StreamChunk",
+    "StreamComplete",
+    "StreamContentType",
+    "StreamOptions",
+    "StreamStatus",
     # Deprecated aliases
     "capability",
     "Capability",

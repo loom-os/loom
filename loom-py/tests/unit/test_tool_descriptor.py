@@ -206,14 +206,16 @@ class TestToolRegistry:
         # Should have filesystem tools
         assert registry.get("fs:read_file") is not None
         assert registry.get("fs:write_file") is not None
-        assert registry.get("fs:search") is not None
+        assert registry.get("fs:list_dir") is not None
 
         # Should have shell tools
         assert registry.get("shell:run") is not None
 
         # Should have web tools
-        assert registry.get("web:fetch") is not None
         assert registry.get("web:search") is not None
+
+        # Should have git tools
+        assert registry.get("git:status") is not None
 
 
 class TestFewShotExample:

@@ -4,8 +4,10 @@ This module provides tools for managing the Loom runtime:
 - embedded: Start Bridge/Core as embedded subprocess
 - orchestrator: Manage full project lifecycle
 - config: Project configuration (loom.toml)
+- backend: Reusable backend agent infrastructure
 """
 
+from .backend import BackendAgent
 from .config import (
     BridgeConfig,
     DashboardConfig,
@@ -25,6 +27,8 @@ from .embedded import (
 from .orchestrator import Orchestrator, OrchestratorConfig, ProcessInfo, run_orchestrator
 
 __all__ = [
+    # Backend
+    "BackendAgent",
     # Config
     "ProjectConfig",
     "BridgeConfig",

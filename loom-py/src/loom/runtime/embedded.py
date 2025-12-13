@@ -380,12 +380,18 @@ def start_binary(
     allow_local: bool = True,
     prefer_release: bool = True,
     force_download: bool = False,
+    capture_output: bool = False,
 ) -> subprocess.Popen:
     """Start a Loom runtime binary with given environment variables.
 
-    Note: stdout and stderr are redirected to DEVNULL to prevent buffer filling
-    and process hanging. For debugging, use direct binary execution or redirect
-    to files in calling code.
+    Args:
+        binary_name: Name of binary to start
+        env_vars: Environment variables to set
+        version: Version to fetch
+        allow_local: If True, will use local builds from cargo
+        prefer_release: If True, prefer release over debug builds
+        force_download: If True, skip cache and local builds
+        capture_output: If True, capture stdout/stderr via PIPE (for live logs)
     """
     binary = get_binary(
         binary_name,
@@ -397,13 +403,22 @@ def start_binary(
     env = os.environ.copy()
     if env_vars:
         env.update(env_vars)
-    # Use DEVNULL to prevent pipe buffer filling and process hanging
-    proc = subprocess.Popen(
-        [str(binary)],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+
+    if capture_output:
+        proc = subprocess.Popen(
+            [str(binary)],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    else:
+        # Use DEVNULL to prevent pipe buffer filling and process hanging
+        proc = subprocess.Popen(
+            [str(binary)],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     return proc
 
 
@@ -413,6 +428,7 @@ def start_bridge(
     version: str = "latest",
     prefer_release: bool = True,
     force_download: bool = False,
+    capture_output: bool = False,
 ) -> subprocess.Popen:
     """Start loom-bridge-server."""
     return start_binary(
@@ -421,6 +437,7 @@ def start_bridge(
         version=version,
         prefer_release=prefer_release,
         force_download=force_download,
+        capture_output=capture_output,
     )
 
 
@@ -431,6 +448,7 @@ def start_core(
     prefer_release: bool = True,
     force_download: bool = False,
     mcp_servers: Optional[dict] = None,
+    capture_output: bool = False,
 ) -> subprocess.Popen:
     """Start loom-core (full runtime with dashboard).
 
@@ -444,6 +462,7 @@ def start_core(
         prefer_release: Prefer release builds
         force_download: Force download from GitHub
         mcp_servers: Optional dict of MCP server configs to pass via LOOM_MCP_SERVERS
+        capture_output: If True, capture stdout/stderr via PIPE (for live logs)
     """
     import json
 
@@ -463,4 +482,5 @@ def start_core(
         version=version,
         prefer_release=prefer_release,
         force_download=force_download,
+        capture_output=capture_output,
     )

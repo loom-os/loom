@@ -14,11 +14,19 @@ topics = ["chat.input", "chat.replies"]
 llm_provider = "deepseek"
 thinking_strategy = "react"
 max_iterations = 20
-# System prompt is automatically loaded from loom-py/src/loom/benchmark/prompts.py
-# You can override it here if needed for specific customization
-# system_prompt = "Custom prompt here..."
 
-tools = ["fs:read", "fs:write", "fs:list", "fs:delete", "shell:run", "git"]
+# Tools available in Rust Core (core/src/tools/native/)
+# These are the exact tool names registered in the runtime
+tools = [
+    "fs:read_file",
+    "fs:write_file",
+    "fs:list_dir",
+    "shell:run",
+    "weather:get",
+    "web:search",
+    "git:status",
+    "git:diff",
+]
 
 [llm.deepseek]
 type = "http"

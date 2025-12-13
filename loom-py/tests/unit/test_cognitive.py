@@ -521,6 +521,28 @@ class TestCognitiveConfig:
         # COT is short for chain_of_thought
         assert ThinkingStrategy.CHAIN_OF_THOUGHT.value == "cot"
 
+    def test_thinking_strategy_from_string(self):
+        """Test that CognitiveConfig accepts string thinking_strategy."""
+        # String values should be auto-converted to enum
+        config = CognitiveConfig(thinking_strategy="react")
+        assert config.thinking_strategy == ThinkingStrategy.REACT
+        assert isinstance(config.thinking_strategy, ThinkingStrategy)
+
+        config2 = CognitiveConfig(thinking_strategy="cot")
+        assert config2.thinking_strategy == ThinkingStrategy.CHAIN_OF_THOUGHT
+
+        config3 = CognitiveConfig(thinking_strategy="single_shot")
+        assert config3.thinking_strategy == ThinkingStrategy.SINGLE_SHOT
+
+        # Case-insensitive
+        config4 = CognitiveConfig(thinking_strategy="REACT")
+        assert config4.thinking_strategy == ThinkingStrategy.REACT
+
+    def test_thinking_strategy_invalid_string(self):
+        """Test that invalid string raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown thinking_strategy"):
+            CognitiveConfig(thinking_strategy="invalid_strategy")
+
 
 # ============================================================================
 # Memory Integration Tests
