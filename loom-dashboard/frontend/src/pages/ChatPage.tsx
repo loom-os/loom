@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import ChatInterface from "@/components/ChatInterface";
 import ChatSettingsPanel, { ChatSettings } from "@/components/ChatSettingsPanel";
-import { Settings2 } from "lucide-react";
+import { Settings2, Wifi, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useWebSocket, type WsMessage } from "@/hooks/useWebSocket";
+import { Badge } from "@/components/ui/badge";
 
 interface ChatMessage {
   id: string;
@@ -34,9 +36,98 @@ const ChatPage = () => {
     topP: 1,
   });
 
+  // Current thread ID for this chat session
+  const threadIdRef = useRef<string>(`thread-${Date.now()}`);
+
+  // Accumulate streaming response
+  const streamingMessageRef = useRef<{ id: string; content: string } | null>(null);
+
+  // WebSocket connection
+  const wsUrl = `ws://${window.location.host}/ws`;
+  const { isConnected, send, lastMessage } = useWebSocket(wsUrl, {
+    reconnect: true,
+    onOpen: () => {
+      console.log('[ChatPage] WebSocket connected');
+    },
+    onClose: () => {
+      console.log('[ChatPage] WebSocket disconnected');
+    },
+  });
+
+  // Handle incoming messages
+  useEffect(() => {
+    if (!lastMessage) return;
+
+    switch (lastMessage.type) {
+      case 'chat_chunk': {
+        const { thread_id, content, sequence } = lastMessage;
+        if (thread_id !== threadIdRef.current) return;
+
+        // Create or update streaming message
+        if (sequence === 0 || !streamingMessageRef.current) {
+          // First chunk - create new message
+          const messageId = `msg-${Date.now()}`;
+          streamingMessageRef.current = { id: messageId, content };
+
+          const newMessage: ChatMessage = {
+            id: messageId,
+            role: "assistant",
+            content,
+            timestamp: new Date(),
+          };
+          setChatMessages((prev) => [...prev, newMessage]);
+        } else {
+          // Subsequent chunks - append content
+          streamingMessageRef.current.content += content;
+          const messageId = streamingMessageRef.current.id;
+
+          setChatMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === messageId
+                ? { ...msg, content: streamingMessageRef.current!.content }
+                : msg
+            )
+          );
+        }
+        break;
+      }
+
+      case 'chat_complete': {
+        const { thread_id } = lastMessage;
+        if (thread_id !== threadIdRef.current) return;
+
+        // Finish streaming
+        streamingMessageRef.current = null;
+        setIsLoading(false);
+        break;
+      }
+
+      case 'error': {
+        console.error('[ChatPage] Error:', lastMessage.message);
+        setIsLoading(false);
+
+        // Show error message
+        const errorMessage: ChatMessage = {
+          id: `error-${Date.now()}`,
+          role: "assistant",
+          content: `Error: ${lastMessage.message}`,
+          timestamp: new Date(),
+        };
+        setChatMessages((prev) => [...prev, errorMessage]);
+        break;
+      }
+    }
+  }, [lastMessage]);
+
   const handleSendMessage = (content: string) => {
+    if (!isConnected) {
+      console.warn('[ChatPage] Cannot send message: not connected');
+      return;
+    }
+
+    // Add user message
     const userMessage: ChatMessage = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: `user-${Date.now()}`,
       role: "user",
       content,
       timestamp: new Date(),
@@ -44,45 +135,55 @@ const ChatPage = () => {
     setChatMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
-    // Simulate agent response
-    setTimeout(() => {
-      const respondingAgent = ["planner", "researcher", "writer"][
-        Math.floor(Math.random() * 3)
-      ];
-
-      setTimeout(() => {
-        const assistantMessage: ChatMessage = {
-          id: Math.random().toString(36).substr(2, 9),
-          role: "assistant",
-          content: generateAgentResponse(content),
-          timestamp: new Date(),
-          agentId: respondingAgent,
-        };
-        setChatMessages((prev) => [...prev, assistantMessage]);
-        setIsLoading(false);
-      }, 1000 + Math.random() * 1000);
-    }, 500 + Math.random() * 500);
-  };
-
-  const generateAgentResponse = (input: string): string => {
-    const responses = [
-      `I've analyzed your request about "${input.slice(0, 20)}...". The research agent is gathering relevant data, and I'm coordinating the workflow.`,
-      `Processing your query. I've dispatched tasks to the research team and will synthesize the findings shortly.`,
-      `Understood. I'm breaking down this task and routing it through our agent network for optimal processing.`,
-      `Your request has been received. Multiple agents are collaborating to provide a comprehensive response.`,
-    ];
-    return responses[Math.floor(Math.random() * responses.length)];
+    // Send to WebSocket
+    send({
+      type: 'chat_request',
+      thread_id: threadIdRef.current,
+      content,
+      settings: {
+        model: settings.model,
+        temperature: settings.temperature,
+        max_tokens: settings.maxTokens,
+      },
+    });
   };
 
   return (
     <div className="h-full flex relative">
       <div className="flex-1 p-6">
-        <div className="h-full max-w-4xl mx-auto">
-          <ChatInterface
-            messages={chatMessages}
-            onSendMessage={handleSendMessage}
-            isLoading={isLoading}
-          />
+        <div className="h-full max-w-4xl mx-auto flex flex-col gap-4">
+          {/* Connection Status */}
+          <div className="flex items-center justify-between px-4 py-2 bg-muted/30 rounded-lg">
+            <div className="flex items-center gap-2">
+              {isConnected ? (
+                <>
+                  <Wifi className="h-4 w-4 text-green-500" />
+                  <Badge variant="outline" className="text-green-600 border-green-600">
+                    Connected
+                  </Badge>
+                </>
+              ) : (
+                <>
+                  <WifiOff className="h-4 w-4 text-amber-500" />
+                  <Badge variant="outline" className="text-amber-600 border-amber-600">
+                    Connecting...
+                  </Badge>
+                </>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Thread: {threadIdRef.current}
+            </p>
+          </div>
+
+          {/* Chat Interface */}
+          <div className="flex-1 overflow-hidden">
+            <ChatInterface
+              messages={chatMessages}
+              onSendMessage={handleSendMessage}
+              isLoading={isLoading}
+            />
+          </div>
         </div>
       </div>
 
