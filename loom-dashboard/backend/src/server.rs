@@ -143,8 +143,9 @@ impl DashboardServer {
             .route("/health", get(health_handler))
             // WebSocket endpoint for real-time bidirectional communication
             .route("/ws", get(websocket_handler))
-            // API routes (will be expanded in later issues)
+            // API routes
             .route("/api/config", get(config_handler))
+            .route("/api/agents", get(agents_handler))
             .with_state(state.clone());
 
         // Serve frontend static files if enabled
@@ -362,6 +363,86 @@ async fn config_handler(State(state): State<Arc<DashboardState>>) -> impl IntoRe
         })
 }
 
+/// Available agents endpoint
+///
+/// Returns a list of all registered agents with their capabilities and status.
+/// Clients can use this to discover which agents are available for interaction.
+///
+/// # Response Format
+///
+/// ```json
+/// {
+///   "agents": [
+///     {
+///       "agent_id": "chat-assistant",
+///       "status": "active",
+///       "subscribed_topics": ["chat.input"],
+///       "capabilities": ["web_search", "file_write"],
+///       "metadata": {"type": "cognitive"},
+///       "last_heartbeat": 1734393600000
+///     }
+///   ],
+///   "count": 1,
+///   "timestamp": "2024-12-17T00:00:00Z"
+/// }
+/// ```
+async fn agents_handler(State(state): State<Arc<DashboardState>>) -> impl IntoResponse {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct AvailableAgent {
+        agent_id: String,
+        status: String,
+        subscribed_topics: Vec<String>,
+        capabilities: Vec<String>,
+        metadata: std::collections::HashMap<String, String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        last_heartbeat: Option<i64>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct AgentsResponse {
+        agents: Vec<AvailableAgent>,
+        count: usize,
+        timestamp: String,
+    }
+
+    // Get all agents from directory
+    let all_agents = state.agent_directory.all();
+
+    // Convert to response format
+    let agents: Vec<AvailableAgent> = all_agents
+        .into_iter()
+        .map(|info| {
+            let status = match info.status {
+                loom_core::agent::directory::AgentStatus::Active => "active",
+                loom_core::agent::directory::AgentStatus::Idle => "idle",
+                loom_core::agent::directory::AgentStatus::Inactive => "inactive",
+                loom_core::agent::directory::AgentStatus::Disconnected => "disconnected",
+            };
+
+            AvailableAgent {
+                agent_id: info.agent_id,
+                status: status.to_string(),
+                subscribed_topics: info.subscribed_topics,
+                capabilities: info.capabilities,
+                metadata: info.metadata,
+                last_heartbeat: info.last_heartbeat,
+            }
+        })
+        .collect();
+
+    let count = agents.len();
+
+    let response = AgentsResponse {
+        agents,
+        count,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+
+    axum::Json(response)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,5 +469,116 @@ mod tests {
         let server = DashboardServer::new(config, event_bus, agent_directory);
         // Just ensure it doesn't panic
         drop(server);
+    }
+
+    #[tokio::test]
+    async fn test_agents_endpoint_empty() {
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let config = DashboardConfig::default();
+        let event_bus = Arc::new(EventBus::new().await.unwrap());
+        let agent_directory = Arc::new(AgentDirectory::new());
+        let connection_manager = Arc::new(crate::ws::ConnectionManager::new());
+
+        let state = Arc::new(DashboardState {
+            config,
+            event_bus,
+            agent_directory,
+            connection_manager,
+        });
+
+        let app = Router::new()
+            .route("/api/agents", get(agents_handler))
+            .with_state(state);
+
+        let request = Request::builder()
+            .uri("/api/agents")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+
+        // Should return empty array
+        assert!(body_str.contains("\"agents\":[]"));
+        assert!(body_str.contains("\"count\":0"));
+    }
+
+    #[tokio::test]
+    async fn test_agents_endpoint_with_agents() {
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+        use loom_core::agent::directory::AgentInfo;
+
+        let config = DashboardConfig::default();
+        let event_bus = Arc::new(EventBus::new().await.unwrap());
+        let agent_directory = Arc::new(AgentDirectory::new());
+        let connection_manager = Arc::new(crate::ws::ConnectionManager::new());
+
+        // Register test agents
+        agent_directory.register_agent(AgentInfo {
+            agent_id: "chat-assistant".to_string(),
+            subscribed_topics: vec!["chat.input".to_string()],
+            capabilities: vec!["web_search".to_string(), "file_write".to_string()],
+            metadata: {
+                let mut m = std::collections::HashMap::new();
+                m.insert("type".to_string(), "cognitive".to_string());
+                m
+            },
+            last_heartbeat: Some(chrono::Utc::now().timestamp_millis()),
+            status: loom_core::agent::directory::AgentStatus::Active,
+        });
+
+        agent_directory.register_agent(AgentInfo {
+            agent_id: "worker-agent".to_string(),
+            subscribed_topics: vec!["tasks.background".to_string()],
+            capabilities: vec!["process_data".to_string()],
+            metadata: std::collections::HashMap::new(),
+            last_heartbeat: Some(chrono::Utc::now().timestamp_millis()),
+            status: loom_core::agent::directory::AgentStatus::Idle,
+        });
+
+        let state = Arc::new(DashboardState {
+            config,
+            event_bus,
+            agent_directory,
+            connection_manager,
+        });
+
+        let app = Router::new()
+            .route("/api/agents", get(agents_handler))
+            .with_state(state);
+
+        let request = Request::builder()
+            .uri("/api/agents")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+
+        // Should return 2 agents
+        assert!(body_str.contains("\"count\":2"));
+        assert!(body_str.contains("\"chat-assistant\""));
+        assert!(body_str.contains("\"worker-agent\""));
+        assert!(body_str.contains("\"chat.input\""));
+        assert!(body_str.contains("\"web_search\""));
+        assert!(body_str.contains("\"active\""));
+        assert!(body_str.contains("\"idle\""));
     }
 }

@@ -19,10 +19,31 @@ Web-based UI for Loom agent runtime, providing real-time observability and inter
   - Tool call monitoring
 
 - 🎛️ **Agent Management**
-  - Monitor running agents
-  - View agent status and capabilities
-  - Configure agent behavior
-  - Observe multi-agent workflows
+  - Discover available agents via REST API
+  - Monitor running agents status
+  - View agent capabilities and topics
+  - Filter cognitive agents for interaction
+  - Real-time heartbeat monitoring
+
+## Implementation Status
+
+### ✅ Completed (Issues 1-4)
+
+- Backend crate skeleton with axum server
+- WebSocket bidirectional communication
+- EventBus bridge for real-time updates
+- **Agent Discovery API** (`GET /api/agents`)
+- Frontend WebSocket hook (`useWebSocket`)
+- Frontend Agent Discovery hook (`useAgents`)
+- Comprehensive test coverage
+
+### 🚧 In Progress
+
+- Issue 5: Chat routing implementation
+- Issue 6: Frontend agent selector UI
+- Issue 7: Streaming chat with agent selection
+
+See [ROADMAP](./docs/ROADMAP.md) for detailed implementation plan.
 
 ## Architecture
 
