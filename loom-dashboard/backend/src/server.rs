@@ -42,6 +42,7 @@ use loom_core::agent::directory::AgentDirectory;
 use loom_core::messaging::event_bus::EventBus;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 use tracing::{info, warn};
 
 /// Dashboard server state shared across handlers
@@ -138,15 +139,45 @@ impl DashboardServer {
     /// Build the application router
     fn build_router(&self, state: Arc<DashboardState>) -> Router {
         let mut app = Router::new()
-            // Root endpoint - welcome page
-            .route("/", get(index_handler))
             // Health check endpoint
             .route("/health", get(health_handler))
             // WebSocket endpoint for real-time bidirectional communication
             .route("/ws", get(websocket_handler))
             // API routes (will be expanded in later issues)
             .route("/api/config", get(config_handler))
-            .with_state(state);
+            .with_state(state.clone());
+
+        // Serve frontend static files if enabled
+        if state.config.frontend.serve_frontend {
+            let frontend_path = state.config.frontend.static_path
+                .clone()
+                .unwrap_or_else(|| {
+                    // Default to ../frontend/dist relative to cargo workspace
+                    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .parent()
+                        .unwrap()
+                        .join("frontend")
+                        .join("dist")
+                });
+
+            if frontend_path.exists() {
+                info!(
+                    target: "loom_dashboard",
+                    path = ?frontend_path,
+                    "Serving frontend from path"
+                );
+                app = app.nest_service("/", ServeDir::new(frontend_path));
+            } else {
+                warn!(
+                    target: "loom_dashboard",
+                    path = ?frontend_path,
+                    "Frontend path not found, serving fallback page"
+                );
+                app = app.route("/", get(fallback_handler));
+            }
+        } else {
+            app = app.route("/", get(fallback_handler));
+        }
 
         // Add CORS layer if enabled
         if self.config.cors.enabled {
@@ -177,8 +208,8 @@ impl DashboardServer {
     }
 }
 
-/// Index page handler - welcome page
-async fn index_handler() -> impl IntoResponse {
+/// Fallback page handler when frontend is not available
+async fn fallback_handler() -> impl IntoResponse {
     Html(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -337,8 +368,8 @@ mod tests {
     use loom_core::messaging::event_bus::EventBus;
 
     #[tokio::test]
-    async fn test_index_handler() {
-        let response = index_handler().await.into_response();
+    async fn test_fallback_handler() {
+        let response = fallback_handler().await.into_response();
         assert_eq!(response.status(), axum::http::StatusCode::OK);
     }
 
