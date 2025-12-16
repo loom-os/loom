@@ -338,12 +338,21 @@ export function useWebSocket(
 
   // Connect on mount
   useEffect(() => {
+    shouldConnectRef.current = true;
     connect();
 
     return () => {
-      disconnect();
+      shouldConnectRef.current = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
-  }, [connect, disconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url]); // Only reconnect when URL changes
 
   return {
     isConnected,
