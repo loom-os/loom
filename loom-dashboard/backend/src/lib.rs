@@ -154,10 +154,12 @@
 
 pub mod config;
 pub mod server;
+pub mod ws;
 
 // Re-exports for convenience
 pub use config::DashboardConfig;
 pub use server::DashboardServer;
+pub use ws::{websocket_handler, ConnectionManager, EventBusBridge, WsMessage};
 
 /// Current crate version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

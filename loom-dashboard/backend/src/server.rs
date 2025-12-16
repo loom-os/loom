@@ -36,6 +36,7 @@
 //! ```
 
 use crate::config::DashboardConfig;
+use crate::ws::{websocket_handler, ConnectionManager, EventBusBridge};
 use axum::{extract::State, response::{Html, IntoResponse}, routing::get, Router};
 use loom_core::agent::directory::AgentDirectory;
 use loom_core::messaging::event_bus::EventBus;
@@ -44,7 +45,6 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing::{info, warn};
 
 /// Dashboard server state shared across handlers
-#[derive(Clone)]
 pub struct DashboardState {
     /// Configuration
     pub config: DashboardConfig,
@@ -54,6 +54,9 @@ pub struct DashboardState {
 
     /// Agent directory for topology information
     pub agent_directory: Arc<AgentDirectory>,
+
+    /// WebSocket connection manager
+    pub connection_manager: Arc<ConnectionManager>,
 }
 
 /// Main Dashboard server
@@ -99,11 +102,22 @@ impl DashboardServer {
             "Starting Dashboard server"
         );
 
-        let state = DashboardState {
+        let connection_manager = Arc::new(ConnectionManager::new());
+
+        let state = Arc::new(DashboardState {
             config: self.config.clone(),
             event_bus: self.event_bus.clone(),
             agent_directory: self.agent_directory.clone(),
-        };
+            connection_manager: connection_manager.clone(),
+        });
+
+        // Start EventBus bridge
+        let bridge = Arc::new(EventBusBridge::new(
+            self.event_bus.clone(),
+            connection_manager,
+        ));
+        bridge.clone().start().await?;
+        info!(target: "loom_dashboard", "EventBus bridge started");
 
         // Build router
         let app = self.build_router(state);
@@ -122,14 +136,14 @@ impl DashboardServer {
     }
 
     /// Build the application router
-    fn build_router(&self, state: DashboardState) -> Router {
+    fn build_router(&self, state: Arc<DashboardState>) -> Router {
         let mut app = Router::new()
             // Root endpoint - welcome page
             .route("/", get(index_handler))
             // Health check endpoint
             .route("/health", get(health_handler))
-            // Placeholder for WebSocket (will be implemented in Issue 2)
-            .route("/ws", get(websocket_placeholder))
+            // WebSocket endpoint for real-time bidirectional communication
+            .route("/ws", get(websocket_handler))
             // API routes (will be expanded in later issues)
             .route("/api/config", get(config_handler))
             .with_state(state);
@@ -304,16 +318,8 @@ async fn health_handler() -> impl IntoResponse {
     .to_string()
 }
 
-/// WebSocket placeholder (will be implemented in Issue 2)
-async fn websocket_placeholder() -> impl IntoResponse {
-    (
-        axum::http::StatusCode::NOT_IMPLEMENTED,
-        "WebSocket endpoint not yet implemented",
-    )
-}
-
 /// Config handler - returns current configuration
-async fn config_handler(State(state): State<DashboardState>) -> impl IntoResponse {
+async fn config_handler(State(state): State<Arc<DashboardState>>) -> impl IntoResponse {
     serde_json::to_string(&state.config)
         .map(|json| (axum::http::StatusCode::OK, json))
         .unwrap_or_else(|e| {
