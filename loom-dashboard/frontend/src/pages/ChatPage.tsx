@@ -1,22 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import ChatInterface from "@/components/ChatInterface";
 import ChatSettingsPanel, { ChatSettings } from "@/components/ChatSettingsPanel";
 import AgentSelector from "@/components/AgentSelector";
-import { Settings2, Wifi, WifiOff, Users, Plus } from "lucide-react";
+import { Settings2, Wifi, WifiOff, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useWebSocket, type WsMessage } from "@/hooks/useWebSocket";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: Date;
-  agentId?: string;
-  agentName?: string;
-  isStreaming?: boolean;
-}
+import { useChat } from "@/hooks/useChat";
 
 const defaultTools = [
   { id: "web_search", name: "Web Search", enabled: true, description: "Search the web for information" },
@@ -27,11 +17,8 @@ const defaultTools = [
 ];
 
 const ChatPage = () => {
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentSelectorOpen, setAgentSelectorOpen] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const previousAgentIdRef = useRef<string | null>(null);
   const [settings, setSettings] = useState<ChatSettings>({
     model: "gpt-4o",
@@ -43,110 +30,18 @@ const ChatPage = () => {
     topP: 1,
   });
 
-  // Current thread ID for this chat session
-  const threadIdRef = useRef<string>(`thread-${Date.now()}`);
-
-  // Accumulate streaming response
-  const streamingMessageRef = useRef<{ id: string; content: string } | null>(null);
-
-  // Track agents used in this session
-  const usedAgents = Array.from(
-    new Set(
-      chatMessages
-        .filter((msg) => msg.role === "assistant" && msg.agentId)
-        .map((msg) => msg.agentId)
-    )
-  ).filter(Boolean);
-
-  // WebSocket connection
-  const wsUrl = `ws://${window.location.host}/ws`;
-  const { isConnected, send, lastMessage } = useWebSocket(wsUrl, {
-    reconnect: true,
-    onOpen: () => {
-      console.log('[ChatPage] WebSocket connected');
-    },
-    onClose: () => {
-      console.log('[ChatPage] WebSocket disconnected');
-    },
-  });
-
-  // Handle incoming messages
-  useEffect(() => {
-    if (!lastMessage) return;
-
-    switch (lastMessage.type) {
-      case 'chat_chunk': {
-        const { thread_id, content, sequence } = lastMessage;
-        if (thread_id !== threadIdRef.current) return;
-
-        // Create or update streaming message
-        if (sequence === 0 || !streamingMessageRef.current) {
-          // First chunk - create new message
-          const messageId = `msg-${Date.now()}`;
-          streamingMessageRef.current = { id: messageId, content };
-
-          const newMessage: ChatMessage = {
-            id: messageId,
-            role: "assistant",
-            content,
-            timestamp: new Date(),
-            agentId: selectedAgentId || undefined,
-            agentName: selectedAgentId || undefined,
-            isStreaming: true,
-          };
-          setChatMessages((prev) => [...prev, newMessage]);
-        } else {
-          // Subsequent chunks - append content
-          streamingMessageRef.current.content += content;
-          const messageId = streamingMessageRef.current.id;
-
-          setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === messageId
-                ? { ...msg, content: streamingMessageRef.current!.content, isStreaming: true }
-                : msg
-            )
-          );
-        }
-        break;
-      }
-
-      case 'chat_complete': {
-        const { thread_id } = lastMessage;
-        if (thread_id !== threadIdRef.current) return;
-
-        // Mark message as completed (no longer streaming)
-        if (streamingMessageRef.current) {
-          const messageId = streamingMessageRef.current.id;
-          setChatMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === messageId ? { ...msg, isStreaming: false } : msg
-            )
-          );
-        }
-
-        // Finish streaming
-        streamingMessageRef.current = null;
-        setIsLoading(false);
-        break;
-      }
-
-      case 'error': {
-        console.error('[ChatPage] Error:', lastMessage.message);
-        setIsLoading(false);
-
-        // Show error message
-        const errorMessage: ChatMessage = {
-          id: `error-${Date.now()}`,
-          role: "assistant",
-          content: `Error: ${lastMessage.message}`,
-          timestamp: new Date(),
-        };
-        setChatMessages((prev) => [...prev, errorMessage]);
-        break;
-      }
-    }
-  }, [lastMessage]);
+  // Use the unified chat hook
+  const {
+    messages,
+    isLoading,
+    isConnected,
+    selectedAgentId,
+    setSelectedAgentId,
+    usedAgents,
+    sendMessage,
+    clearMessages,
+    startNewThread,
+  } = useChat();
 
   const handleSendMessage = (content: string) => {
     if (!isConnected) {
@@ -156,41 +51,11 @@ const ChatPage = () => {
 
     if (!selectedAgentId) {
       console.warn('[ChatPage] Cannot send message: no agent selected');
-      // Show error in chat
-      const errorMessage: ChatMessage = {
-        id: `error-${Date.now()}`,
-        role: "assistant",
-        content: "⚠️ Please select an agent first",
-        timestamp: new Date(),
-      };
-      setChatMessages((prev) => [...prev, errorMessage]);
       setAgentSelectorOpen(true);
       return;
     }
 
-    // Add user message
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content,
-      timestamp: new Date(),
-      agentId: selectedAgentId,
-    };
-    setChatMessages((prev) => [...prev, userMessage]);
-    setIsLoading(true);
-
-    // Send to WebSocket with selected agent
-    send({
-      type: 'chat_request',
-      thread_id: threadIdRef.current,
-      content,
-      agent_id: selectedAgentId,
-      settings: {
-        model: settings.model,
-        temperature: settings.temperature,
-        max_tokens: settings.maxTokens,
-      },
-    });
+    sendMessage(content);
   };
 
   return (
@@ -249,22 +114,16 @@ const ChatPage = () => {
                   {usedAgents.length} agents used
                 </Badge>
               )}
-              <p className="text-sm text-muted-foreground">
-                Thread: {threadIdRef.current.split('-')[1]?.slice(0, 8)}
-              </p>
-              {chatMessages.length > 0 && (
+              {messages.length > 0 && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    setChatMessages([]);
-                    threadIdRef.current = `thread-${Date.now()}`;
-                    streamingMessageRef.current = null;
-                    setIsLoading(false);
+                    clearMessages();
+                    startNewThread();
                   }}
                   className="h-7 text-xs"
                 >
-                  <Plus className="h-3 w-3 mr-1" />
                   New Chat
                 </Button>
               )}
@@ -274,7 +133,7 @@ const ChatPage = () => {
           {/* Chat Interface */}
           <div className="flex-1 overflow-hidden">
             <ChatInterface
-              messages={chatMessages}
+              messages={messages}
               onSendMessage={handleSendMessage}
               isLoading={isLoading}
             />
@@ -301,28 +160,8 @@ const ChatPage = () => {
             <AgentSelector
               selectedAgentId={selectedAgentId}
               onSelectAgent={(agentId) => {
-                const previousAgent = selectedAgentId;
                 setSelectedAgentId(agentId);
                 setAgentSelectorOpen(false);
-
-                // Add system message for agent switch
-                if (previousAgent && previousAgent !== agentId) {
-                  const systemMessage: ChatMessage = {
-                    id: `system-${Date.now()}`,
-                    role: "assistant",
-                    content: `🔄 Switched from ${previousAgent} to ${agentId}`,
-                    timestamp: new Date(),
-                  };
-                  setChatMessages((prev) => [...prev, systemMessage]);
-                } else if (!previousAgent) {
-                  const systemMessage: ChatMessage = {
-                    id: `system-${Date.now()}`,
-                    role: "assistant",
-                    content: `✨ Started conversation with ${agentId}`,
-                    timestamp: new Date(),
-                  };
-                  setChatMessages((prev) => [...prev, systemMessage]);
-                }
               }}
               cognitiveOnly={true}
             />

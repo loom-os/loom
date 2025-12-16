@@ -2,21 +2,13 @@ import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, Bot, User, Loader2 } from "lucide-react";
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: Date;
-  agentId?: string;
-  agentName?: string;
-  isStreaming?: boolean;
-}
+import { Send, Bot } from "lucide-react";
+import { MessageList } from "@/components/MessageBubble";
+import type { ChatMessage } from "@/hooks/useChat";
 
 interface ChatInterfaceProps {
   onSendMessage?: (message: string) => void;
-  messages: Message[];
+  messages: ChatMessage[];
   isLoading?: boolean;
 }
 
@@ -83,62 +75,8 @@ const ChatInterface = ({ onSendMessage, messages, isLoading = false }: ChatInter
         // Conversation state
         <>
           <ScrollArea className="flex-1 px-4 py-4" ref={scrollRef}>
-            <div className="space-y-4 max-w-3xl mx-auto">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  {message.role === "assistant" && (
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <Bot className="h-4 w-4 text-primary" />
-                    </div>
-                  )}
-                  <div
-                    className={`max-w-[75%] rounded-2xl px-4 py-3 ${
-                      message.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted/50 text-foreground"
-                    }`}
-                  >
-                    {(message.agentId || message.agentName) && message.role === "assistant" && (
-                      <div className="flex items-center gap-2 mb-1">
-                        <div className="text-xs text-primary font-medium">
-                          {message.agentName || message.agentId}
-                        </div>
-                        {message.isStreaming && (
-                          <div className="flex gap-0.5">
-                            <div className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0ms' }}></div>
-                            <div className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '150ms' }}></div>
-                            <div className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '300ms' }}></div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <p className="whitespace-pre-wrap text-sm">{message.content}</p>
-                    <div className={`text-[10px] mt-1.5 ${
-                      message.role === "user" ? "text-primary-foreground/70" : "text-muted-foreground"
-                    }`}>
-                      {message.timestamp.toLocaleTimeString()}
-                    </div>
-                  </div>
-                  {message.role === "user" && (
-                    <div className="w-8 h-8 rounded-full bg-secondary/10 flex items-center justify-center flex-shrink-0">
-                      <User className="h-4 w-4 text-secondary-foreground" />
-                    </div>
-                  )}
-                </div>
-              ))}
-              {isLoading && (
-                <div className="flex gap-3 justify-start">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <Bot className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="bg-muted/50 rounded-2xl px-4 py-3">
-                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  </div>
-                </div>
-              )}
+            <div className="max-w-3xl mx-auto">
+              <MessageList messages={messages} isLoading={isLoading} />
             </div>
           </ScrollArea>
 
