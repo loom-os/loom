@@ -1,0 +1,355 @@
+//! Dashboard Server Module
+//!
+//! Provides the main HTTP/WebSocket server for the Loom Dashboard.
+//!
+//! The server exposes:
+//! - REST API endpoints for configuration and data
+//! - WebSocket endpoint for real-time bidirectional communication
+//! - Static file serving for the frontend (optional)
+//!
+//! # Architecture
+//!
+//! ```text
+//! Browser ←→ WebSocket ←→ Dashboard Server ←→ EventBus/Bridge
+//!                              (axum)
+//! ```
+//!
+//! # Example
+//!
+//! ```no_run
+//! use loom_dashboard::{DashboardConfig, DashboardServer};
+//! use loom_core::messaging::event_bus::EventBus;
+//! use loom_core::agent::directory::AgentDirectory;
+//! use std::sync::Arc;
+//!
+//! #[tokio::main]
+//! async fn main() -> anyhow::Result<()> {
+//!     let config = DashboardConfig::from_env();
+//!     let event_bus = Arc::new(EventBus::new().await?);
+//!     let agent_directory = Arc::new(AgentDirectory::new());
+//!
+//!     let server = DashboardServer::new(config, event_bus, agent_directory);
+//!     server.serve().await?;
+//!
+//!     Ok(())
+//! }
+//! ```
+
+use crate::config::DashboardConfig;
+use axum::{extract::State, response::{Html, IntoResponse}, routing::get, Router};
+use loom_core::agent::directory::AgentDirectory;
+use loom_core::messaging::event_bus::EventBus;
+use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
+use tracing::{info, warn};
+
+/// Dashboard server state shared across handlers
+#[derive(Clone)]
+pub struct DashboardState {
+    /// Configuration
+    pub config: DashboardConfig,
+
+    /// Event bus for agent communication
+    pub event_bus: Arc<EventBus>,
+
+    /// Agent directory for topology information
+    pub agent_directory: Arc<AgentDirectory>,
+}
+
+/// Main Dashboard server
+pub struct DashboardServer {
+    config: DashboardConfig,
+    event_bus: Arc<EventBus>,
+    agent_directory: Arc<AgentDirectory>,
+}
+
+impl DashboardServer {
+    /// Create a new Dashboard server
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Server configuration
+    /// * `event_bus` - Event bus for agent communication
+    /// * `agent_directory` - Agent directory for topology
+    pub fn new(
+        config: DashboardConfig,
+        event_bus: Arc<EventBus>,
+        agent_directory: Arc<AgentDirectory>,
+    ) -> Self {
+        Self {
+            config,
+            event_bus,
+            agent_directory,
+        }
+    }
+
+    /// Start the Dashboard server
+    ///
+    /// This will bind to the configured address and start serving requests.
+    /// The function will block until the server is stopped.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the server fails to bind or start.
+    pub async fn serve(self) -> anyhow::Result<()> {
+        let addr = self.config.bind_address();
+        info!(
+            target: "loom_dashboard",
+            addr = %addr,
+            "Starting Dashboard server"
+        );
+
+        let state = DashboardState {
+            config: self.config.clone(),
+            event_bus: self.event_bus.clone(),
+            agent_directory: self.agent_directory.clone(),
+        };
+
+        // Build router
+        let app = self.build_router(state);
+
+        // Start server
+        let listener = tokio::net::TcpListener::bind(&addr).await?;
+        info!(
+            target: "loom_dashboard",
+            url = %format!("http://{}", addr),
+            "Dashboard server ready"
+        );
+
+        axum::serve(listener, app).await?;
+
+        Ok(())
+    }
+
+    /// Build the application router
+    fn build_router(&self, state: DashboardState) -> Router {
+        let mut app = Router::new()
+            // Root endpoint - welcome page
+            .route("/", get(index_handler))
+            // Health check endpoint
+            .route("/health", get(health_handler))
+            // Placeholder for WebSocket (will be implemented in Issue 2)
+            .route("/ws", get(websocket_placeholder))
+            // API routes (will be expanded in later issues)
+            .route("/api/config", get(config_handler))
+            .with_state(state);
+
+        // Add CORS layer if enabled
+        if self.config.cors.enabled {
+            let cors = if self.config.cors.allowed_origins.is_empty() {
+                // Allow all origins in dev mode
+                CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods(Any)
+                    .allow_headers(Any)
+            } else {
+                // Specific origins in production
+                let origins: Vec<_> = self
+                    .config
+                    .cors
+                    .allowed_origins
+                    .iter()
+                    .filter_map(|origin| origin.parse().ok())
+                    .collect();
+                CorsLayer::new()
+                    .allow_origin(origins)
+                    .allow_methods(Any)
+                    .allow_headers(Any)
+            };
+            app = app.layer(cors);
+        }
+
+        app
+    }
+}
+
+/// Index page handler - welcome page
+async fn index_handler() -> impl IntoResponse {
+    Html(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loom Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 3rem;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            text-align: center;
+        }
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .subtitle {
+            color: #666;
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+        }
+        .status {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            background: #10b981;
+            color: white;
+            border-radius: 20px;
+            font-weight: 600;
+            margin-bottom: 2rem;
+        }
+        .endpoints {
+            text-align: left;
+            background: #f9fafb;
+            padding: 1.5rem;
+            border-radius: 10px;
+            margin-top: 2rem;
+        }
+        .endpoints h3 {
+            margin-bottom: 1rem;
+            color: #667eea;
+        }
+        .endpoint {
+            display: flex;
+            margin: 0.75rem 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+        .method {
+            background: #667eea;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            margin-right: 0.5rem;
+            font-weight: 600;
+            min-width: 50px;
+            text-align: center;
+        }
+        .path {
+            color: #333;
+        }
+        .info {
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid #e5e7eb;
+            color: #666;
+            font-size: 0.9rem;
+        }
+        a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧠 Loom Dashboard</h1>
+        <div class="subtitle">AI Agent Runtime Observability</div>
+        <div class="status">✓ Server Running</div>
+
+        <div class="endpoints">
+            <h3>Available Endpoints:</h3>
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <span class="path">/health</span>
+            </div>
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <span class="path">/api/config</span>
+            </div>
+            <div class="endpoint">
+                <span class="method">GET</span>
+                <span class="path">/ws</span>
+            </div>
+        </div>
+
+        <div class="info">
+            <p>Frontend: Coming soon! 🚀</p>
+            <p style="margin-top: 0.5rem;">
+                <a href="/health">Check Health</a> |
+                <a href="/api/config">View Config</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>"#,
+    )
+}
+
+/// Health check handler
+async fn health_handler() -> impl IntoResponse {
+    serde_json::json!({
+        "status": "ok",
+        "service": "loom-dashboard",
+        "version": env!("CARGO_PKG_VERSION"),
+    })
+    .to_string()
+}
+
+/// WebSocket placeholder (will be implemented in Issue 2)
+async fn websocket_placeholder() -> impl IntoResponse {
+    (
+        axum::http::StatusCode::NOT_IMPLEMENTED,
+        "WebSocket endpoint not yet implemented",
+    )
+}
+
+/// Config handler - returns current configuration
+async fn config_handler(State(state): State<DashboardState>) -> impl IntoResponse {
+    serde_json::to_string(&state.config)
+        .map(|json| (axum::http::StatusCode::OK, json))
+        .unwrap_or_else(|e| {
+            warn!(target: "loom_dashboard", error = %e, "Failed to serialize config");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to serialize config".to_string(),
+            )
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use loom_core::messaging::event_bus::EventBus;
+
+    #[tokio::test]
+    async fn test_index_handler() {
+        let response = index_handler().await.into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_health_endpoint() {
+        let response = health_handler().await.into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_server_creation() {
+        let config = DashboardConfig::default();
+        let event_bus = Arc::new(EventBus::new().await.unwrap());
+        let agent_directory = Arc::new(AgentDirectory::new());
+
+        let server = DashboardServer::new(config, event_bus, agent_directory);
+        // Just ensure it doesn't panic
+        drop(server);
+    }
+}

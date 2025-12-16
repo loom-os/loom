@@ -1,0 +1,49 @@
+[package]
+name = "loom-dashboard"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Loom Dashboard - Web UI for observability and agent interaction"
+repository = "https://github.com/loom-os/loom"
+
+[dependencies]
+# Core dependencies
+loom-core = { path = "../../core" }
+loom-proto = { path = "../../loom-proto" }
+
+# Web framework
+axum = { version = "0.7", features = ["ws", "macros"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# WebSocket
+futures = "0.3"
+futures-util = "0.3"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockito = "1.5"
+
+[features]
+default = []
+# Development mode: CORS relaxed, debug endpoints enabled
+dev = []
+# Production mode: embed static assets
+embed-frontend = []
