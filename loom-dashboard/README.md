@@ -27,7 +27,7 @@ Web-based UI for Loom agent runtime, providing real-time observability and inter
 
 ## Implementation Status
 
-### ✅ Completed (Issues 1-4)
+### ✅ Completed (Issues 1-6)
 
 - Backend crate skeleton with axum server
 - WebSocket bidirectional communication
@@ -35,15 +35,17 @@ Web-based UI for Loom agent runtime, providing real-time observability and inter
 - **Agent Discovery API** (`GET /api/agents`)
 - Frontend WebSocket hook (`useWebSocket`)
 - Frontend Agent Discovery hook (`useAgents`)
+- **AgentSelector Component** with status indicators
+- **ChatPage Integration** with agent selection UI
 - Comprehensive test coverage
 
 ### 🚧 In Progress
 
-- Issue 5: Chat routing implementation
-- Issue 6: Frontend agent selector UI
-- Issue 7: Streaming chat with agent selection
+- Issue 5: Chat routing implementation (EventBus integration)
+- Issue 7: Streaming chat with multiple agents
+- Issue 8: Permission request handling
 
-See [ROADMAP](./docs/ROADMAP.md) for detailed implementation plan.
+See [backend/docs/](./backend/docs/) for detailed implementation guides.
 
 ## Architecture
 

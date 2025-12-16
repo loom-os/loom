@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import ChatInterface from "@/components/ChatInterface";
 import ChatSettingsPanel, { ChatSettings } from "@/components/ChatSettingsPanel";
-import { Settings2, Wifi, WifiOff } from "lucide-react";
+import AgentSelector from "@/components/AgentSelector";
+import { Settings2, Wifi, WifiOff, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWebSocket, type WsMessage } from "@/hooks/useWebSocket";
 import { Badge } from "@/components/ui/badge";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 interface ChatMessage {
   id: string;
@@ -26,6 +28,8 @@ const ChatPage = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [agentSelectorOpen, setAgentSelectorOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [settings, setSettings] = useState<ChatSettings>({
     model: "gpt-4o",
     temperature: 0.7,
@@ -125,21 +129,37 @@ const ChatPage = () => {
       return;
     }
 
+    if (!selectedAgentId) {
+      console.warn('[ChatPage] Cannot send message: no agent selected');
+      // Show error in chat
+      const errorMessage: ChatMessage = {
+        id: `error-${Date.now()}`,
+        role: "assistant",
+        content: "⚠️ Please select an agent first",
+        timestamp: new Date(),
+      };
+      setChatMessages((prev) => [...prev, errorMessage]);
+      setAgentSelectorOpen(true);
+      return;
+    }
+
     // Add user message
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
       content,
       timestamp: new Date(),
+      agentId: selectedAgentId,
     };
     setChatMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
-    // Send to WebSocket
+    // Send to WebSocket with selected agent
     send({
       type: 'chat_request',
       thread_id: threadIdRef.current,
       content,
+      agent_id: selectedAgentId,
       settings: {
         model: settings.model,
         temperature: settings.temperature,
@@ -152,23 +172,34 @@ const ChatPage = () => {
     <div className="h-full flex relative">
       <div className="flex-1 p-6">
         <div className="h-full max-w-4xl mx-auto flex flex-col gap-4">
-          {/* Connection Status */}
+          {/* Status Bar */}
           <div className="flex items-center justify-between px-4 py-2 bg-muted/30 rounded-lg">
-            <div className="flex items-center gap-2">
-              {isConnected ? (
-                <>
-                  <Wifi className="h-4 w-4 text-green-500" />
-                  <Badge variant="outline" className="text-green-600 border-green-600">
-                    Connected
-                  </Badge>
-                </>
-              ) : (
-                <>
-                  <WifiOff className="h-4 w-4 text-amber-500" />
-                  <Badge variant="outline" className="text-amber-600 border-amber-600">
-                    Connecting...
-                  </Badge>
-                </>
+            <div className="flex items-center gap-3">
+              {/* Connection Status */}
+              <div className="flex items-center gap-2">
+                {isConnected ? (
+                  <>
+                    <Wifi className="h-4 w-4 text-green-500" />
+                    <Badge variant="outline" className="text-green-600 border-green-600">
+                      Connected
+                    </Badge>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="h-4 w-4 text-amber-500" />
+                    <Badge variant="outline" className="text-amber-600 border-amber-600">
+                      Connecting...
+                    </Badge>
+                  </>
+                )}
+              </div>
+
+              {/* Selected Agent */}
+              {selectedAgentId && (
+                <div className="flex items-center gap-2 pl-3 border-l">
+                  <Users className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium">{selectedAgentId}</span>
+                </div>
               )}
             </div>
             <p className="text-sm text-muted-foreground">
@@ -187,6 +218,35 @@ const ChatPage = () => {
         </div>
       </div>
 
+      {/* Agent Selector Button */}
+      <Sheet open={agentSelectorOpen} onOpenChange={setAgentSelectorOpen}>
+        <SheetTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute left-4 top-4 h-10 w-10 rounded-full bg-muted/50 hover:bg-muted"
+          >
+            <Users className="h-5 w-5" />
+          </Button>
+        </SheetTrigger>
+        <SheetContent side="left" className="w-[400px] sm:w-[540px]">
+          <SheetHeader>
+            <SheetTitle>Select Agent</SheetTitle>
+          </SheetHeader>
+          <div className="mt-6">
+            <AgentSelector
+              selectedAgentId={selectedAgentId}
+              onSelectAgent={(agentId) => {
+                setSelectedAgentId(agentId);
+                setAgentSelectorOpen(false);
+              }}
+              cognitiveOnly={true}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Settings Button */}
       {!settingsOpen && (
         <Button
           variant="ghost"
