@@ -48,6 +48,8 @@ pub enum WsMessage {
         thread_id: String,
         /// Message content
         content: String,
+        /// Agent ID to route this request to
+        agent_id: String,
         /// Optional settings override
         #[serde(skip_serializing_if = "Option::is_none")]
         settings: Option<ChatSettings>,
@@ -246,6 +248,7 @@ mod tests {
         let msg = WsMessage::ChatRequest {
             thread_id: "thread-123".to_string(),
             content: "Hello".to_string(),
+            agent_id: "agent-1".to_string(),
             settings: None,
         };
 
@@ -256,15 +259,19 @@ mod tests {
 
     #[test]
     fn test_deserialize_chat_request() {
-        let json = r#"{"type":"chat_request","thread_id":"thread-123","content":"Hello"}"#;
+        let json = r#"{"type":"chat_request","thread_id":"thread-123","content":"Hello","agent_id":"agent-1"}"#;
         let msg: WsMessage = serde_json::from_str(json).unwrap();
 
         match msg {
             WsMessage::ChatRequest {
-                thread_id, content, ..
+                thread_id,
+                content,
+                agent_id,
+                ..
             } => {
                 assert_eq!(thread_id, "thread-123");
                 assert_eq!(content, "Hello");
+                assert_eq!(agent_id, "agent-1");
             }
             _ => panic!("Wrong message type"),
         }

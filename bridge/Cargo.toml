@@ -8,6 +8,7 @@ description = "Loom Bridge gRPC server for external SDK agents"
 [dependencies]
 loom-proto = { path = "../loom-proto" }
 loom-core = { path = "../core" }
+loom-dashboard = { path = "../loom-dashboard/backend" }
 tracing = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 tonic = { version = "0.10", features = ["transport"] }

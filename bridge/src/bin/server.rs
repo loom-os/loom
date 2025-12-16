@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 
 use loom_bridge::start_server;
 use loom_core::Loom;
+use loom_dashboard::{DashboardConfig, DashboardServer};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,17 +41,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut loom = Loom::new().await?;
     loom.start().await?;
 
-    let addr: SocketAddr = std::env::var("LOOM_BRIDGE_ADDR")
+    let bridge_addr: SocketAddr = std::env::var("LOOM_BRIDGE_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:50051".into())
         .parse()?;
 
+    // Load dashboard configuration
+    let dashboard_config = DashboardConfig::from_env();
+
+    // Start dashboard server in background (shares EventBus & AgentDirectory with bridge)
+    let dashboard = DashboardServer::new(
+        dashboard_config.clone(),
+        loom.event_bus.clone(),
+        loom.agent_directory.clone(),
+    );
+
+    tracing::info!(
+        "Starting Dashboard on http://{}:{}",
+        dashboard_config.server.host,
+        dashboard_config.server.port
+    );
+
+    let dashboard_task = tokio::spawn(async move {
+        if let Err(e) = dashboard.serve().await {
+            tracing::error!("Dashboard server error: {}", e);
+        }
+    });
+
     // Start bridge server (this will block)
-    start_server(
+    let bridge_result = start_server(
         loom.event_bus.clone(),
         loom.tool_registry.clone(),
         loom.agent_directory.clone(),
-        addr,
+        bridge_addr,
     )
-    .await
-    .map_err(|e| e.into())
+    .await;
+
+    // If bridge exits, abort dashboard
+    dashboard_task.abort();
+
+    bridge_result.map_err(|e| e.into())
 }

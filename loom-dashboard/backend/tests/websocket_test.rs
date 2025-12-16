@@ -67,24 +67,30 @@ async fn test_websocket_chat_request() {
     let chat_request = WsMessage::ChatRequest {
         thread_id: "test-thread".to_string(),
         content: "Hello, world!".to_string(),
+        agent_id: "test-agent".to_string(),
         settings: None,
     };
 
     let json = serde_json::to_string(&chat_request).unwrap();
     write.send(Message::Text(json)).await.unwrap();
 
-    // Expect to receive chat chunk response
+    // Expect to receive an error response (since no agents are registered)
     let msg_result = timeout(Duration::from_secs(2), read.next()).await;
     assert!(msg_result.is_ok(), "Timeout waiting for response");
 
     let msg = msg_result.unwrap().unwrap().unwrap();
     if let Message::Text(text) = msg {
         let response: WsMessage = serde_json::from_str(&text).unwrap();
+        // Should receive either an Error or ChatChunk with error content
         match response {
-            WsMessage::ChatChunk { thread_id, .. } => {
-                assert_eq!(thread_id, "test-thread");
+            WsMessage::Error { .. } => {
+                // Expected - no agents available
             }
-            _ => panic!("Expected ChatChunk response"),
+            WsMessage::ChatChunk { content, content_type, .. } => {
+                // Also acceptable - error sent as chat chunk
+                assert!(content_type == "error" || content.contains("Error"));
+            }
+            _ => panic!("Expected Error or ChatChunk with error, got: {:?}", response),
         }
     }
 
@@ -146,6 +152,7 @@ async fn test_websocket_invalid_message() {
     let ping_msg = WsMessage::ChatRequest {
         thread_id: "test".to_string(),
         content: "test".to_string(),
+        agent_id: "test-agent".to_string(),
         settings: None,
     };
     let json = serde_json::to_string(&ping_msg).unwrap();

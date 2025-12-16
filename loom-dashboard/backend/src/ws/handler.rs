@@ -117,14 +117,16 @@ async fn handle_client_message(
         WsMessage::ChatRequest {
             thread_id,
             content,
+            agent_id,
             settings,
         } => {
             debug!(
                 connection_id = %connection_id,
                 thread_id = %thread_id,
+                agent_id = %agent_id,
                 "Received chat request"
             );
-            handle_chat_request(connection_id, thread_id, content, settings, state).await?;
+            handle_chat_request(connection_id, thread_id, content, agent_id, settings, state).await?;
         }
 
         WsMessage::PermissionResponse {
@@ -161,36 +163,23 @@ async fn handle_client_message(
 
 /// Handle chat request
 async fn handle_chat_request(
-    _connection_id: &str,
+    connection_id: &str,
     thread_id: String,
     content: String,
+    agent_id: String,
     _settings: Option<super::message::ChatSettings>,
     state: &DashboardState,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: Forward to backend agent via EventBus
-    // For now, send a mock response
-    let response = WsMessage::chat_chunk(
-        thread_id.clone(),
-        format!("Echo: {}", content),
-        "text".to_string(),
-        0,
-    );
-
-    state.connection_manager.broadcast(response);
-
-    // Send completion
-    let complete = WsMessage::chat_complete(
+    // Use ChatRouter to handle the request
+    match state.chat_router.handle_chat_request(
+        connection_id.to_string(),
         thread_id,
-        super::message::StreamStats {
-            duration_ms: 100,
-            total_tokens: 10,
-            tool_calls: 0,
-        },
-    );
-
-    state.connection_manager.broadcast(complete);
-
-    Ok(())
+        content,
+        Some(agent_id),
+    ).await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e.to_string().into()),
+    }
 }
 
 /// Handle permission response
@@ -220,13 +209,14 @@ mod tests {
 
     #[test]
     fn test_message_parsing() {
-        let json = r#"{"type":"chat_request","thread_id":"thread-123","content":"Hello"}"#;
+        let json = r#"{"type":"chat_request","thread_id":"thread-123","content":"Hello","agent_id":"agent-1"}"#;
         let msg: WsMessage = serde_json::from_str(json).unwrap();
 
         match msg {
-            WsMessage::ChatRequest { thread_id, content, .. } => {
+            WsMessage::ChatRequest { thread_id, content, agent_id, .. } => {
                 assert_eq!(thread_id, "thread-123");
                 assert_eq!(content, "Hello");
+                assert_eq!(agent_id, "agent-1");
             }
             _ => panic!("Wrong message type"),
         }

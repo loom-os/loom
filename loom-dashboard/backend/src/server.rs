@@ -36,7 +36,7 @@
 //! ```
 
 use crate::config::DashboardConfig;
-use crate::ws::{websocket_handler, ConnectionManager, EventBusBridge};
+use crate::ws::{websocket_handler, ChatRouter, ConnectionManager, EventBusBridge};
 use axum::{extract::State, response::{Html, IntoResponse}, routing::get, Router};
 use loom_core::agent::directory::AgentDirectory;
 use loom_core::messaging::event_bus::EventBus;
@@ -58,6 +58,9 @@ pub struct DashboardState {
 
     /// WebSocket connection manager
     pub connection_manager: Arc<ConnectionManager>,
+
+    /// Chat router for handling chat requests
+    pub chat_router: Arc<ChatRouter>,
 }
 
 /// Main Dashboard server
@@ -104,12 +107,18 @@ impl DashboardServer {
         );
 
         let connection_manager = Arc::new(ConnectionManager::new());
+        let chat_router = Arc::new(ChatRouter::new(
+            self.event_bus.clone(),
+            self.agent_directory.clone(),
+            connection_manager.clone(),
+        ));
 
         let state = Arc::new(DashboardState {
             config: self.config.clone(),
             event_bus: self.event_bus.clone(),
             agent_directory: self.agent_directory.clone(),
             connection_manager: connection_manager.clone(),
+            chat_router,
         });
 
         // Start EventBus bridge
@@ -481,12 +490,18 @@ mod tests {
         let event_bus = Arc::new(EventBus::new().await.unwrap());
         let agent_directory = Arc::new(AgentDirectory::new());
         let connection_manager = Arc::new(crate::ws::ConnectionManager::new());
+        let chat_router = Arc::new(crate::ws::ChatRouter::new(
+            event_bus.clone(),
+            agent_directory.clone(),
+            connection_manager.clone(),
+        ));
 
         let state = Arc::new(DashboardState {
             config,
             event_bus,
             agent_directory,
             connection_manager,
+            chat_router,
         });
 
         let app = Router::new()
@@ -547,11 +562,18 @@ mod tests {
             status: loom_core::agent::directory::AgentStatus::Idle,
         });
 
+        let chat_router = Arc::new(crate::ws::ChatRouter::new(
+            event_bus.clone(),
+            agent_directory.clone(),
+            connection_manager.clone(),
+        ));
+
         let state = Arc::new(DashboardState {
             config,
             event_bus,
             agent_directory,
             connection_manager,
+            chat_router,
         });
 
         let app = Router::new()
