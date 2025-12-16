@@ -4,7 +4,6 @@
 pub mod agent;
 pub mod cognitive; // LLM + Cognitive Loop (perceive-think-act)
 pub mod context; // Context Engineering system
-pub mod dashboard; // Real-time event flow visualization
 pub mod messaging; // Event Bus, Envelope, Collab
 pub mod telemetry;
 pub mod tools; // Unified tool system (Native + MCP)

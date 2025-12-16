@@ -1,6 +1,5 @@
 //! Event Bus implementation with QoS-aware backpressure and topic routing.
 
-use crate::messaging::event_ext::EventExt;
 use crate::proto::{Event, QoSLevel};
 use crate::Result;
 use async_trait::async_trait;
@@ -58,12 +57,6 @@ pub struct EventBus {
     // Backpressure threshold
     backpressure_threshold: usize,
 
-    // Dashboard event broadcaster (optional)
-    dashboard_broadcaster: Option<crate::dashboard::EventBroadcaster>,
-
-    // Flow tracker for event flow visualization (optional)
-    flow_tracker: Option<Arc<crate::dashboard::FlowTracker>>,
-
     // OpenTelemetry metrics
     published_counter: Counter<u64>,
     delivered_counter: Counter<u64>,
@@ -114,9 +107,7 @@ impl EventBus {
             subscriptions: Arc::new(DashMap::new()),
             broadcast_tx,
             stats: Arc::new(DashMap::new()),
-            backpressure_threshold: 10_000,
-            dashboard_broadcaster: None,
-            flow_tracker: None,
+            backpressure_threshold: 10000,
             published_counter,
             delivered_counter,
             dropped_counter,
@@ -137,16 +128,6 @@ impl EventBus {
         Ok(())
     }
 
-    /// Set dashboard broadcaster for real-time event streaming
-    pub fn set_dashboard_broadcaster(&mut self, broadcaster: crate::dashboard::EventBroadcaster) {
-        self.dashboard_broadcaster = Some(broadcaster);
-    }
-
-    /// Set flow tracker for event flow visualization
-    pub fn set_flow_tracker(&mut self, flow_tracker: Arc<crate::dashboard::FlowTracker>) {
-        self.flow_tracker = Some(flow_tracker);
-    }
-
     /// Publish event to topic
     #[tracing::instrument(skip(self, event), fields(topic = %topic, event_id = %event.id, event_type = %event.r#type, qos_level = "unknown"))]
     pub async fn publish(&self, topic: &str, mut event: Event) -> Result<u64> {
@@ -158,33 +139,6 @@ impl EventBus {
         envelope.attach_to_event(&mut event);
 
         debug!("Publishing event {} to topic {}", event.id, topic);
-
-        // Broadcast to Dashboard (if enabled)
-        if let Some(ref broadcaster) = self.dashboard_broadcaster {
-            let payload_preview = String::from_utf8_lossy(&event.payload)
-                .chars()
-                .take(100)
-                .collect::<String>();
-
-            broadcaster.broadcast(crate::dashboard::DashboardEvent {
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                event_type: crate::dashboard::DashboardEventType::EventPublished,
-                event_id: event.id.clone(),
-                topic: topic.to_string(),
-                sender: event.sender().map(|s| s.to_string()),
-                thread_id: event.thread_id().map(|s| s.to_string()),
-                correlation_id: event.correlation_id().map(|s| s.to_string()),
-                payload_preview,
-                trace_id: envelope.trace_id.clone(),
-            });
-        }
-
-        // 🔧 Record flow from sender to EventBus (for Dashboard visibility)
-        if let Some(ref flow_tracker) = self.flow_tracker {
-            if let Some(sender) = event.sender() {
-                flow_tracker.record_flow(sender, "EventBus", topic).await;
-            }
-        }
 
         // Record published metric
         self.published_counter.add(
@@ -276,37 +230,6 @@ impl EventBus {
                         if sub.sender.try_send(event.clone()).is_ok() {
                             delivered += 1;
                             tracing::Span::current().record("delivered", true);
-
-                            // Record flow in FlowTracker (EventBus -> subscriber)
-                            if let Some(ref flow_tracker) = self.flow_tracker {
-                                let flow_tracker_clone = Arc::clone(flow_tracker);
-                                let sub_id = sub.id.clone();
-                                let topic_clone = topic.to_string();
-                                tokio::spawn(async move {
-                                    flow_tracker_clone
-                                        .record_flow("EventBus", &sub_id, &topic_clone)
-                                        .await;
-                                });
-                            }
-
-                            // Broadcast EventDelivered to Dashboard
-                            if let Some(ref broadcaster) = self.dashboard_broadcaster {
-                                broadcaster.broadcast(crate::dashboard::DashboardEvent {
-                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                    event_type:
-                                        crate::dashboard::DashboardEventType::EventDelivered,
-                                    event_id: event.id.clone(),
-                                    topic: topic.to_string(),
-                                    sender: event.sender().map(|s| s.to_string()),
-                                    thread_id: event.thread_id().map(|s| s.to_string()),
-                                    correlation_id: event.correlation_id().map(|s| s.to_string()),
-                                    payload_preview: String::from_utf8_lossy(&event.payload)
-                                        .chars()
-                                        .take(100)
-                                        .collect::<String>(),
-                                    trace_id: envelope.trace_id.clone(),
-                                });
-                            }
                         } else {
                             dropped += 1;
                             warn!("Dropped realtime event for subscription {}", sub.id);
@@ -317,39 +240,6 @@ impl EventBus {
                         match sub.sender.send(event.clone()).await {
                             Ok(_) => {
                                 delivered += 1;
-
-                                // Record flow in FlowTracker (EventBus -> subscriber)
-                                if let Some(ref flow_tracker) = self.flow_tracker {
-                                    let flow_tracker_clone = Arc::clone(flow_tracker);
-                                    let sub_id = sub.id.clone();
-                                    let topic_clone = topic.to_string();
-                                    tokio::spawn(async move {
-                                        flow_tracker_clone
-                                            .record_flow("EventBus", &sub_id, &topic_clone)
-                                            .await;
-                                    });
-                                }
-
-                                // Broadcast EventDelivered to Dashboard
-                                if let Some(ref broadcaster) = self.dashboard_broadcaster {
-                                    broadcaster.broadcast(crate::dashboard::DashboardEvent {
-                                        timestamp: chrono::Utc::now().to_rfc3339(),
-                                        event_type:
-                                            crate::dashboard::DashboardEventType::EventDelivered,
-                                        event_id: event.id.clone(),
-                                        topic: topic.to_string(),
-                                        sender: event.sender().map(|s| s.to_string()),
-                                        thread_id: event.thread_id().map(|s| s.to_string()),
-                                        correlation_id: event
-                                            .correlation_id()
-                                            .map(|s| s.to_string()),
-                                        payload_preview: String::from_utf8_lossy(&event.payload)
-                                            .chars()
-                                            .take(100)
-                                            .collect::<String>(),
-                                        trace_id: envelope.trace_id.clone(),
-                                    });
-                                }
                             }
                             Err(_) => {
                                 dropped += 1;
