@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import ChatInterface from "@/components/ChatInterface";
 import ChatSettingsPanel, { ChatSettings } from "@/components/ChatSettingsPanel";
 import AgentSelector from "@/components/AgentSelector";
-import { Settings2, Wifi, WifiOff, Users } from "lucide-react";
+import { Settings2, Wifi, WifiOff, Users, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWebSocket, type WsMessage } from "@/hooks/useWebSocket";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,8 @@ interface ChatMessage {
   content: string;
   timestamp: Date;
   agentId?: string;
+  agentName?: string;
+  isStreaming?: boolean;
 }
 
 const defaultTools = [
@@ -30,6 +32,7 @@ const ChatPage = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentSelectorOpen, setAgentSelectorOpen] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const previousAgentIdRef = useRef<string | null>(null);
   const [settings, setSettings] = useState<ChatSettings>({
     model: "gpt-4o",
     temperature: 0.7,
@@ -45,6 +48,15 @@ const ChatPage = () => {
 
   // Accumulate streaming response
   const streamingMessageRef = useRef<{ id: string; content: string } | null>(null);
+
+  // Track agents used in this session
+  const usedAgents = Array.from(
+    new Set(
+      chatMessages
+        .filter((msg) => msg.role === "assistant" && msg.agentId)
+        .map((msg) => msg.agentId)
+    )
+  ).filter(Boolean);
 
   // WebSocket connection
   const wsUrl = `ws://${window.location.host}/ws`;
@@ -78,6 +90,9 @@ const ChatPage = () => {
             role: "assistant",
             content,
             timestamp: new Date(),
+            agentId: selectedAgentId || undefined,
+            agentName: selectedAgentId || undefined,
+            isStreaming: true,
           };
           setChatMessages((prev) => [...prev, newMessage]);
         } else {
@@ -88,7 +103,7 @@ const ChatPage = () => {
           setChatMessages((prev) =>
             prev.map((msg) =>
               msg.id === messageId
-                ? { ...msg, content: streamingMessageRef.current!.content }
+                ? { ...msg, content: streamingMessageRef.current!.content, isStreaming: true }
                 : msg
             )
           );
@@ -99,6 +114,16 @@ const ChatPage = () => {
       case 'chat_complete': {
         const { thread_id } = lastMessage;
         if (thread_id !== threadIdRef.current) return;
+
+        // Mark message as completed (no longer streaming)
+        if (streamingMessageRef.current) {
+          const messageId = streamingMessageRef.current.id;
+          setChatMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === messageId ? { ...msg, isStreaming: false } : msg
+            )
+          );
+        }
 
         // Finish streaming
         streamingMessageRef.current = null;
@@ -195,16 +220,55 @@ const ChatPage = () => {
               </div>
 
               {/* Selected Agent */}
-              {selectedAgentId && (
-                <div className="flex items-center gap-2 pl-3 border-l">
+              {selectedAgentId ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setAgentSelectorOpen(true)}
+                  className="flex items-center gap-2 pl-3 border-l h-8"
+                >
                   <Users className="h-4 w-4 text-primary" />
                   <span className="text-sm font-medium">{selectedAgentId}</span>
-                </div>
+                  <span className="text-xs text-muted-foreground">(click to change)</span>
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setAgentSelectorOpen(true)}
+                  className="flex items-center gap-2 pl-3 border-l h-8 text-amber-600"
+                >
+                  <Users className="h-4 w-4" />
+                  <span className="text-sm font-medium">Select an agent</span>
+                </Button>
               )}
             </div>
-            <p className="text-sm text-muted-foreground">
-              Thread: {threadIdRef.current}
-            </p>
+            <div className="flex items-center gap-3">
+              {usedAgents.length > 1 && (
+                <Badge variant="secondary" className="text-xs">
+                  {usedAgents.length} agents used
+                </Badge>
+              )}
+              <p className="text-sm text-muted-foreground">
+                Thread: {threadIdRef.current.split('-')[1]?.slice(0, 8)}
+              </p>
+              {chatMessages.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setChatMessages([]);
+                    threadIdRef.current = `thread-${Date.now()}`;
+                    streamingMessageRef.current = null;
+                    setIsLoading(false);
+                  }}
+                  className="h-7 text-xs"
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  New Chat
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Chat Interface */}
@@ -237,8 +301,28 @@ const ChatPage = () => {
             <AgentSelector
               selectedAgentId={selectedAgentId}
               onSelectAgent={(agentId) => {
+                const previousAgent = selectedAgentId;
                 setSelectedAgentId(agentId);
                 setAgentSelectorOpen(false);
+
+                // Add system message for agent switch
+                if (previousAgent && previousAgent !== agentId) {
+                  const systemMessage: ChatMessage = {
+                    id: `system-${Date.now()}`,
+                    role: "assistant",
+                    content: `🔄 Switched from ${previousAgent} to ${agentId}`,
+                    timestamp: new Date(),
+                  };
+                  setChatMessages((prev) => [...prev, systemMessage]);
+                } else if (!previousAgent) {
+                  const systemMessage: ChatMessage = {
+                    id: `system-${Date.now()}`,
+                    role: "assistant",
+                    content: `✨ Started conversation with ${agentId}`,
+                    timestamp: new Date(),
+                  };
+                  setChatMessages((prev) => [...prev, systemMessage]);
+                }
               }}
               cognitiveOnly={true}
             />

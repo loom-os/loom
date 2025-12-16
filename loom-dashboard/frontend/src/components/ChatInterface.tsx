@@ -10,6 +10,8 @@ interface Message {
   content: string;
   timestamp: Date;
   agentId?: string;
+  agentName?: string;
+  isStreaming?: boolean;
 }
 
 interface ChatInterfaceProps {
@@ -99,9 +101,18 @@ const ChatInterface = ({ onSendMessage, messages, isLoading = false }: ChatInter
                         : "bg-muted/50 text-foreground"
                     }`}
                   >
-                    {message.agentId && message.role === "assistant" && (
-                      <div className="text-xs text-primary mb-1 font-medium">
-                        {message.agentId}
+                    {(message.agentId || message.agentName) && message.role === "assistant" && (
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="text-xs text-primary font-medium">
+                          {message.agentName || message.agentId}
+                        </div>
+                        {message.isStreaming && (
+                          <div className="flex gap-0.5">
+                            <div className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0ms' }}></div>
+                            <div className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '150ms' }}></div>
+                            <div className="w-1 h-1 rounded-full bg-primary animate-pulse" style={{ animationDelay: '300ms' }}></div>
+                          </div>
+                        )}
                       </div>
                     )}
                     <p className="whitespace-pre-wrap text-sm">{message.content}</p>
