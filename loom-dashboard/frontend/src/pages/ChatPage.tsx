@@ -55,7 +55,11 @@ const ChatPage = () => {
       return;
     }
 
-    sendMessage(content);
+    sendMessage(content, selectedAgentId, {
+      model: settings.model,
+      temperature: settings.temperature,
+      maxTokens: settings.maxTokens,
+    });
   };
 
   return (
