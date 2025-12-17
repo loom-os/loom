@@ -65,3 +65,43 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+/* Custom styles for markdown code blocks */
+@layer components {
+  /* Override highlight.js dark theme for better integration */
+  .prose pre {
+    @apply bg-muted border border-border rounded-lg my-4 overflow-x-auto;
+  }
+
+  .prose pre code {
+    @apply bg-transparent text-sm leading-relaxed;
+  }
+
+  .prose code {
+    @apply font-mono text-xs;
+  }
+
+  /* Code block header (language indicator) */
+  .prose pre::before {
+    content: attr(data-language);
+    @apply block text-[10px] text-muted-foreground uppercase tracking-wider pb-2 border-b border-border/50 mb-3;
+  }
+
+  /* Scrollbar styling for code blocks */
+  .prose pre::-webkit-scrollbar {
+    @apply h-2;
+  }
+
+  .prose pre::-webkit-scrollbar-track {
+    @apply bg-muted/50 rounded;
+  }
+
+  .prose pre::-webkit-scrollbar-thumb {
+    @apply bg-border rounded hover:bg-border/80;
+  }
+
+  /* Better focus states for chat input */
+  .chat-input:focus-visible {
+    @apply ring-2 ring-primary ring-offset-2 ring-offset-background;
+  }
+}

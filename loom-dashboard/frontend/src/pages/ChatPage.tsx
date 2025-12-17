@@ -62,6 +62,16 @@ const ChatPage = () => {
     });
   };
 
+  const handleCancelMessage = (messageId: string) => {
+    console.log('[ChatPage] Cancel message:', messageId);
+    // TODO: Implement cancel logic in useChat hook
+  };
+
+  const handleRetryMessage = (messageId: string) => {
+    console.log('[ChatPage] Retry message:', messageId);
+    // TODO: Implement retry logic - resend the last user message
+  };
+
   return (
     <div className="h-full flex relative">
       <div className="flex-1 p-6">
@@ -140,6 +150,8 @@ const ChatPage = () => {
               messages={messages}
               onSendMessage={handleSendMessage}
               isLoading={isLoading}
+              onCancelMessage={handleCancelMessage}
+              onRetryMessage={handleRetryMessage}
             />
           </div>
         </div>

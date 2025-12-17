@@ -10,9 +10,11 @@ interface ChatInterfaceProps {
   onSendMessage?: (message: string) => void;
   messages: ChatMessage[];
   isLoading?: boolean;
+  onCancelMessage?: (messageId: string) => void;
+  onRetryMessage?: (messageId: string) => void;
 }
 
-const ChatInterface = ({ onSendMessage, messages, isLoading = false }: ChatInterfaceProps) => {
+const ChatInterface = ({ onSendMessage, messages, isLoading = false, onCancelMessage, onRetryMessage }: ChatInterfaceProps) => {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -72,32 +74,38 @@ const ChatInterface = ({ onSendMessage, messages, isLoading = false }: ChatInter
           </div>
         </div>
       ) : (
-        // Conversation state
+        // Conversation state - ChatGPT style
         <>
-          <ScrollArea className="flex-1 px-4 py-4" ref={scrollRef}>
-            <div className="max-w-3xl mx-auto">
-              <MessageList messages={messages} isLoading={isLoading} />
-            </div>
+          <ScrollArea className="flex-1" ref={scrollRef}>
+            <MessageList
+              messages={messages}
+              isLoading={isLoading}
+              onCancelMessage={onCancelMessage}
+              onRetryMessage={onRetryMessage}
+            />
           </ScrollArea>
 
-          <div className="p-4 border-t border-border/30">
-            <div className="flex gap-3 max-w-3xl mx-auto">
-              <Input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Message agents..."
-                className="flex-1 h-11 bg-muted/30 border-border/50 text-sm px-4"
-                disabled={isLoading}
-              />
-              <Button
-                onClick={handleSend}
-                disabled={!input.trim() || isLoading}
-                size="default"
-                className="h-11 px-5 bg-primary hover:bg-primary/90"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
+          <div className="border-t border-border/30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <div className="max-w-3xl mx-auto p-4">
+              <div className="flex gap-3">
+                <Input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Message agents..."
+                  className="flex-1 h-12 bg-muted/30 border-border/50 text-sm px-4 focus-visible:ring-2 focus-visible:ring-primary"
+                  disabled={isLoading}
+                  autoFocus
+                />
+                <Button
+                  onClick={handleSend}
+                  disabled={!input.trim() || isLoading}
+                  size="default"
+                  className="h-12 px-6 bg-primary hover:bg-primary/90 transition-all"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         </>
