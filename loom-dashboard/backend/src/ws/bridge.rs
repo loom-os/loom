@@ -2,56 +2,82 @@
 //!
 //! Connects WebSocket messages to the EventBus, enabling
 //! bidirectional communication between frontend and agents.
+//!
+//! The bridge subscribes to configurable topics and forwards events
+//! to all connected WebSocket clients for real-time observability.
 
 use super::connection::ConnectionManager;
 use super::message::WsMessage;
+use crate::config::ObservabilityConfig;
 use loom_core::messaging::event_bus::EventBus;
 use loom_core::proto::{Event, QoSLevel};
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// EventBus bridge for WebSocket integration
 pub struct EventBusBridge {
     event_bus: Arc<EventBus>,
     connection_manager: Arc<ConnectionManager>,
+    config: ObservabilityConfig,
 }
 
 impl EventBusBridge {
     /// Create a new EventBus bridge
-    pub fn new(event_bus: Arc<EventBus>, connection_manager: Arc<ConnectionManager>) -> Self {
+    pub fn new(
+        event_bus: Arc<EventBus>,
+        connection_manager: Arc<ConnectionManager>,
+        config: ObservabilityConfig,
+    ) -> Self {
         Self {
             event_bus,
             connection_manager,
+            config,
         }
     }
 
     /// Start the bridge, forwarding events from EventBus to WebSocket clients
     pub async fn start(self: Arc<Self>) -> anyhow::Result<()> {
-        info!("Starting EventBus bridge");
+        info!(
+            topics = ?self.config.topics,
+            "Starting EventBus bridge with topic subscriptions"
+        );
 
-        // Subscribe to all events on "dashboard" topic
-        let (_subscription_id, mut receiver) = self
-            .event_bus
-            .subscribe("dashboard".to_string(), vec![], QoSLevel::QosRealtime)
-            .await?;
+        // Subscribe to all configured topics
+        for topic in &self.config.topics {
+            let bridge = Arc::clone(&self);
+            let topic = topic.clone();
 
-        // Forward events to WebSocket clients
-        tokio::spawn(async move {
-            loop {
-                match receiver.recv().await {
-                    Some(event) => {
-                        if let Err(e) = self.handle_event(event).await {
-                            error!(error = %e, "Failed to handle event");
+            // Subscribe to this topic
+            let (subscription_id, mut receiver) = self
+                .event_bus
+                .subscribe(topic.clone(), vec![], QoSLevel::QosRealtime)
+                .await?;
+
+            info!(
+                subscription_id = %subscription_id,
+                topic = %topic,
+                "Subscribed to topic for observability"
+            );
+
+            // Spawn a task to forward events from this topic
+            tokio::spawn(async move {
+                loop {
+                    match receiver.recv().await {
+                        Some(event) => {
+                            if let Err(e) = bridge.handle_event(event).await {
+                                error!(error = %e, topic = %topic, "Failed to handle event");
+                            }
+                        }
+                        None => {
+                            warn!(topic = %topic, "EventBus channel closed for topic");
+                            break;
                         }
                     }
-                    None => {
-                        info!("EventBus channel closed, stopping bridge");
-                        break;
-                    }
                 }
-            }
-        });
+            });
+        }
 
+        info!("EventBus bridge started successfully");
         Ok(())
     }
 
@@ -75,12 +101,17 @@ impl EventBusBridge {
     /// Convert EventBus event to WebSocket message
     fn convert_event_to_ws(&self, event: &Event) -> anyhow::Result<WsMessage> {
         // Convert proto Event to EventStream WsMessage
-        let payload_preview = if !event.payload.is_empty() {
-            format!(
-                "{}... ({} bytes)",
-                String::from_utf8_lossy(&event.payload[..event.payload.len().min(50)]),
-                event.payload.len()
-            )
+        let payload_preview = if !event.payload.is_empty() && self.config.include_payload {
+            let preview_len = event.payload.len().min(self.config.max_payload_preview);
+            let preview = String::from_utf8_lossy(&event.payload[..preview_len]);
+
+            if event.payload.len() > self.config.max_payload_preview {
+                format!("{}... ({} bytes)", preview, event.payload.len())
+            } else {
+                preview.to_string()
+            }
+        } else if !event.payload.is_empty() {
+            format!("({} bytes)", event.payload.len())
         } else {
             String::new()
         };
@@ -111,15 +142,17 @@ mod tests {
     async fn test_bridge_creation() {
         let event_bus = Arc::new(EventBus::new().await.unwrap());
         let connection_manager = Arc::new(ConnectionManager::new());
+        let config = ObservabilityConfig::default();
 
-        let _bridge = EventBusBridge::new(event_bus, connection_manager);
+        let _bridge = EventBusBridge::new(event_bus, connection_manager, config);
     }
 
     #[tokio::test]
     async fn test_event_conversion() {
         let event_bus = Arc::new(EventBus::new().await.unwrap());
         let connection_manager = Arc::new(ConnectionManager::new());
-        let bridge = EventBusBridge::new(event_bus, connection_manager);
+        let config = ObservabilityConfig::default();
+        let bridge = EventBusBridge::new(event_bus, connection_manager, config);
 
         let mut metadata = std::collections::HashMap::new();
         metadata.insert("agent_id".to_string(), "agent-1".to_string());
@@ -149,6 +182,70 @@ mod tests {
                 assert_eq!(topic, "test");
                 assert_eq!(sender, Some("agent-1".to_string()));
                 assert_eq!(thread_id, Some("thread-123".to_string()));
+            }
+            _ => panic!("Expected EventStream message"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_event_conversion_with_long_payload() {
+        let event_bus = Arc::new(EventBus::new().await.unwrap());
+        let connection_manager = Arc::new(ConnectionManager::new());
+        let mut config = ObservabilityConfig::default();
+        config.max_payload_preview = 10; // Small preview size for testing
+
+        let bridge = EventBusBridge::new(event_bus, connection_manager, config);
+
+        let event = Event {
+            id: uuid::Uuid::new_v4().to_string(),
+            r#type: "test.event".to_string(),
+            source: "test".to_string(),
+            timestamp_ms: Utc::now().timestamp_millis(),
+            metadata: std::collections::HashMap::new(),
+            payload: b"This is a very long payload that should be truncated".to_vec(),
+            ..Default::default()
+        };
+
+        let ws_message = bridge.convert_event_to_ws(&event).unwrap();
+
+        match ws_message {
+            WsMessage::EventStream {
+                payload_preview, ..
+            } => {
+                assert!(payload_preview.contains("..."));
+                assert!(payload_preview.contains("bytes"));
+            }
+            _ => panic!("Expected EventStream message"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_event_conversion_without_payload() {
+        let event_bus = Arc::new(EventBus::new().await.unwrap());
+        let connection_manager = Arc::new(ConnectionManager::new());
+        let mut config = ObservabilityConfig::default();
+        config.include_payload = false;
+
+        let bridge = EventBusBridge::new(event_bus, connection_manager, config);
+
+        let event = Event {
+            id: uuid::Uuid::new_v4().to_string(),
+            r#type: "test.event".to_string(),
+            source: "test".to_string(),
+            timestamp_ms: Utc::now().timestamp_millis(),
+            metadata: std::collections::HashMap::new(),
+            payload: b"secret data".to_vec(),
+            ..Default::default()
+        };
+
+        let ws_message = bridge.convert_event_to_ws(&event).unwrap();
+
+        match ws_message {
+            WsMessage::EventStream {
+                payload_preview, ..
+            } => {
+                // Should only show byte count, not content
+                assert_eq!(payload_preview, "(11 bytes)");
             }
             _ => panic!("Expected EventStream message"),
         }

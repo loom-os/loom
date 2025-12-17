@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useWebSocket, type WsMessage } from './useWebSocket';
+import { useChatContext } from '@/contexts/ChatContext';
 
 export type ContentType = 'text' | 'thinking' | 'tool_call' | 'tool_result' | 'error';
 
@@ -78,14 +79,45 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     onAgentSwitch
   } = options;
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Use global chat context for persistent state
+  const {
+    messages,
+    selectedAgentId,
+    threadId,
+    usedAgents,
+    streamingMessageId,
+    addMessage,
+    updateMessage,
+    setSelectedAgentId,
+    setStreamingMessageId,
+    clearMessages: contextClearMessages,
+    startNewThread: contextStartNewThread,
+  } = useChatContext();
+
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [threadId, setThreadId] = useState<string>(`thread-${Date.now()}`);
 
   // Refs for streaming accumulation
   const streamingMessageRef = useRef<{ id: string; content: string; contentType: ContentType } | null>(null);
   const previousAgentRef = useRef<string | null>(null);
+
+  // Restore streaming state on mount
+  useEffect(() => {
+    if (streamingMessageId) {
+      const streamingMsg = messages.find(m => m.id === streamingMessageId && m.isStreaming);
+      if (streamingMsg) {
+        streamingMessageRef.current = {
+          id: streamingMsg.id,
+          content: streamingMsg.content,
+          contentType: streamingMsg.contentType || 'text',
+        };
+        setIsLoading(true);
+        console.log('[useChat] Restored streaming state for message:', streamingMessageId);
+      } else {
+        // Message completed while we were away
+        setStreamingMessageId(null);
+      }
+    }
+  }, []); // Only run once on mount
 
   // WebSocket connection
   const { isConnected, send, lastMessage } = useWebSocket(wsUrl, {
@@ -163,25 +195,20 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
             toolCall: parsedContentType === 'tool_call' ? parseToolCall(content) : undefined,
           };
 
-          setMessages((prev) => [...prev, newMessage]);
+          addMessage(newMessage);
+          setStreamingMessageId(messageId);
         } else {
           // Subsequent chunks - append content
           streamingMessageRef.current.content += content;
           const messageId = streamingMessageRef.current.id;
           const fullContent = streamingMessageRef.current.content;
+          const storedContentType = streamingMessageRef.current.contentType;
 
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === messageId
-                ? {
-                    ...msg,
-                    content: fullContent,
-                    isStreaming: true,
-                    toolCall: msg.contentType === 'tool_call' ? parseToolCall(fullContent) : msg.toolCall,
-                  }
-                : msg
-            )
-          );
+          updateMessage(messageId, {
+            content: fullContent,
+            isStreaming: true,
+            toolCall: storedContentType === 'tool_call' ? parseToolCall(fullContent) : undefined,
+          });
         }
         break;
       }
@@ -193,27 +220,23 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         // Mark message as completed (no longer streaming)
         if (streamingMessageRef.current) {
           const messageId = streamingMessageRef.current.id;
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === messageId
-                ? {
-                    ...msg,
-                    isStreaming: false,
-                    metadata: stats
-                  }
-                : msg
-            )
-          );
+          updateMessage(messageId, {
+            isStreaming: false,
+            metadata: stats
+          });
         }
 
         // Finish streaming
         streamingMessageRef.current = null;
+        setStreamingMessageId(null);
         setIsLoading(false);
         break;
       }
 
       case 'error': {
         console.error('[useChat] Error:', lastMessage.message);
+        streamingMessageRef.current = null;
+        setStreamingMessageId(null);
         setIsLoading(false);
 
         // Show error message
@@ -224,7 +247,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           contentType: 'error',
           timestamp: new Date(),
         };
-        setMessages((prev) => [...prev, errorMessage]);
+        addMessage(errorMessage);
 
         onError?.(lastMessage.message || 'An error occurred');
         break;
@@ -266,7 +289,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           content: `🔄 Switched from ${previousAgentRef.current} to ${agentId}`,
           timestamp: new Date(),
         };
-        setMessages((prev) => [...prev, systemMessage]);
+        addMessage(systemMessage);
       }
 
       previousAgentRef.current = agentId;
@@ -280,7 +303,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       timestamp: new Date(),
       agentId,
     };
-    setMessages((prev) => [...prev, userMessage]);
+    addMessage(userMessage);
     setIsLoading(true);
 
     // Send to WebSocket
@@ -299,25 +322,20 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
   // Clear messages
   const clearMessages = useCallback(() => {
-    setMessages([]);
+    contextClearMessages();
     streamingMessageRef.current = null;
+    setStreamingMessageId(null);
     setIsLoading(false);
-  }, []);
+  }, [contextClearMessages, setStreamingMessageId]);
 
   // Start new thread
   const startNewThread = useCallback(() => {
-    clearMessages();
-    setThreadId(`thread-${Date.now()}`);
-  }, [clearMessages]);
+    contextStartNewThread();
+    streamingMessageRef.current = null;
+    setIsLoading(false);
+  }, [contextStartNewThread]);
 
-  // Track used agents
-  const usedAgents = Array.from(
-    new Set(
-      messages
-        .filter((msg) => msg.role === 'assistant' && msg.agentId)
-        .map((msg) => msg.agentId)
-    )
-  ).filter(Boolean) as string[];
+  // usedAgents now comes from context
 
   // Update selected agent
   const handleSetSelectedAgentId = useCallback((agentId: string | null) => {
@@ -332,10 +350,10 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         content: `✨ Started conversation with ${agentId}`,
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, systemMessage]);
+      addMessage(systemMessage);
       previousAgentRef.current = agentId;
     }
-  }, [selectedAgentId, messages.length]);
+  }, [selectedAgentId, messages.length, setSelectedAgentId, addMessage]);
 
   return {
     messages,

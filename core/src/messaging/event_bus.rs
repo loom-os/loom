@@ -184,9 +184,20 @@ impl EventBus {
             all_matching_subs.extend(subs.value().iter().cloned());
         }
 
-        // Then, check for wildcard patterns (e.g., "market.price.*" matches "market.price.BTC")
+        // Then, check for wildcard patterns
+        // Support two types:
+        // 1. "*" - matches all topics
+        // 2. "prefix.*" - matches topics starting with "prefix."
         for entry in self.subscriptions.iter() {
             let pattern = entry.key().as_str();
+
+            // Single "*" matches everything
+            if pattern == "*" {
+                all_matching_subs.extend(entry.value().iter().cloned());
+                continue;
+            }
+
+            // "prefix.*" matches topics starting with "prefix."
             if let Some(prefix) = pattern.strip_suffix(".*") {
                 // Check if topic starts with this prefix followed by a dot
                 if topic.len() > prefix.len()

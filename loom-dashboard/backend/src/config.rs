@@ -29,6 +29,9 @@ pub struct DashboardConfig {
 
     /// Frontend configuration
     pub frontend: FrontendConfig,
+
+    /// Observability configuration
+    pub observability: ObservabilityConfig,
 }
 impl DashboardConfig {
     /// Load configuration from environment variables
@@ -59,6 +62,11 @@ impl DashboardConfig {
         if let Ok(origins) = std::env::var("LOOM_DASHBOARD_CORS_ORIGINS") {
             config.cors.allowed_origins =
                 origins.split(',').map(|s| s.trim().to_string()).collect();
+        }
+
+        // Observability configuration
+        if let Ok(topics) = std::env::var("LOOM_DASHBOARD_OBSERVABLE_TOPICS") {
+            config.observability.topics = topics.split(',').map(|s| s.trim().to_string()).collect();
         }
 
         config
@@ -164,6 +172,37 @@ impl Default for FrontendConfig {
         Self {
             static_path: None,
             serve_frontend: true,
+        }
+    }
+}
+
+/// Observability configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObservabilityConfig {
+    /// Topics to subscribe to for observability
+    /// Supports wildcards (e.g., "agent.*", "market.price.*")
+    /// Use ["*"] to subscribe to all topics
+    pub topics: Vec<String>,
+
+    /// Whether to include payload content in event stream
+    pub include_payload: bool,
+
+    /// Maximum payload preview length (bytes)
+    pub max_payload_preview: usize,
+}
+
+impl Default for ObservabilityConfig {
+    fn default() -> Self {
+        Self {
+            // Subscribe to all topics for full observability
+            // EventBus now supports "*" to match all topics
+            // Users can override via LOOM_DASHBOARD_OBSERVABLE_TOPICS env var
+            // Example: LOOM_DASHBOARD_OBSERVABLE_TOPICS="agent.*,stream.*"
+            topics: vec![
+                "*".to_string(), // Match all topics
+            ],
+            include_payload: true,
+            max_payload_preview: 200,
         }
     }
 }

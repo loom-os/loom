@@ -37,7 +37,12 @@
 
 use crate::config::DashboardConfig;
 use crate::ws::{websocket_handler, ChatRouter, ConnectionManager, EventBusBridge};
-use axum::{extract::State, response::{Html, IntoResponse}, routing::get, Router};
+use axum::{
+    extract::State,
+    response::{Html, IntoResponse},
+    routing::get,
+    Router,
+};
 use loom_core::agent::directory::AgentDirectory;
 use loom_core::messaging::event_bus::EventBus;
 use std::sync::Arc;
@@ -125,6 +130,7 @@ impl DashboardServer {
         let bridge = Arc::new(EventBusBridge::new(
             self.event_bus.clone(),
             connection_manager,
+            self.config.observability.clone(),
         ));
         bridge.clone().start().await?;
         info!(target: "loom_dashboard", "EventBus bridge started");
@@ -159,7 +165,10 @@ impl DashboardServer {
 
         // Serve frontend static files if enabled
         if state.config.frontend.serve_frontend {
-            let frontend_path = state.config.frontend.static_path
+            let frontend_path = state
+                .config
+                .frontend
+                .static_path
                 .clone()
                 .unwrap_or_else(|| {
                     // Default to ../frontend/dist relative to cargo workspace
@@ -531,8 +540,8 @@ mod tests {
     async fn test_agents_endpoint_with_agents() {
         use axum::body::Body;
         use axum::http::Request;
-        use tower::ServiceExt;
         use loom_core::agent::directory::AgentInfo;
+        use tower::ServiceExt;
 
         let config = DashboardConfig::default();
         let event_bus = Arc::new(EventBus::new().await.unwrap());

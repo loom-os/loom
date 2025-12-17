@@ -342,3 +342,44 @@ async fn exact_and_wildcard_both_receive() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn single_star_wildcard_matches_all_topics() -> Result<()> {
+    let bus = EventBus::new().await?;
+
+    // Subscribe with single "*" to match all topics
+    let (_sub_id, mut rx) = bus
+        .subscribe("*".to_string(), vec![], QoSLevel::QosBatched)
+        .await?;
+
+    // Publish to different topics
+    let evt1 = make_event("evt1", "type1");
+    bus.publish("agent.input", evt1).await?;
+
+    let evt2 = make_event("evt2", "type2");
+    bus.publish("market.price.BTC", evt2).await?;
+
+    let evt3 = make_event("evt3", "type3");
+    bus.publish("stream.request", evt3).await?;
+
+    // Should receive all three events
+    let r1 = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+        .await
+        .expect("timeout r1")
+        .expect("r1 closed");
+    assert_eq!(r1.id, "evt1");
+
+    let r2 = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+        .await
+        .expect("timeout r2")
+        .expect("r2 closed");
+    assert_eq!(r2.id, "evt2");
+
+    let r3 = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+        .await
+        .expect("timeout r3")
+        .expect("r3 closed");
+    assert_eq!(r3.id, "evt3");
+
+    Ok(())
+}
